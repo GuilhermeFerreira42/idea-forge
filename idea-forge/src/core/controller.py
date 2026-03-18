@@ -5,6 +5,33 @@ from src.agents.proponent_agent import ProponentAgent
 from src.debate.debate_engine import DebateEngine
 from src.planning.plan_generator import PlanGenerator
 from src.models.model_provider import ModelProvider
+from src.core.stream_handler import ANSIStyle
+
+
+def emit_pipeline_state(state: str, detail: str = ""):
+    """
+    Emite um evento de estado visual para o terminal.
+    Formato padronizado para todas as transições do pipeline.
+    """
+    state_icons = {
+        "PIPELINE_START": "🚀",
+        "CRITIC_ANALYSIS": "🔍",
+        "REFINEMENT_LOOP": "🔄",
+        "USER_APPROVAL": "✋",
+        "DEBATE_START": "⚔️",
+        "DEBATE_ROUND": "🔁",
+        "PLAN_GENERATION": "📋",
+        "PIPELINE_COMPLETE": "✅",
+        "AGENT_THINKING": "💭",
+    }
+    icon = state_icons.get(state, "⚡")
+    detail_str = f" — {detail}" if detail else ""
+    sys.stdout.write(
+        f"\n{ANSIStyle.CYAN}{ANSIStyle.BOLD}"
+        f"[{icon} {state}]{detail_str}"
+        f"{ANSIStyle.RESET}\n"
+    )
+    sys.stdout.flush()
 
 class AgentController:
     """
@@ -28,25 +55,31 @@ class AgentController:
         4. Plan Generation
         """
         # Step 1: Initial conversation
+        emit_pipeline_state("PIPELINE_START", "Iniciando pipeline de análise")
         self.conversation.add_message("user", f"My initial idea is: {initial_idea}")
         
         from src.cli.main import display_response, ask_approval
         
         # Refinement Loop
         while True:
-            print("\n⚙️ [Sistema] Enviando ideia para análise do Agente Crítico...")
+            emit_pipeline_state("CRITIC_ANALYSIS", 
+                              "Enviando ideia para análise do Agente Crítico")
+            
             critique = self.critic.analyze(initial_idea, self.conversation)
             
             display_response("Critic Agent", critique)
             self.conversation.add_message("critic", critique)
             
             # Step 2: User Approval
+            emit_pipeline_state("USER_APPROVAL", "Aguardando decisão do usuário")
             approved = ask_approval()
             if approved:
-                print("\n✅ [Sistema] Ideia aprovada. Avançando para o debate...")
+                emit_pipeline_state("USER_APPROVAL", "Ideia aprovada — avançando para debate")
                 break
             else:
-                print("\n❌ [Sistema] Você decidiu refinar. Por favor, responda aos pontos levantados ou explique melhor a ideia:")
+                emit_pipeline_state("REFINEMENT_LOOP", 
+                                  "Usuário solicitou refinamento")
+                print("\nPor favor, responda aos pontos levantados ou explique melhor a ideia:")
                 user_refinement = input("> ")
                 if not user_refinement:
                     print("[Sistema] Refinamento vazio. Encerrando o pipeline.")
@@ -55,14 +88,19 @@ class AgentController:
                 # Keep looping
 
         # Step 3: Debate
+        emit_pipeline_state("DEBATE_START", 
+                          f"Iniciando debate estruturado — {self.debate_engine.num_rounds} rounds")
         debate_result = self.debate_engine.run(initial_idea, report_filename)
         
         # Step 4: Plan Generation
+        emit_pipeline_state("PLAN_GENERATION", 
+                          "Sintetizando plano de desenvolvimento técnico")
         final_plan = self.plan_generator.generate_plan(debate_result, initial_idea)
         
         if report_filename:
             with open(report_filename, "a", encoding="utf-8") as f:
                 f.write("\n# 📋 Plano de Desenvolvimento Técnico Final\n\n")
                 f.write(final_plan + "\n")
-        
+
+        emit_pipeline_state("PIPELINE_COMPLETE", "Pipeline concluído com sucesso")
         return final_plan

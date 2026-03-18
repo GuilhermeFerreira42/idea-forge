@@ -22,9 +22,22 @@ def prompt_idea() -> str:
     return "\n".join(lines).strip()
 
 def display_response(role: str, content: str):
-    print(f"\n--- [{role.upper()}] ---")
+    """
+    Exibe resposta de um agente com formatação ANSI.
+    O conteúdo aqui já está LIMPO (sem blocos de pensamento).
+    """
+    from src.core.stream_handler import ANSIStyle
+
+    role_styles = {
+        "critic agent": (ANSIStyle.YELLOW, "⚡"),
+        "proponent agent": (ANSIStyle.GREEN, "🛡️"),
+        "planner": (ANSIStyle.BLUE, "📋"),
+    }
+    style, icon = role_styles.get(role.lower(), (ANSIStyle.CYAN, "🤖"))
+
+    print(f"\n{style}{ANSIStyle.BOLD}--- [{icon} {role.upper()}] ---{ANSIStyle.RESET}")
     print(content)
-    print("-" * 25)
+    print(f"{style}{'─' * 25}{ANSIStyle.RESET}")
 
 def ask_approval() -> bool:
     while True:
@@ -96,7 +109,11 @@ def select_model() -> str:
 
 def get_provider(selected_model: str, think_preference: bool):
     if LLM_PROVIDER.lower() == "ollama":
-        return OllamaProvider(model_name=selected_model, think=think_preference)
+        return OllamaProvider(
+            model_name=selected_model,
+            think=think_preference,
+            show_thinking=think_preference  # Mostrar pensamento apenas se ativado
+        )
     else:
         return CloudProvider(model_name=selected_model)
 
@@ -115,15 +132,18 @@ def main():
     report_filename = f"debate_RELATORIO_{timestamp}.md"
     
     with open(report_filename, "w", encoding="utf-8") as f:
-        f.write(f"# 🚀 Relatório de Debate IdeaForge - {datetime.datetime.now().strftime('%d/%m/%Y %H:%M:%S')}\n\n")
+        f.write(
+            f"# 📋 Relatório de Debate IdeaForge - "
+            f"{datetime.datetime.now().strftime('%d/%m/%Y %H:%M:%S')}\n\n"
+        )
         f.write(f"**Ideia Inicial:**\n{idea}\n\n---\n")
     
     try:
         final_plan = controller.run_pipeline(idea, report_filename)
         
-        print("\n" + "="*50)
-        print("🚀🚀 PLANO DE DESENVOLVIMENTO FINALIZADO 🚀🚀")
-        print("="*50 + "\n")
+        print("\n" + "=" * 50)
+        print("  🏆 PLANO DE DESENVOLVIMENTO FINALIZADO  ")
+        print("=" * 50 + "\n")
         print(final_plan)
         print("\n" + "="*50)
         
