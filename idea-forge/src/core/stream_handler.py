@@ -57,6 +57,62 @@ class ANSIStyle:
     GRAY = "\033[90m"          # Cinza explícito
 
 
+class SilentProgressIndicator:
+    """
+    FASE 2: Indicador visual de progresso para quando o modelo está
+    gerando tokens de pensamento em background (show_thinking=False).
+
+    Exibe um spinner minimalista para que o usuário saiba que
+    o sistema está processando, não travado.
+
+    Ciclo visual: ⣾ ⣽ ⣻ ⢿ ⡿ ⣟ ⣯ ⣷
+    """
+    SPINNER_FRAMES = ['⣾', '⣽', '⣻', '⢿', '⡿', '⣟', '⣯', '⣷']
+    # Intervalo mínimo entre atualizações do spinner (em tokens, não tempo)
+    # para evitar overhead de sys.stdout.write a cada token
+    TOKEN_UPDATE_INTERVAL = 3
+
+    def __init__(self):
+        self._frame_index = 0
+        self._token_count = 0
+        self._is_active = False
+        self._header_shown = False
+
+    def tick(self):
+        """
+        Chamado cada vez que um token de thinking é recebido em modo silencioso.
+        Atualiza o spinner a cada TOKEN_UPDATE_INTERVAL tokens.
+        """
+        self._token_count += 1
+
+        if not self._header_shown:
+            sys.stdout.write(
+                f"{ANSIStyle.GRAY}💭 IA processando internamente "
+            )
+            sys.stdout.flush()
+            self._header_shown = True
+            self._is_active = True
+
+        if self._token_count % self.TOKEN_UPDATE_INTERVAL == 0:
+            # Mover cursor para trás sobre o último frame e escrever o novo
+            frame = self.SPINNER_FRAMES[
+                self._frame_index % len(self.SPINNER_FRAMES)
+            ]
+            sys.stdout.write(f"\b{frame}")
+            sys.stdout.flush()
+            self._frame_index += 1
+
+    def finish(self):
+        """Finaliza o indicador quando o conteúdo começa a chegar."""
+        if self._is_active:
+            sys.stdout.write(
+                f"\b✓ ({self._token_count} tokens processados)"
+                f"{ANSIStyle.RESET}\n"
+            )
+            sys.stdout.flush()
+            self._is_active = False
+
+
 @dataclass
 class InlineThinkParser:
     """
@@ -180,7 +236,7 @@ class StreamHandler:
         """
         Args:
             show_thinking: Se True, exibe pensamento em estilo dimmed. 
-                          Se False, suprime completamente.
+                          Se False, exibe indicador de progresso silencioso.
             state_callback: Função chamada quando um evento de estado é emitido.
         """
         self.show_thinking = show_thinking
@@ -189,6 +245,8 @@ class StreamHandler:
         self._thinking_header_shown = False
         self._content_header_shown = False
         self._has_thinking_content = False
+        # FASE 2: Indicador de progresso para modo silencioso
+        self._silent_progress = SilentProgressIndicator()
 
     def emit_state(self, event_type: str, message: str, metadata: dict = None):
         """Emite um evento de estado para a CLI."""
@@ -279,30 +337,48 @@ class StreamHandler:
         )
 
     def _render_thinking_chunk(self, chunk: str):
-        """Renderiza um chunk de pensamento com estilo visual dimmed."""
-        if not self.show_thinking:
-            return
+        """
+        Renderiza um chunk de pensamento.
 
-        if not self._thinking_header_shown:
-            sys.stdout.write(
-                f"\n{ANSIStyle.GRAY}{'─' * 40}{ANSIStyle.RESET}\n"
-                f"{ANSIStyle.DIM_ITALIC}💭 Raciocínio interno:{ANSIStyle.RESET}\n"
-                f"{ANSIStyle.DIM}"
-            )
+        FASE 2: Comportamento bifurcado:
+        - show_thinking=True  → Exibe em estilo dimmed (comportamento Fase 1)
+        - show_thinking=False → Aciona indicador de progresso silencioso
+        """
+        self._has_thinking_content = True
+
+        if self.show_thinking:
+            # Modo visível: renderizar em cinza/dimmed
+            if not self._thinking_header_shown:
+                sys.stdout.write(
+                    f"\n{ANSIStyle.GRAY}{'─' * 40}{ANSIStyle.RESET}\n"
+                    f"{ANSIStyle.DIM_ITALIC}💭 Raciocínio interno:{ANSIStyle.RESET}\n"
+                    f"{ANSIStyle.DIM}"
+                )
+                sys.stdout.flush()
+                self._thinking_header_shown = True
+
+            sys.stdout.write(f"{ANSIStyle.DIM}{chunk}{ANSIStyle.RESET}")
             sys.stdout.flush()
-            self._thinking_header_shown = True
-            self._has_thinking_content = True
-
-        sys.stdout.write(f"{ANSIStyle.DIM}{chunk}{ANSIStyle.RESET}")
-        sys.stdout.flush()
+        else:
+            # FASE 2: Modo silencioso — exibir indicador de progresso
+            self._silent_progress.tick()
 
     def _transition_to_content(self):
         """Renderiza a transição visual de pensamento para conteúdo."""
-        sys.stdout.write(
-            f"{ANSIStyle.RESET}\n"
-            f"{ANSIStyle.GRAY}{'─' * 40}{ANSIStyle.RESET}\n"
-            f"{ANSIStyle.GREEN}✅ Resposta:{ANSIStyle.RESET}\n"
-        )
+        # FASE 2: Finalizar o indicador silencioso se estava ativo
+        self._silent_progress.finish()
+
+        if self.show_thinking:
+            sys.stdout.write(
+                f"{ANSIStyle.RESET}\n"
+                f"{ANSIStyle.GRAY}{'─' * 40}{ANSIStyle.RESET}\n"
+                f"{ANSIStyle.GREEN}✅ Resposta:{ANSIStyle.RESET}\n"
+            )
+        else:
+            # FASE 2: Transição limpa sem header de thinking anterior
+            sys.stdout.write(
+                f"{ANSIStyle.GREEN}✅ Resposta:{ANSIStyle.RESET}\n"
+            )
         sys.stdout.flush()
         self._content_header_shown = True
 
@@ -313,6 +389,8 @@ class StreamHandler:
 
     def _finalize_render(self):
         """Limpa estado visual ao fim do stream."""
+        # FASE 2: Garantir que o indicador silencioso seja finalizado
+        self._silent_progress.finish()
         sys.stdout.write(f"{ANSIStyle.RESET}\n")
         sys.stdout.flush()
 
@@ -322,3 +400,4 @@ class StreamHandler:
         self._thinking_header_shown = False
         self._content_header_shown = False
         self._has_thinking_content = False
+        self._silent_progress = SilentProgressIndicator()

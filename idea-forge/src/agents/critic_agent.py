@@ -1,20 +1,40 @@
 from src.models.model_provider import ModelProvider
 from src.conversation.conversation_manager import ConversationManager
 
+# Diretiva adicionada ao system prompt quando em modo direto (sem reasoning)
+DIRECT_MODE_SUFFIX = (
+    "\n\nIMPORTANT: Respond directly without internal reasoning blocks. "
+    "Do NOT use <think> tags. Go straight to your critique."
+)
+
+
 class CriticAgent:
     """
     Analisa ideias e encontra problemas, lacunas e vulnerabilidades estruturais.
     """
-    
-    def __init__(self, provider: ModelProvider):
+
+    def __init__(self, provider: ModelProvider, direct_mode: bool = False):
         self.provider = provider
-        self.system_prompt = (
-            "Você é um Arquiteto de Software Sênior altamente analítico, conhecido por suas críticas rigorosas. "
-            "Seu trabalho é analisar ideias de projetos/startups e encontrar lacunas estruturais, componentes "
+        self.direct_mode = direct_mode
+        self._base_system_prompt = (
+            "Você é um Arquiteto de Software Sênior altamente analítico, "
+            "conhecido por suas críticas rigorosas. "
+            "Seu trabalho é analisar ideias de projetos/startups e encontrar "
+            "lacunas estruturais, componentes "
             "ausentes, requisitos pouco claros e possíveis pontos de falha. "
             "NÃO resolva os problemas. Faça perguntas incisivas e aponte os riscos. "
             "Seja direto e técnico, evite introduções prolixas. Seja pragmático."
         )
+
+    @property
+    def system_prompt(self) -> str:
+        """
+        System prompt dinâmico baseado no modo de operação.
+        FASE 2: Em direct_mode, adiciona diretiva de supressão de reasoning.
+        """
+        if self.direct_mode:
+            return self._base_system_prompt + DIRECT_MODE_SUFFIX
+        return self._base_system_prompt
 
     def analyze(self, idea: str, history: ConversationManager) -> str:
         """
@@ -26,6 +46,8 @@ class CriticAgent:
             f"Analyze this specific concept/idea:\n{idea}\n\n"
             "Provide your critique highlighting gaps and asking technical questions:"
         )
-        
-        response = self.provider.generate(prompt=prompt, context=history.get_history(), role="critic")
+
+        response = self.provider.generate(
+            prompt=prompt, context=history.get_history(), role="critic"
+        )
         return response

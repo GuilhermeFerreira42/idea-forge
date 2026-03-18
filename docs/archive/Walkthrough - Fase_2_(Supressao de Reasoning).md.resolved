@@ -1,0 +1,34 @@
+# Walkthrough: IdeaForge CLI — Fase 2 (Supressão de Reasoning) 🛡️
+
+Concluímos a implementação da **Fase 2**, focada no controle rigoroso da latência fantasma e supressão de pensamento indesejado.
+
+## Tecnologias de Supressão Implementadas:
+
+1. **Camada de API (Ollama):**
+   - O [OllamaProvider](file:///c:/Users/Usuario/Desktop/idea-forge/idea-forge/src/models/ollama_provider.py#22-119) agora envia `"think": false` explicitamente no payload quando o usuário escolhe não usar reasoning.
+   - **Refinamento:** Removemos o uso de `stop tokens` agressivos para evitar respostas vazias em modelos pequenos, priorizando a obediência via prompt.
+
+2. **Camada de Prompt (Diretivas Anti-Reasoning):**
+   - **Injeção de Prompt Localizada:** Se o modelo for da família reasoning (Qwen, DeepSeek, etc), injetamos a `DIRECT_RESPONSE_DIRECTIVE` em **Português** no topo do prompt, instruindo o modelo a pular o raciocínio e ir direto para a análise técnica.
+   - **Agentes com [direct_mode](file:///c:/Users/Usuario/Desktop/idea-forge/idea-forge/tests/test_stream_handler.py#238-249):** [CriticAgent](file:///c:/Users/Usuario/Desktop/idea-forge/idea-forge/src/agents/critic_agent.py#11-54) e [ProponentAgent](file:///c:/Users/Usuario/Desktop/idea-forge/idea-forge/src/agents/proponent_agent.py#10-53) agora possuem system prompts dinâmicos que reforçam a supressão de tags `<think>`.
+
+3. **Camada de UX (Silent Progress Indicator):**
+   - Caso o modelo ainda gere tokens de pensamento (latência intrínseca), o [StreamHandler](file:///c:/Users/Usuario/Desktop/idea-forge/idea-forge/src/core/stream_handler.py#218-404) exibe um spinner discreto: `💭 IA processando internamente ⣻`. O conteúdo é capturado no buffer mas ocultado da exibição principal.
+
+## Verificação de Qualidade ✅
+
+- **Testes Unitários:** O arquivo [tests/test_stream_handler.py](file:///c:/Users/Usuario/Desktop/idea-forge/idea-forge/tests/test_stream_handler.py) foi expandido para 24 testes cobrindo:
+  - Injeção correta de prompts para modelos específicos.
+  - Funcionamento do spinner ([SilentProgressIndicator](file:///c:/Users/Usuario/Desktop/idea-forge/idea-forge/src/core/stream_handler.py#60-114)).
+  - Captura correta de thinking chunks mesmo quando estão ocultos (para logs/debug).
+- **Resultados:** 100% dos testes passaram com `py -m pytest`.
+
+## Como testar a supressão 🚀
+
+1. Execute o CLI: `py src/cli/main.py`
+2. Escolha um modelo de reasoning (ex: Qwen 2.5 ou DeepSeek R1).
+3. Responda **"n"** para a pergunta de Pensamento Profundo.
+4. Observe a resposta rápida e direta, precedida pelo spinner de progresso silencioso se houver latência.
+
+---
+*Documentação atualizada por Antigravity.*

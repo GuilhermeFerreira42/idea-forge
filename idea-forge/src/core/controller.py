@@ -38,11 +38,24 @@ class AgentController:
     Orquestra o fluxo completo do sistema IdeaForge.
     """
     
-    def __init__(self, provider: ModelProvider):
+    def __init__(self, provider: ModelProvider, think: bool = False):
+        """
+        FASE 2: Aceita parâmetro think para propagar direct_mode aos agentes.
+
+        Args:
+            provider: ModelProvider configurado
+            think: Se True, reasoning está ativado. 
+                   Se False, agentes recebem direct_mode=True.
+        """
         self.provider = provider
         self.conversation = ConversationManager()
-        self.critic = CriticAgent(provider)
-        self.proponent = ProponentAgent(provider)
+
+        # FASE 2: direct_mode é o inverso de think
+        # Quando o usuário desativa o reasoning, os agentes entram em modo direto
+        direct_mode = not think
+
+        self.critic = CriticAgent(provider, direct_mode=direct_mode)
+        self.proponent = ProponentAgent(provider, direct_mode=direct_mode)
         self.debate_engine = DebateEngine(self.proponent, self.critic, rounds=3)
         self.plan_generator = PlanGenerator(provider)
 

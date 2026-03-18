@@ -126,7 +126,8 @@ def main():
         sys.exit(0)
         
     provider = get_provider(selected_model, think_preference)
-    controller = AgentController(provider)
+    # FASE 2: Propagar think_preference para o AgentController
+    controller = AgentController(provider, think=think_preference)
     
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     report_filename = f"debate_RELATORIO_{timestamp}.md"

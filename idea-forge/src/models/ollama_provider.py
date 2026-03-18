@@ -5,6 +5,18 @@ from src.models.model_provider import ModelProvider, GenerationResult
 from src.config.settings import OLLAMA_ENDPOINT, MODEL_NAME
 from src.core.stream_handler import StreamHandler, ANSIStyle
 
+# Diretiva injetada no topo do prompt quando reasoning está desativado na Fase 2.
+# O objetivo é desencorajar o raciocínio interno sem causar falhas catastróficas em modelos pequenos.
+DIRECT_RESPONSE_DIRECTIVE = (
+    "Por favor, responda diretamente em Português. "
+    "Não utilize blocos de pensamento ou tags <think>. "
+    "Vá direto para a análise técnica solicitada.\n\n"
+)
+
+# Modelos que possuem reasoning intrínseco e se beneficiam
+# da flag think: false + diretiva de supressão
+REASONING_MODEL_KEYWORDS = ["qwen", "deepseek", "r1", "reasoning"]
+
 
 class OllamaProvider(ModelProvider):
     """
@@ -19,6 +31,10 @@ class OllamaProvider(ModelProvider):
         self.endpoint = endpoint
         self.think = think
         self.show_thinking = show_thinking
+        # Detectar se o modelo é da família reasoning
+        self._is_reasoning_model = any(
+            kw in model_name.lower() for kw in REASONING_MODEL_KEYWORDS
+        )
 
     def generate(self, prompt: str, context: list = None, role: str = "user") -> str:
         """
@@ -32,27 +48,47 @@ class OllamaProvider(ModelProvider):
                                 role: str = "user") -> GenerationResult:
         """
         Gera resposta com streaming visual e retorna resultado estruturado.
-        O pensamento é exibido em tempo real (dimmed) mas separado do content.
+
+        FASE 2: 
+        - Quando think=False, envia explicitamente "think": false ao Ollama
+        - Quando think=False em modelo de reasoning, injeta diretiva de supressão
+        - Timeout ajustado: 120s com thinking, 90s sem (resposta esperada mais curta)
         """
+        # ── Construir prompt final ──
+        final_prompt = self._build_prompt(prompt)
+
+        # ── Construir payload ──
         payload = {
             "model": self.model_name,
-            "prompt": prompt,
+            "prompt": final_prompt,
             "stream": True,
         }
 
-        # Habilitar thinking no Ollama se o modelo suporta
-        if self.think:
-            payload["options"] = {"think": True}
+        # ── Configurar options com think explícito ──
+        options = {}
+        if self._is_reasoning_model:
+            options["think"] = self.think
+        elif self.think:
+            # Para modelos não-reasoning que recebam think=True por engano
+            options["think"] = True
+
+        if options:
+            payload["options"] = options
+
+        # ── Timeout dinâmico ──
+        timeout = 120 if self.think else 90
 
         try:
             # Emitir estado: início da geração
+            mode_label = "reasoning" if self.think else "direto"
             sys.stdout.write(
-                f"{ANSIStyle.CYAN}⏳ Gerando com {self.model_name}...{ANSIStyle.RESET}\n"
+                f"{ANSIStyle.CYAN}⏳ Gerando com {self.model_name} "
+                f"(modo {mode_label})...{ANSIStyle.RESET}\n"
             )
             sys.stdout.flush()
 
             response = requests.post(
-                self.endpoint, json=payload, timeout=120, stream=True
+                self.endpoint, json=payload, timeout=timeout, stream=True
             )
             response.raise_for_status()
 
@@ -69,3 +105,15 @@ class OllamaProvider(ModelProvider):
         except requests.exceptions.RequestException as e:
             error_msg = f"Error communicating with Ollama: {str(e)}"
             return GenerationResult(content=error_msg, thinking="", raw=error_msg)
+
+    def _build_prompt(self, original_prompt: str) -> str:
+        """
+        Constrói o prompt final baseado no modo de operação.
+
+        FASE 2: Se think=False E o modelo é da família reasoning,
+        injeta a diretiva DIRECT_RESPONSE_DIRECTIVE no topo do prompt
+        para instruir o modelo a não usar raciocínio interno.
+        """
+        if not self.think and self._is_reasoning_model:
+            return DIRECT_RESPONSE_DIRECTIVE + original_prompt
+        return original_prompt
