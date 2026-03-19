@@ -20,6 +20,9 @@ Thumbs.db
 
 # Outputs e Relatórios gerados pelo CLI
 debate_RELATORIO_*.md
+.forge/
+.tmp_artifacts/
+.tmp_planner/
 
 # Ferramentas de Testes e Cobertura
 .pytest_cache/

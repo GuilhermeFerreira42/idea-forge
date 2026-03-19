@@ -50,3 +50,20 @@ class ProponentAgent:
 
         response = self.provider.generate(prompt=prompt, role="proponent")
         return response
+
+    def defend_artifact(self, artifact_content: str, critique: str, context: str = "") -> str:
+        """
+        NOVO (Fase 3): Defende um artefato contra críticas recebidas.
+        """
+        prompt = (
+            f"System: {self.system_prompt}\n\n"
+            f"Artifact being defended:\n{artifact_content}\n\n"
+            f"Critique to address:\n{critique}\n\n"
+            f"Additional context:\n{context}\n\n"
+            "Respond to the critique and refine the proposal if necessary:"
+        )
+
+        response = self.provider.generate(
+            prompt=prompt, role="proponent"
+        )
+        return response

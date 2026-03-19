@@ -18,16 +18,18 @@ class PlanGenerator:
             "- Technical Responsibilities and Risks"
         )
 
-    def generate_plan(self, debate_result: str, original_idea: str) -> str:
+    def generate_plan(self, first_input: str, context: str = "") -> str:
         """
-        Generate final development plan markdown based on the debate outcome.
+        Generate final development plan markdown based on the debate outcome and artifacts.
+        first_input: Usually the PRD.
+        context: Context from System Design and Debate Transcript.
         """
         print("\n⏳ Gerando Plano de Desenvolvimento Técnico Consolidado...")
         
         prompt = (
             f"System: {self.system_prompt}\n\n"
-            f"Original Concept: {original_idea}\n\n"
-            f"Debate Transcript:\n{debate_result}\n\n"
+            f"Main Concept (PRD):\n{first_input}\n\n"
+            f"Context (Architecture & Debate):\n{context}\n\n"
             "Produce the final Markdown development plan:"
         )
         

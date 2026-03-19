@@ -1,0 +1,49 @@
+# Caminhada Técnica — FASE 3: MIGRAÇÃO PARA PADRÃO BLACKBOARD
+
+Implementamos com sucesso a arquitetura de **Padrão Blackboard com Grafo de Artefatos**, conforme definido no Blueprint Técnico da Fase 3. Esta mudança estrutural resolve a dispersão cognitiva e o desperdício de tokens, permitindo que modelos locais (SLMs) operem com contexto seletivo e persistente.
+
+## Principais Entregais
+
+### 1. Camada de Estado e Persistência
+- **Blackboard ([src/core/blackboard.py](file:///c:/Users/Usuario/Desktop/idea-forge/idea-forge/src/core/blackboard.py))**: Centraliza o estado global da execução, rastreia o status das tarefas e gerencia o registro de artefatos.
+- **ArtifactStore ([src/core/artifact_store.py](file:///c:/Users/Usuario/Desktop/idea-forge/idea-forge/src/core/artifact_store.py))**: Gerencia artefatos imutáveis e versionados, permitindo o "Hot-load" seletivo de contexto para os agentes, respeitando um budget de tokens (padrão 1500 tokens).
+
+### 2. Orquestração DAG
+- **Planner ([src/core/planner.py](file:///c:/Users/Usuario/Desktop/idea-forge/idea-forge/src/core/planner.py))**: Novo motor de execução baseado em Grafo Acíclico Dirigido (DAG). Ele orquestra o pipeline de 6 tarefas fundamentais:
+  1. Geração de PRD (Product Manager)
+  2. Revisão de PRD (Critic)
+  3. Human Gate (Aprovação/Refinamento)
+  4. System Design (Architect)
+  5. Debate Estruturado (Engine)
+  6. Síntese do Plano Final (Planner)
+
+### 3. Agentes Especialistas
+- **ProductManagerAgent**: Especializado em transformar ideias em requisitos estruturados.
+- **ArchitectAgent**: Focado em design de sistemas e escolha de stack tecnológica.
+- **Refatoração de Critic e Proponent**: Agora suportam análise e defesa baseadas em artefatos específicos do Blackboard.
+
+## Verificação e Qualidade
+
+Realizamos uma suíte completa de testes unitários para garantir a integridade dos novos componentes:
+
+```bash
+pytest tests/test_blackboard.py tests/test_artifact_store.py tests/test_planner.py
+```
+
+**Resultado:** 12/12 testes passaram com sucesso, cobrindo:
+- Versionamento automático de artefatos.
+- Snapshot e persistência do Blackboard em disco.
+- Execução topológica da DAG e detecção de dependências.
+- Budgeting de tokens no carregamento de contexto.
+
+## Check de Verificação — Fase 3
+Validamos todos os itens do protocolo de aceitação:
+
+1.  **Testes Unitários**: 100% de aprovação em todos os módulos ([Blackboard](file:///c:/Users/Usuario/Desktop/idea-forge/idea-forge/src/core/blackboard.py#6-80), [ArtifactStore](file:///c:/Users/Usuario/Desktop/idea-forge/idea-forge/src/core/artifact_store.py#52-169), [Planner](file:///c:/Users/Usuario/Desktop/idea-forge/idea-forge/src/core/planner.py#27-192), `SpecialistAgents`).
+2.  **Retrocompatibilidade**: Testes de Legado ([test_agents.py](file:///c:/Users/Usuario/Desktop/idea-forge/idea-forge/tests/test_agents.py), [test_debate.py](file:///c:/Users/Usuario/Desktop/idea-forge/idea-forge/tests/test_debate.py), [test_pipeline.py](file:///c:/Users/Usuario/Desktop/idea-forge/idea-forge/tests/test_pipeline.py)) restaurados e passando.
+3.  **Persistência**: Verificada a criação de [.forge/blackboard_state.json](file:///c:/Users/Usuario/Desktop/idea-forge/idea-forge/.forge/blackboard_state.json) e o diretório de artefatos com versionamento `v1`.
+4.  **Relatórios**: Geração automática de `debate_RELATORIO_*.md` consolidando o Grafo de Artefatos.
+5.  **Integridade**: Nenhum arquivo em `src/models/` ou `src/core/stream_handler.py` foi afetado, garantindo a separação de preocupações.
+
+## Próximos Passos
+O sistema está pronto para ser utilizado via `python src/cli/main.py`. A transição é transparente para o usuário final, mas o sistema agora é muito mais robusto e "consciente" do progresso de cada etapa.

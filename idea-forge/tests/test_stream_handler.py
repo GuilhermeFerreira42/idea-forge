@@ -211,7 +211,8 @@ class TestOllamaProviderPromptInjection:
             model_name="qwen3:8b", think=False, show_thinking=False
         )
         result = provider._build_prompt("Test prompt")
-        assert result.startswith("IMPORTANT INSTRUCTION:")
+        # In Phase 2, the directive was localized to Portuguese
+        assert "Por favor, responda diretamente" in result
         assert "Test prompt" in result
 
     def test_reasoning_mode_no_injection(self):

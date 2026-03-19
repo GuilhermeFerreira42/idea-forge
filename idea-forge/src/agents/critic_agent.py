@@ -51,3 +51,20 @@ class CriticAgent:
             prompt=prompt, context=history.get_history(), role="critic"
         )
         return response
+
+    def review_artifact(self, artifact_content: str, artifact_type: str = "document", context: str = "") -> str:
+        """
+        NOVO (Fase 3): Analisa um artefato específico (PRD, System Design, etc) do Blackboard.
+        """
+        prompt = (
+            f"System: {self.system_prompt}\n\n"
+            f"Reviewing Artifact Type: {artifact_type}\n"
+            f"Artifact Content:\n{artifact_content}\n\n"
+            f"Additional context from Blackboard:\n{context}\n\n"
+            "Perform a rigorous technical review of this artifact, pointing out risks and gaps:"
+        )
+
+        response = self.provider.generate(
+            prompt=prompt, role="critic"
+        )
+        return response

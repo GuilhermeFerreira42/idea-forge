@@ -15,9 +15,11 @@ class DebateEngine:
         self.num_rounds = rounds
         self.debate_transcript = []
 
-    def run(self, refined_idea: str, report_filename: str = None) -> str:
+    def run(self, first_input: str, context: str = "", report_filename: str = None) -> str:
         """
-        Executa os ciclos de debate alternados.
+        Executa os ciclos de debate alternados usando contexto do Blackboard.
+        first_input: Geralmente o PRD ou a Ideia Refinada.
+        context: Contexto acumulado de outros artefatos (ex: System Design).
         """
         print(
             f"\n{ANSIStyle.BOLD}{ANSIStyle.YELLOW}"
@@ -28,7 +30,8 @@ class DebateEngine:
             f"{ANSIStyle.RESET}"
         )
         
-        context_accumulator = f"Initial Idea: {refined_idea}\n\n"
+        # O contexto inicial inclui o que foi passado e o input principal
+        current_context = f"Main Subject:\n{first_input}\n\nRelated Context:\n{context}\n\n"
         
         for r in range(1, self.num_rounds + 1):
             # ── Round Header ──
@@ -46,9 +49,14 @@ class DebateEngine:
                 f"🛡️  PROPONENTE — formulando defesa arquitetural..."
                 f"{ANSIStyle.RESET}"
             )
-            prop_response = self.proponent.propose(refined_idea, context_accumulator)
+            # Na Fase 3, usamos o método defend_artifact se disponível
+            prop_response = self.proponent.defend_artifact(
+                artifact_content=first_input, 
+                critique="Analyze the current state and defend the technical direction.",
+                context=current_context
+            )
             self.debate_transcript.append(f"Proponente:\n{prop_response}")
-            context_accumulator += f"Proponent Proposal:\n{prop_response}\n\n"
+            current_context += f"Proponent Defense (R{r}):\n{prop_response}\n\n"
             
             if report_filename:
                 with open(report_filename, "a", encoding="utf-8") as f:
@@ -61,16 +69,14 @@ class DebateEngine:
                 f"⚡ CRÍTICO — analisando vulnerabilidades e lacunas..."
                 f"{ANSIStyle.RESET}"
             )
-            # Mocking history here to reuse critic analyze signature slightly adapted for debate context
-            class MockHistory:
-                def get_context_string(self):
-                    return context_accumulator
-                def get_history(self):
-                    return []
-                    
-            crit_response = self.critic.analyze(refined_idea, MockHistory())
+            
+            crit_response = self.critic.review_artifact(
+                artifact_content=first_input,
+                artifact_type="document",
+                context=current_context
+            )
             self.debate_transcript.append(f"Crítico:\n{crit_response}")
-            context_accumulator += f"Critic Critique:\n{crit_response}\n\n"
+            current_context += f"Critic Critique (R{r}):\n{crit_response}\n\n"
             
             if report_filename:
                 with open(report_filename, "a", encoding="utf-8") as f:

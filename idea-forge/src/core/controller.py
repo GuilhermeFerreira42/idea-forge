@@ -1,7 +1,11 @@
 import sys
-from src.conversation.conversation_manager import ConversationManager
+from src.core.blackboard import Blackboard
+from src.core.artifact_store import ArtifactStore
+from src.core.planner import Planner, TaskStatus
 from src.agents.critic_agent import CriticAgent
 from src.agents.proponent_agent import ProponentAgent
+from src.agents.product_manager_agent import ProductManagerAgent
+from src.agents.architect_agent import ArchitectAgent
 from src.debate.debate_engine import DebateEngine
 from src.planning.plan_generator import PlanGenerator
 from src.models.model_provider import ModelProvider
@@ -15,12 +19,9 @@ def emit_pipeline_state(state: str, detail: str = ""):
     """
     state_icons = {
         "PIPELINE_START": "🚀",
-        "CRITIC_ANALYSIS": "🔍",
-        "REFINEMENT_LOOP": "🔄",
-        "USER_APPROVAL": "✋",
-        "DEBATE_START": "⚔️",
-        "DEBATE_ROUND": "🔁",
-        "PLAN_GENERATION": "📋",
+        "BLACKBOARD_INIT": "🧠",
+        "TASK_EXECUTION": "⚙️",
+        "HUMAN_GATE": "✋",
         "PIPELINE_COMPLETE": "✅",
         "AGENT_THINKING": "💭",
     }
@@ -35,85 +36,122 @@ def emit_pipeline_state(state: str, detail: str = ""):
 
 class AgentController:
     """
-    Orquestra o fluxo completo do sistema IdeaForge.
+    Orquestra o fluxo completo do sistema IdeaForge usando o Padrão Blackboard (Fase 3).
     """
     
     def __init__(self, provider: ModelProvider, think: bool = False):
-        """
-        FASE 2: Aceita parâmetro think para propagar direct_mode aos agentes.
-
-        Args:
-            provider: ModelProvider configurado
-            think: Se True, reasoning está ativado. 
-                   Se False, agentes recebem direct_mode=True.
-        """
         self.provider = provider
-        self.conversation = ConversationManager()
-
-        # FASE 2: direct_mode é o inverso de think
-        # Quando o usuário desativa o reasoning, os agentes entram em modo direto
+        self.think = think
         direct_mode = not think
 
-        self.critic = CriticAgent(provider, direct_mode=direct_mode)
-        self.proponent = ProponentAgent(provider, direct_mode=direct_mode)
-        self.debate_engine = DebateEngine(self.proponent, self.critic, rounds=3)
-        self.plan_generator = PlanGenerator(provider)
+        # Inicializa infraestrutura Blackboard
+        self.blackboard = Blackboard()
+        self.artifact_store = ArtifactStore(self.blackboard)
+        
+        # Inicializa Agentes Especialistas
+        self.agents = {
+            "product_manager": ProductManagerAgent(provider, direct_mode=direct_mode),
+            "architect": ArchitectAgent(provider, direct_mode=direct_mode),
+            "critic": CriticAgent(provider, direct_mode=direct_mode),
+            "proponent": ProponentAgent(provider, direct_mode=direct_mode),
+            "debate_engine": DebateEngine(
+                proponent=ProponentAgent(provider, direct_mode=direct_mode),
+                critic=CriticAgent(provider, direct_mode=direct_mode),
+                rounds=3
+            ),
+            "plan_generator": PlanGenerator(provider)
+        }
+        
+        # Atributos diretos para compatibilidade com a Fase 2 (necessário para testes legados)
+        self.critic = self.agents["critic"]
+        self.proponent = self.agents["proponent"]
+        self.debate_engine = self.agents["debate_engine"]
+        self.plan_generator = self.agents["plan_generator"]
+        
+        # Callback para o Human Gate (será injetado pelo CLI ou definido aqui)
+        self.agents["human_gate_callback"] = self._cli_human_gate
+
+        # Inicializa Planner
+        self.planner = Planner(
+            blackboard=self.blackboard,
+            artifact_store=self.artifact_store,
+            agents=self.agents,
+            provider=provider,
+            think=think
+        )
+        self.planner.load_default_dag()
+
+    def _cli_human_gate(self, context: str) -> str:
+        """Interação real com o CLI para o HUMAN_GATE do Planner."""
+        from src.cli.main import display_response, ask_approval
+        
+        emit_pipeline_state("HUMAN_GATE", "Aguardando revisão do usuário")
+        
+        # Mostra o contexto (PRD + Review) para o usuário
+        print(f"\n{ANSIStyle.BOLD}--- REVISÃO DO ARTEFATO ---{ANSIStyle.RESET}")
+        print(context)
+        
+        approved = ask_approval()
+        if approved:
+            emit_pipeline_state("HUMAN_GATE", "Artefato aprovado")
+            return "APPROVED"
+        else:
+            emit_pipeline_state("HUMAN_GATE", "Usuário solicitou refinamento")
+            print("\nPor favor, descreva os ajustes necessários:")
+            user_refinement = input("> ")
+            if not user_refinement:
+                print("[Sistema] Refinamento vazio. Encerrando.")
+                sys.exit(0)
+            
+            # Na lógica do Planner, retornar algo diferente de APPROVED 
+            # pode ser usado para disparar re-execuções se implementado.
+            # Por enquanto, vamos injetar o refinamento como uma variável.
+            self.blackboard.set_variable("user_refinement", user_refinement)
+            return "REFINEMENT_NEEDED"
 
     def run_pipeline(self, initial_idea: str, report_filename: str = None) -> str:
         """
-        Executes the main pipeline:
-        1. Critic Analysis
-        2. Refinement Loop
-        3. Debate
-        4. Plan Generation
+        Executa o pipeline baseado em Blackboard.
         """
-        # Step 1: Initial conversation
-        emit_pipeline_state("PIPELINE_START", "Iniciando pipeline de análise")
-        self.conversation.add_message("user", f"My initial idea is: {initial_idea}")
+        emit_pipeline_state("PIPELINE_START", "Iniciando migração para Blackboard (Fase 3)")
         
-        from src.cli.main import display_response, ask_approval
+        # Armazena meta-informações
+        self.blackboard.set_variable("initial_idea", initial_idea)
+        self.blackboard.set_variable("report_filename", report_filename)
         
-        # Refinement Loop
-        while True:
-            emit_pipeline_state("CRITIC_ANALYSIS", 
-                              "Enviando ideia para análise do Agente Crítico")
+        # Executa o Planner
+        try:
+            final_plan = self.planner.execute_pipeline(initial_idea)
             
-            critique = self.critic.analyze(initial_idea, self.conversation)
+            # Persistência final
+            self.blackboard.persist_to_disk()
+            self.artifact_store.persist_to_disk()
             
-            display_response("Critic Agent", critique)
-            self.conversation.add_message("critic", critique)
-            
-            # Step 2: User Approval
-            emit_pipeline_state("USER_APPROVAL", "Aguardando decisão do usuário")
-            approved = ask_approval()
-            if approved:
-                emit_pipeline_state("USER_APPROVAL", "Ideia aprovada — avançando para debate")
-                break
-            else:
-                emit_pipeline_state("REFINEMENT_LOOP", 
-                                  "Usuário solicitou refinamento")
-                print("\nPor favor, responda aos pontos levantados ou explique melhor a ideia:")
-                user_refinement = input("> ")
-                if not user_refinement:
-                    print("[Sistema] Refinamento vazio. Encerrando o pipeline.")
-                    sys.exit(0)
-                self.conversation.add_message("user", user_refinement)
-                # Keep looping
+            # Geração do relatório físico (.md) se solicitado
+            if report_filename:
+                self._generate_final_report(report_filename)
 
-        # Step 3: Debate
-        emit_pipeline_state("DEBATE_START", 
-                          f"Iniciando debate estruturado — {self.debate_engine.num_rounds} rounds")
-        debate_result = self.debate_engine.run(initial_idea, report_filename)
-        
-        # Step 4: Plan Generation
-        emit_pipeline_state("PLAN_GENERATION", 
-                          "Sintetizando plano de desenvolvimento técnico")
-        final_plan = self.plan_generator.generate_plan(debate_result, initial_idea)
-        
-        if report_filename:
-            with open(report_filename, "a", encoding="utf-8") as f:
-                f.write("\n# 📋 Plano de Desenvolvimento Técnico Final\n\n")
-                f.write(final_plan + "\n")
+            emit_pipeline_state("PIPELINE_COMPLETE", "Pipeline Blackboard concluído")
+            return final_plan
+            
+        except Exception as e:
+            print(f"\n{ANSIStyle.RED}[ERRO] Falha no pipeline: {str(e)}{ANSIStyle.RESET}")
+            self.blackboard.persist_to_disk() # Salva o que deu pra salvar
+            raise e
 
-        emit_pipeline_state("PIPELINE_COMPLETE", "Pipeline concluído com sucesso")
-        return final_plan
+    def _generate_final_report(self, filename: str):
+        """Compila todos os artefatos em um único arquivo Markdown."""
+        artifacts_to_include = ["prd", "prd_review", "system_design", "debate_transcript", "development_plan"]
+        
+        with open(filename, "w", encoding="utf-8") as f:
+            f.write(f"# 💡 Relatório de Debate - IdeaForge CLI\n\n")
+            f.write(f"**Ideia Inicial:** {self.blackboard.get_variable('initial_idea')}\n\n")
+            
+            for art_name in artifacts_to_include:
+                artifact = self.artifact_store.read(art_name)
+                if artifact:
+                    f.write(f"--- \n\n## 📄 Artefato: {art_name.upper()}\n")
+                    f.write(f"**Criado por:** {artifact.created_by} | **Versão:** {artifact.version}\n\n")
+                    f.write(f"{artifact.content}\n\n")
+            
+            f.write(f"\n---\n*Gerado automaticamente via Blackboard Pattern.*")
