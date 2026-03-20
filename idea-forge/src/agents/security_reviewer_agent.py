@@ -59,20 +59,43 @@ class SecurityReviewerAgent:
 
     def review_security(self, system_design: str, prd_context: str = "") -> str:
         """
-        Analisa System Design para ameaças de segurança.
+        FASE 5.1: Security review com geração seccional (2 passes lite).
+        Fallback para chamada única se seccional falhar.
         """
+        from src.core.sectional_generator import SectionalGenerator
+
+        combined_input = (
+            f"SYSTEM DESIGN PARA ANÁLISE:\n"
+            f"{system_design[:1500]}"
+        )
+
+        generator = SectionalGenerator(
+            provider=self.provider,
+            direct_mode=self.direct_mode
+        )
+
+        result = generator.generate_sectional(
+            artifact_type="security_review",
+            user_input=combined_input,
+            context=prd_context[:500] if prd_context else "",
+        )
+
+        if result and len(result) > 100:
+            return result
+
+        # Fallback: chamada única
+        return self._review_single_pass(system_design, prd_context)
+
+    def _review_single_pass(self, system_design: str, prd_context: str) -> str:
+        """Fallback de security review em chamada única."""
+        from src.core.golden_examples import SECURITY_EXAMPLE_FRAGMENT
+
         prompt = f"System: {self.system_prompt}\n\n"
-        
-        # FASE 4: Injeção de golden example
         prompt += SECURITY_EXAMPLE_FRAGMENT
-        
         if prd_context:
-            prompt += (
-                "PRD (REFERÊNCIA — NÃO repita):\n"
-                f"{prd_context[:500]}\n\n"
-            )
+            prompt += f"PRD (REFERÊNCIA):\n{prd_context[:500]}\n\n"
         prompt += (
-            f"SYSTEM DESIGN PARA ANÁLISE:\n{system_design}\n\n"
+            f"SYSTEM DESIGN:\n{system_design}\n\n"
             "Preencha EXATAMENTE as seções do template de segurança."
         )
         return self.provider.generate(prompt=prompt, role="security_reviewer")

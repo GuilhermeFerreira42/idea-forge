@@ -76,10 +76,41 @@ class CriticAgent:
         )
         return response
 
-    def review_artifact(self, artifact_content: str, artifact_type: str = "document", context: str = "") -> str:
+    def review_artifact(self, artifact_content: str,
+                        artifact_type: str = "document",
+                        context: str = "") -> str:
         """
-        FASE 3.1: Analisa artefato com formato de lista/tabela forçado.
+        FASE 5.1: Review com geração seccional (2 passes).
+        Fallback para chamada única se seccional falhar.
         """
+        from src.core.sectional_generator import SectionalGenerator
+
+        # Montar input combinado para o generator
+        combined_input = (
+            f"ARTEFATO PARA REVISÃO (tipo: {artifact_type}):\n"
+            f"{artifact_content[:1500]}"
+        )
+
+        generator = SectionalGenerator(
+            provider=self.provider,
+            direct_mode=self.direct_mode
+        )
+
+        result = generator.generate_sectional(
+            artifact_type="review",
+            user_input=combined_input,
+            context=context[:500] if context else "",
+        )
+
+        if result and len(result) > 100:
+            return result
+
+        # Fallback: chamada única
+        return self._review_single_pass(artifact_content, artifact_type, context)
+
+    def _review_single_pass(self, artifact_content: str,
+                            artifact_type: str, context: str) -> str:
+        """Fallback de review em chamada única."""
         from src.core.golden_examples import REVIEW_EXAMPLE_FRAGMENT
 
         review_prompt = (
@@ -87,19 +118,12 @@ class CriticAgent:
             f"ARTEFATO PARA REVISÃO (tipo: {artifact_type}):\n"
             f"{artifact_content}\n\n"
         )
-
         if context:
-            review_prompt += (
-                "CONTEXTO ADICIONAL (NÃO repita):\n"
-                f"{context}\n\n"
-            )
+            review_prompt += f"CONTEXTO ADICIONAL (NÃO repita):\n{context}\n\n"
 
-        # FASE 4: Injeção de golden example
         review_prompt += REVIEW_EXAMPLE_FRAGMENT
-
         review_prompt += (
-            "Preencha EXATAMENTE as seções do template de revisão acima. "
+            "Preencha EXATAMENTE as seções do template de revisão. "
             "NÃO escreva introduções ou conclusões."
         )
-
         return self.provider.generate(prompt=review_prompt, role="critic")

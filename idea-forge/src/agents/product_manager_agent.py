@@ -45,12 +45,9 @@ class ProductManagerAgent:
             return self._base_system_prompt + DIRECT_MODE_SUFFIX
         return self._base_system_prompt
 
-    def generate_prd(self, idea: str, context: str = "") -> str:
+    def generate_prd(self, user_idea: str, context: str = "") -> str:
         """
-        Gera PRD a partir da ideia do usuário.
-        
-        FASE 5: Usa geração sequencial por seções para maximizar densidade.
-        Fallback para geração única se falhar.
+        FASE 5.1: Geração de PRD seccional (4 passes).
         """
         generator = SectionalGenerator(
             provider=self.provider, 
@@ -59,25 +56,28 @@ class ProductManagerAgent:
         
         result = generator.generate_sectional(
             artifact_type="prd",
-            user_input=idea,
-            context=context,
+            user_input=user_idea,
+            context=context
         )
         
         if result and len(result) > 200:
             return result
-        
-        return self._generate_single_pass(idea, context)
+            
+        # Fallback: chamada única
+        return self._generate_single_pass(user_idea, context)
 
-    def _generate_single_pass(self, idea: str, context: str = "") -> str:
-        """Geração em chamada única (fallback)."""
+    def _generate_single_pass(self, user_idea: str, context: str) -> str:
+        """Fallback de geração em chamada única."""
         from src.core.golden_examples import PRD_EXAMPLE_FRAGMENT
         
-        prompt = f"System: {self.system_prompt}\n\n"
-        if context:
-            prompt += f"CONTEXTO (NÃO repita):\n{context}\n\n"
-        prompt += PRD_EXAMPLE_FRAGMENT
-        prompt += (
-            f"IDEIA DO USUÁRIO:\n{idea}\n\n"
-            "Preencha EXATAMENTE as seções do template acima."
+        prompt = (
+            f"System: {self.system_prompt}\n\n"
+            f"IDÉIA DO USUÁRIO:\n{user_idea}\n\n"
         )
+        if context:
+            prompt += f"CONTEXTO ADICIONAL:\n{context}\n\n"
+            
+        prompt += PRD_EXAMPLE_FRAGMENT
+        prompt += "\nPreencha EXATAMENTE as seções do template acima."
+        
         return self.provider.generate(prompt=prompt, role="product_manager")

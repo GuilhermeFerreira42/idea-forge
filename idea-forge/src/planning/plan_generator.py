@@ -21,11 +21,9 @@ class PlanGenerator:
             f"{STYLE_CONTRACT}"
         )
 
-    def generate_plan(self, first_input: str, context: str = "") -> str:
+    def generate_plan(self, prd_system_security: str, context: str = "") -> str:
         """
-        Gera plano técnico a partir do PRD e debate.
-        
-        FASE 5: Geração seccional.
+        FASE 5.1: Geração de Plano de Desenvolvimento seccional (2 passes).
         """
         generator = SectionalGenerator(
             provider=self.provider, 
@@ -34,25 +32,28 @@ class PlanGenerator:
         
         result = generator.generate_sectional(
             artifact_type="plan",
-            user_input=first_input,
-            context=context,
+            user_input=prd_system_security,
+            context=context
         )
         
         if result and len(result) > 200:
             return result
-        
-        return self._generate_single_pass(first_input, context)
+            
+        # Fallback: chamada única
+        return self._generate_single_pass(prd_system_security, context)
 
-    def _generate_single_pass(self, first_input: str, context: str = "") -> str:
-        """Geração em chamada única (fallback)."""
-        print("\n📋 Gerando Plano de Desenvolvimento Técnico (Fallback)...")
+    def _generate_single_pass(self, prd_system_security: str, context: str) -> str:
+        """Fallback de plano em chamada única."""
+        from src.core.golden_examples import PLAN_EXAMPLE_FRAGMENT
         
-        prompt = f"System: {self.system_prompt}\n\n"
-        prompt += f"INPUT:\n{first_input[:1500]}\n\n"
-        
+        prompt = (
+            f"System: {self.system_prompt}\n\n"
+            f"INPUTS (PRD + DESIGN + SECURITY):\n{prd_system_security}\n\n"
+        )
         if context:
-            prompt += f"CONTEXTO:\n{context[:1000]}\n\n"
-        
-        prompt += "Preencha EXATAMENTE as seções do template acima."
+            prompt += f"CONTEXTO ADICIONAL:\n{context}\n\n"
+            
+        prompt += PLAN_EXAMPLE_FRAGMENT
+        prompt += "\nPreencha EXATAMENTE as seções do template de plano acima."
         
         return self.provider.generate(prompt=prompt, role="planner")

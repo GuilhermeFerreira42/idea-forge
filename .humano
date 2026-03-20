@@ -9,7 +9,7 @@ Antes (desperdiçava tokens)
 Depois (otimizado)
 Você diz:
 "Leia docs/CURRENT_STATE.md e o arquivo .ai-context. 
-Depois leia este blueprint da Fase 6: [cola ou indica o arquivo].
+Depois leia este blueprint da Fase N: [cola ou indica o arquivo].
 Implemente."
 
 → IA lê ~2.000 tokens de estado + blueprint da fase

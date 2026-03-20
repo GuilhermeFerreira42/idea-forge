@@ -191,21 +191,58 @@ class Planner:
             # 2. Pós-processamento: Limpeza de ruído narrativo residual
             clean_result = self._post_process_output(str(result))
 
-            # FASE 4: Validação de Conformidade (OutputValidator)
+            # ═══════════════════════════════════════════════
+            # FASE 5.1: HARD GATE — Validação bloqueante
+            # ═══════════════════════════════════════════════
             from src.core.output_validator import OutputValidator
             validator = OutputValidator()
             artifact_type_tag = self._get_artifact_tag_for_validator(task)
             validation = validator.validate(clean_result, artifact_type_tag)
-            
-            if not validation["valid"]:
+
+            if not validation.get("valid", True):
+                fail_reasons = validation.get("fail_reasons", [])
                 import sys
                 from src.core.stream_handler import ANSIStyle
-                sys.stdout.write(
-                    f"\n{ANSIStyle.YELLOW}⚠️ [AVISO] Artefato {task.output_artifact} "
-                    f"possui baixa conformidade ({int(validation['completeness_score']*100)}%). "
-                    f"Faltam seções: {', '.join(validation['missing_sections'])}{ANSIStyle.RESET}\n"
-                )
-                sys.stdout.flush()
+
+                # Verificar se é falha total (vazio) ou parcial
+                is_empty = any("EMPTY" in r or "TOO_SHORT" in r for r in fail_reasons)
+
+                if is_empty:
+                    # FALHA TOTAL: artefato vazio — NÃO persistir
+                    sys.stdout.write(
+                        f"\n{ANSIStyle.YELLOW}⚠ [HARD GATE] Artefato "
+                        f"'{task.output_artifact}' está VAZIO ou muito curto. "
+                        f"Motivos: {fail_reasons}\n"
+                        f"Persistindo marcador de falha.{ANSIStyle.RESET}\n"
+                    )
+                    sys.stdout.flush()
+
+                    # Persistir marcador de falha em vez de string vazia
+                    clean_result = (
+                        f"## {task.output_artifact.upper()} — GERAÇÃO FALHOU\n\n"
+                        f"O modelo não produziu conteúdo válido para este artefato.\n"
+                        f"Motivos de falha: {', '.join(fail_reasons)}\n\n"
+                        f"**Ação necessária:** Re-executar com modelo maior ou "
+                        f"fornecer mais contexto.\n"
+                    )
+                else:
+                    # FALHA PARCIAL: conteúdo existe mas incompleto
+                    sys.stdout.write(
+                        f"\n{ANSIStyle.YELLOW}⚠ [HARD GATE] Artefato "
+                        f"'{task.output_artifact}' incompleto. "
+                        f"Motivos: {fail_reasons}\n"
+                        f"Completude: {int(validation.get('completeness_score', 0)*100)}% "
+                        f"(mínimo: {int(validator.MIN_COMPLETENESS.get(artifact_type_tag, 0.6)*100)}%)\n"
+                        f"Persistindo com aviso.{ANSIStyle.RESET}\n"
+                    )
+                    sys.stdout.flush()
+
+                    # Adicionar aviso no topo do artefato
+                    warning_header = (
+                        f"<!-- AVISO: Artefato com completude abaixo do threshold. "
+                        f"Seções faltantes: {validation.get('missing_sections', [])} -->\n\n"
+                    )
+                    clean_result = warning_header + clean_result
 
             # 3. Store result
             self.artifact_store.write(

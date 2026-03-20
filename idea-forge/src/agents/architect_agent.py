@@ -47,11 +47,9 @@ class ArchitectAgent:
             return self._base_system_prompt + DIRECT_MODE_SUFFIX
         return self._base_system_prompt
 
-    def design_system(self, prd_content: str, context: str = "") -> str:
+    def design_system(self, prd_content: str, approval_context: str = "") -> str:
         """
-        Gera System Design a partir do PRD aprovado.
-        
-        FASE 5: Geração seccional para maximizar densidade técnica.
+        FASE 5.1: Geração de System Design seccional (3 passes).
         """
         generator = SectionalGenerator(
             provider=self.provider, 
@@ -61,25 +59,27 @@ class ArchitectAgent:
         result = generator.generate_sectional(
             artifact_type="system_design",
             user_input=prd_content,
-            context=context,
+            context=approval_context
         )
         
         if result and len(result) > 200:
             return result
-        
-        return self._generate_single_pass(prd_content, context)
+            
+        # Fallback: chamada única
+        return self._design_single_pass(prd_content, approval_context)
 
-    def _generate_single_pass(self, prd_content: str, context: str = "") -> str:
-        """Geração em chamada única (fallback)."""
+    def _design_single_pass(self, prd_content: str, approval_context: str) -> str:
+        """Fallback de design em chamada única."""
         from src.core.golden_examples import DESIGN_EXAMPLE_FRAGMENT
         
-        prompt = f"System: {self.system_prompt}\n\n"
-        prompt += f"PRD (REFERÊNCIA):\n{prd_content[:1500]}\n\n"
-        
-        if context:
-            prompt += f"Contexto adicional:\n{context}\n\n"
-        
+        prompt = (
+            f"System: {self.system_prompt}\n\n"
+            f"PRD DE REFERÊNCIA:\n{prd_content}\n\n"
+        )
+        if approval_context:
+            prompt += f"DECISÃO DE APROVAÇÃO/AJUSTES:\n{approval_context}\n\n"
+            
         prompt += DESIGN_EXAMPLE_FRAGMENT
-        prompt += "Preencha EXATAMENTE as seções do template acima."
+        prompt += "\nPreencha EXATAMENTE as seções do template de system design acima."
         
         return self.provider.generate(prompt=prompt, role="architect")

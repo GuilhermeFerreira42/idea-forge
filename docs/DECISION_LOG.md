@@ -37,3 +37,10 @@ F4 | RULE | Quality Scoring | Atribuição de score numérico (0-100) para artef
 F5 | ADD | `SectionalGenerator` | Geração multi-pass para superar limites de tokens | `sectional_generator.py`
 F5 | MOD | Agentes Core | Integração de PM e Architect com modo seccional | `product_manager_agent.py`, `architect_agent.py`
 F5 | RULE | Sectional Fallback | Garantir continuidade via single-pass se multi-pass falhar | `sectional_generator.py`
+
+### Fase 5.1 — Hard Gate + Retry por Pass
+F5.1 | ADD | Hard Gate | Bloquear artefatos vazios ou curtos no Planner | `planner.py`
+F5.1 | MOD | Retry Mechanism | Implementar 2 retries por pass com prompt corretivo | `sectional_generator.py`
+F5.1 | MOD | Placeholder Detection | Rejeitar outputs com excesso de "A DEFINIR" | `output_validator.py`
+F5.1 | ADD | Unit Tests v2 | Testes de validação e retry para garantir robustez | `tests/test_output_validator_v2.py`, `tests/test_retry_logic.py`
+F5.1 | RULE | Corrective Prompting | Injetar motivos de falha no retry para guiar o modelo | `sectional_generator.py`
