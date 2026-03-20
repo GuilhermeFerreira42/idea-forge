@@ -1,0 +1,28 @@
+# INSTRUÇÕES DE CONTEXTO PARA IA
+
+## O que ler OBRIGATORIAMENTE antes de qualquer tarefa
+1. `docs/CURRENT_STATE.md` — Estado atual completo do sistema
+2. O código-fonte em `idea-forge/src/` — Implementação real
+
+## O que ler APENAS QUANDO NECESSÁRIO
+3. `docs/DECISION_LOG.md` — Consultar quando precisar entender por que uma decisão foi tomada
+4. Arquivo específico de fase em `docs/archive/` — APENAS se o usuário pedir explicitamente
+
+## O que NUNCA LER (ignorar completamente)
+- `docs/archive/*.resolved` — Walkthroughs históricos, sem valor operacional
+- `docs/archive/phase_*` — Blueprints completos arquivados, substituídos pelo CURRENT_STATE
+- `docs/archive/CHECKLIST*` — Checklists de fases já concluídas
+- `docs/Blueprint Técnico — IdeaForge CLI.md` — Blueprint original do MVP, obsoleto
+- `docs/PRD.md` — PRD original, obsoleto (requisitos atuais estão no CURRENT_STATE)
+- `docs/README.md` — README de docs, não operacional
+- `.git/` — Controle de versão
+- `__pycache__/` — Cache Python
+- `.pytest_cache/` — Cache de testes
+
+## Workflow de nova fase
+Quando o usuário pedir para implementar uma nova fase:
+1. Ler `docs/CURRENT_STATE.md` (entender onde estamos)
+2. Ler o blueprint da fase a ser implementada (o usuário fornecerá)
+3. Ler os arquivos de código-fonte que serão modificados
+4. Implementar
+5. Após validação, executar o protocolo em `docs/ARCHIVING_PROTOCOL.md`

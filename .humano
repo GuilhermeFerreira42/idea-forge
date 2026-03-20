@@ -1,0 +1,42 @@
+Sobre o Seu Workflow — Recomendação
+Não peça para a IA ler tudo de uma vez. O novo workflow é:
+
+Antes (desperdiçava tokens)
+"Leia todo o projeto e implemente a fase X"
+→ IA lê 50.000+ tokens de arquivos irrelevantes
+→ Consome 70% do contexto apenas para carregar
+→ Sobra pouco espaço para raciocinar e implementar
+Depois (otimizado)
+Você diz:
+"Leia docs/CURRENT_STATE.md e o arquivo .ai-context. 
+Depois leia este blueprint da Fase 6: [cola ou indica o arquivo].
+Implemente."
+
+→ IA lê ~2.000 tokens de estado + blueprint da fase
+→ IA lê apenas os arquivos de código que vai modificar
+→ 90%+ do contexto disponível para implementação
+Quando a IA precisar ver código que não modificará diretamente
+Diga: "Consulte o DECISION_LOG para entender por que o StreamHandler é assim" — em vez de fazer ela ler o arquivo inteiro.
+
+Resumo do novo fluxo
+FASE N — FLUXO DE TRABALHO
+══════════════════════════
+
+1. VOCÊ planeja a fase e escreve o blueprint
+
+2. VOCÊ diz à IA:
+   "Leia .ai-context, depois docs/CURRENT_STATE.md.
+    Aqui está o blueprint da Fase N: [conteúdo].
+    Implemente."
+
+3. IA implementa lendo apenas os arquivos de src/ necessários
+
+4. VOCÊ valida (testes, execução manual)
+
+5. VOCÊ diz à IA:
+   "Fase N concluída e validada. 
+    Execute o protocolo docs/ARCHIVING_PROTOCOL.md."
+
+6. IA atualiza CURRENT_STATE + DECISION_LOG + arquiva blueprint
+
+7. Próxima fase começa com contexto limpo
