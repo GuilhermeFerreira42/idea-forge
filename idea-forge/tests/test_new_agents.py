@@ -4,7 +4,8 @@ from src.agents.architect_agent import ArchitectAgent
 from src.models.model_provider import ModelProvider
 
 class MockProvider:
-    def generate(self, prompt, role, context=None):
+    def generate(self, prompt, role, context=None, **kwargs):
+        # FASE 5: Mock agora aceita max_tokens via kwargs
         if role == "product_manager":
             return "# PRD Output"
         if role == "architect":

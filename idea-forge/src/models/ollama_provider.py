@@ -1,6 +1,7 @@
 import requests
 import json
 import sys
+from typing import Optional
 from src.models.model_provider import ModelProvider, GenerationResult
 from src.config.settings import OLLAMA_ENDPOINT, MODEL_NAME
 from src.core.stream_handler import StreamHandler, ANSIStyle
@@ -36,23 +37,22 @@ class OllamaProvider(ModelProvider):
             kw in model_name.lower() for kw in REASONING_MODEL_KEYWORDS
         )
 
-    def generate(self, prompt: str, context: list = None, role: str = "user") -> str:
+    def generate(self, prompt: str, context: list = None, 
+                 role: str = "user", max_tokens: Optional[int] = None) -> str:
         """
         Gera resposta e retorna apenas o conteúdo limpo (sem pensamento).
         Mantém compatibilidade com contrato original.
         """
-        result = self.generate_with_thinking(prompt, context, role)
+        result = self.generate_with_thinking(prompt, context, role, max_tokens=max_tokens)
         return result.content
 
     def generate_with_thinking(self, prompt: str, context: list = None, 
-                                role: str = "user") -> GenerationResult:
+                                role: str = "user",
+                                max_tokens: Optional[int] = None) -> GenerationResult:
         """
         Gera resposta com streaming visual e retorna resultado estruturado.
 
-        FASE 2: 
-        - Quando think=False, envia explicitamente "think": false ao Ollama
-        - Quando think=False em modelo de reasoning, injeta diretiva de supressão
-        - Timeout ajustado: 120s com thinking, 90s sem (resposta esperada mais curta)
+        FASE 5: Adicionado suporte a max_tokens para o SectionalGenerator.
         """
         # ── Construir prompt final ──
         final_prompt = self._build_prompt(prompt)
@@ -64,9 +64,14 @@ class OllamaProvider(ModelProvider):
             "stream": True,
         }
 
-        # ── Configurar options com restrições técnicas (Fase 3.1) ──
+        # ── Configurar options com restrições técnicas (Fase 3.1 + Fase 5) ──
+        if max_tokens:
+            num_predict = max_tokens
+        else:
+            num_predict = 1200 if not self.think else 3000
+
         options = {
-            "num_predict": 800 if not self.think else 3000,
+            "num_predict": num_predict,
             "temperature": 0.1 if not self.think else 0.7,
         }
         

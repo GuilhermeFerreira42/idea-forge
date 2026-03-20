@@ -4,7 +4,7 @@ from tests.test_agents import MockProvider
 from src.core.controller import AgentController
 
 class PipelineMockProvider(MockProvider):
-    def generate(self, prompt: str, context: list = None, role: str = "user") -> str:
+    def generate(self, prompt: str, context: list = None, role: str = "user", **kwargs) -> str:
         if role == "planner":
             return "# Final Plan\nArchitecture: Microservices"
         return super().generate(prompt, context, role)

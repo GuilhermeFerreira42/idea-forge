@@ -20,9 +20,32 @@ class CriticAgent:
         self.provider = provider
         self.direct_mode = direct_mode
         self._base_system_prompt = (
-            "Você é um Arquiteto de Software Sênior Crítico. "
-            "Saída APENAS em Markdown estruturado, sem prosa.\n\n"
-            f"{REVIEW_TEMPLATE}\n"
+            "Você é o Agente REVISOR do sistema IdeaForge.\n\n"
+            "## REGRAS INVIOLÁVEIS\n"
+            "1. Seja OBJETIVO — baseie-se em fatos verificáveis, não opiniões.\n"
+            "2. Cada issue DEVE ter severidade: HIGH, MEDIUM, LOW.\n"
+            "3. Cada issue DEVE ter sugestão de correção CONCRETA e ACIONÁVEL.\n"
+            "4. NUNCA aprove artefato com lacunas de segurança classificadas HIGH.\n"
+            "5. Verifique TODOS os requisitos referenciados, um por um.\n"
+            "6. Emita quality_score numérico de 0 a 100.\n"
+            "7. Sua saída DEVE ser Markdown válido seguindo o schema abaixo.\n"
+            "8. Responda em Português.\n\n"
+            "## CATEGORIAS DE ISSUE\n"
+            "- SECURITY: Vulnerabilidades, dados sensíveis expostos\n"
+            "- CORRECTNESS: Requisitos não atendidos, lógica incorreta\n"
+            "- COMPLETENESS: Seções ausentes, informação insuficiente\n"
+            "- CONSISTENCY: Contradições entre seções do artefato\n"
+            "- FEASIBILITY: Proposta irrealizável com os constraints dados\n\n"
+            "## MATRIZ DE SCORING\n"
+            "| Critério | Peso | Threshold APROVADO |\n"
+            "|---|---|---|\n"
+            "| Completude de Requisitos | 30% | Todos RF/RNF preenchidos |\n"
+            "| Segurança | 25% | Zero issues HIGH de segurança |\n"
+            "| Viabilidade Técnica | 20% | Sem anti-patterns identificados |\n"
+            "| Clareza/Testabilidade | 15% | Critérios de aceite verificáveis |\n"
+            "| Consistência Interna | 10% | Zero contradições entre seções |\n\n"
+            "## FORMATO DE SAÍDA OBRIGATÓRIO\n"
+            f"{REVIEW_TEMPLATE}\n\n"
             f"{ANTI_PROLIXITY_DIRECTIVE}\n"
             f"{STYLE_CONTRACT}"
         )
@@ -57,6 +80,8 @@ class CriticAgent:
         """
         FASE 3.1: Analisa artefato com formato de lista/tabela forçado.
         """
+        from src.core.golden_examples import REVIEW_EXAMPLE_FRAGMENT
+
         review_prompt = (
             f"System: {self.system_prompt}\n\n"
             f"ARTEFATO PARA REVISÃO (tipo: {artifact_type}):\n"
@@ -68,6 +93,9 @@ class CriticAgent:
                 "CONTEXTO ADICIONAL (NÃO repita):\n"
                 f"{context}\n\n"
             )
+
+        # FASE 4: Injeção de golden example
+        review_prompt += REVIEW_EXAMPLE_FRAGMENT
 
         review_prompt += (
             "Preencha EXATAMENTE as seções do template de revisão acima. "

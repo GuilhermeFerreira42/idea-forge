@@ -41,7 +41,7 @@ class Planner:
         self.dag: List[TaskDefinition] = []
 
     def load_default_dag(self) -> None:
-        """Carrega a DAG padrão de 6 tasks conforme o Blueprint."""
+        """Carrega a DAG padrão de 7 tasks conforme o Blueprint NEXUS (Fase 4)."""
         self.dag = [
             TaskDefinition(
                 task_id="TASK_01",
@@ -76,20 +76,29 @@ class Planner:
                 output_artifact="system_design",
                 requires=["TASK_03"]
             ),
+            # FASE 4: Nova task de Security Review
+            TaskDefinition(
+                task_id="TASK_04b",
+                agent_name="security_reviewer",
+                method_name="review_security",
+                input_artifacts=["system_design", "prd"],
+                output_artifact="security_review",
+                requires=["TASK_04"]
+            ),
             TaskDefinition(
                 task_id="TASK_05",
                 agent_name="debate_engine",
                 method_name="run",
-                input_artifacts=["prd", "system_design"],
+                input_artifacts=["prd", "system_design", "security_review"],
                 output_artifact="debate_transcript",
-                requires=["TASK_04"],
+                requires=["TASK_04b"],  # Agora depende de security review
                 task_type="ENGINE"
             ),
             TaskDefinition(
                 task_id="TASK_06",
                 agent_name="plan_generator",
                 method_name="generate_plan",
-                input_artifacts=["prd", "system_design", "debate_transcript"],
+                input_artifacts=["prd", "system_design", "security_review", "debate_transcript"],
                 output_artifact="development_plan",
                 requires=["TASK_05"],
                 task_type="ENGINE"
@@ -156,20 +165,47 @@ class Planner:
             if task.task_type == "HUMAN_GATE":
                 result = self._handle_human_gate(task, context)
             else:
-                method = getattr(agent, task.method_name)
+                method = getattr(agent, task.method_name) if agent else None
                 
-                # Resgate do input primário (ex: a ideia para o PM, o PRD para o Arquiteto)
+                # Resgate do input primário
                 first_input_art = self.artifact_store.read(task.input_artifacts[0])
                 first_input = first_input_art.content if first_input_art else ""
                 
+                # FASE 4: Dispatch especializado para Security Review
+                if task.method_name == "review_security":
+                    # Security Reviewer recebe system_design como primeiro input, PRD como contexto
+                    prd_art = self.artifact_store.read("prd")
+                    result = method(
+                        system_design=first_input,
+                        prd_context=prd_art.content[:500] if prd_art else ""
+                    )
                 # FASE 3.1: Passagem explícita de contexto
-                if len(task.input_artifacts) > 1 or context:
+                elif method and (len(task.input_artifacts) > 1 or context):
                     result = method(first_input, context)
-                else:
+                elif method:
                     result = method(first_input)
+                else:
+                    # Caso de fallback para motores (Engine) que não usam métodos de agentes tradicionais
+                    result = "Engine task execution" # Isso deve ser tratado pela lógica de Engine
 
             # 2. Pós-processamento: Limpeza de ruído narrativo residual
             clean_result = self._post_process_output(str(result))
+
+            # FASE 4: Validação de Conformidade (OutputValidator)
+            from src.core.output_validator import OutputValidator
+            validator = OutputValidator()
+            artifact_type_tag = self._get_artifact_tag_for_validator(task)
+            validation = validator.validate(clean_result, artifact_type_tag)
+            
+            if not validation["valid"]:
+                import sys
+                from src.core.stream_handler import ANSIStyle
+                sys.stdout.write(
+                    f"\n{ANSIStyle.YELLOW}⚠️ [AVISO] Artefato {task.output_artifact} "
+                    f"possui baixa conformidade ({int(validation['completeness_score']*100)}%). "
+                    f"Faltam seções: {', '.join(validation['missing_sections'])}{ANSIStyle.RESET}\n"
+                )
+                sys.stdout.flush()
 
             # 3. Store result
             self.artifact_store.write(
@@ -237,4 +273,17 @@ class Planner:
             return "review"
         if "transcript" in task.output_artifact:
             return "transcript"
+        if "security" in task.output_artifact:
+            return "security_review"
         return "document"
+
+    def _get_artifact_tag_for_validator(self, task: TaskDefinition) -> str:
+        """Mapeia task_id/output_artifact para o tipo esperado pelo OutputValidator."""
+        mapping = {
+            "prd": "prd",
+            "system_design": "system_design",
+            "prd_review": "review",
+            "security_review": "security_review",
+            "development_plan": "plan"
+        }
+        return mapping.get(task.output_artifact, "document")

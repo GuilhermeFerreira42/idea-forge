@@ -241,7 +241,7 @@ class TestAgentDirectMode:
         from src.models.model_provider import ModelProvider
         
         class MockProvider(ModelProvider):
-            def generate(self, prompt, context=None, role="user"): return ""
+            def generate(self, prompt, context=None, role="user", **kwargs): return ""
             def generate_with_thinking(self, prompt, context=None, role="user"): pass
             
         provider = MockProvider()
@@ -253,7 +253,7 @@ class TestAgentDirectMode:
         from src.models.model_provider import ModelProvider
         
         class MockProvider(ModelProvider):
-            def generate(self, prompt, context=None, role="user"): return ""
+            def generate(self, prompt, context=None, role="user", **kwargs): return ""
             def generate_with_thinking(self, prompt, context=None, role="user"): pass
             
         provider = MockProvider()
@@ -265,7 +265,7 @@ class TestAgentDirectMode:
         from src.models.model_provider import ModelProvider
         
         class MockProvider(ModelProvider):
-            def generate(self, prompt, context=None, role="user"): return ""
+            def generate(self, prompt, context=None, role="user", **kwargs): return ""
             def generate_with_thinking(self, prompt, context=None, role="user"): pass
             
         provider = MockProvider()
@@ -277,7 +277,7 @@ class TestAgentDirectMode:
         from src.models.model_provider import ModelProvider
         
         class MockProvider(ModelProvider):
-            def generate(self, prompt, context=None, role="user"): return ""
+            def generate(self, prompt, context=None, role="user", **kwargs): return ""
             def generate_with_thinking(self, prompt, context=None, role="user"): pass
             
         provider = MockProvider()

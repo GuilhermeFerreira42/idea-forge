@@ -1,0 +1,47 @@
+# Walkthrough - Fase 4.1: Geração por Seção (NEXUS Calibration)
+
+Esta fase resolve o problema de "resultados rasos" em modelos locais, dividindo a geração de artefatos complexos em múltiplos passos (passes) sequenciais e densos.
+
+## O que foi implementado
+
+### 1. Motor de Geração Seccional ([SectionalGenerator](file:///c:/Users/Usuario/Desktop/idea-forge/idea-forge/src/core/sectional_generator.py#33-258))
+Criamos um novo módulo em [sectional_generator.py](file:///c:/Users/Usuario/Desktop/idea-forge/idea-forge/src/core/sectional_generator.py) que:
+- Divide o PRD em 4 passes (Objetivo/Problema → Requisitos → Escopo/Métricas → Riscos/Constraints).
+- Divide o System Design em 3 passes (Arquitetura/Tech Stack → Módulos/Dados → Fluxos/ADRs/Riscos).
+- Divide o Plano de Desenvolvimento em 2 passes densos.
+- Implementa **Retry Automático**: Se um pass falha em gerar os headings esperados, o sistema tenta novamente com uma instrução mais enfática.
+- Realiza **Limpeza Inteligente**: Remove preâmbulos ("Certamente", "Aqui está") de cada pass antes da concatenação.
+
+### 2. Infraestrutura Dinâmica de Tokens
+Atualizamos a interface [ModelProvider](file:///c:/Users/Usuario/Desktop/idea-forge/idea-forge/src/models/model_provider.py) e o [OllamaProvider](file:///c:/Users/Usuario/Desktop/idea-forge/idea-forge/src/models/ollama_provider.py) para aceitar `max_tokens_override`.
+- Isso permite que cada seção tenha seu próprio "budget" de saída (ex: 800 tokens para Requisitos, 400 para Objetivos).
+
+### 3. Integração nos Agentes Especialistas
+Os seguintes agentes foram atualizados para usar o novo motor:
+- [ProductManagerAgent](file:///c:/Users/Usuario/Desktop/idea-forge/idea-forge/src/agents/product_manager_agent.py)
+- [ArchitectAgent](file:///c:/Users/Usuario/Desktop/idea-forge/idea-forge/src/agents/architect_agent.py)
+- [PlanGenerator](file:///c:/Users/Usuario/Desktop/idea-forge/idea-forge/src/planning/plan_generator.py)
+
+### 4. Métricas de Qualidade no Relatório Final
+O [Controller](file:///c:/Users/Usuario/Desktop/idea-forge/idea-forge/src/core/controller.py) agora gera uma tabela de calibração ao final de cada relatório Markdown, mostrando:
+- **Density Score**: Densidade técnica do conteúdo.
+- **Completude %**: Quantidade de seções obrigatórias presentes.
+- **Table Count**: Número de tabelas técnicas geradas (o coração do NEXUS).
+
+## Validação Realizada
+
+Executamos um script de verificação unitária [verify_sectional.py](file:///c:/Users/Usuario/Desktop/idea-forge/idea-forge/tests/verify_sectional.py) que validou:
+1. **Construção de Prompts**: Garantindo que cada pass recebe apenas o contexto necessário.
+2. **Sanitização de Saída**: Remoção de tags `<think>` e ruído narrativo.
+3. **Mocks de Provedor**: Simulação de sucesso na geração seccional.
+
+```bash
+# Resultado do teste de fumaça:
+✅ SectionalGenerator instanciado com sucesso.
+✅ Prompt construído corretamente.
+✅ Limpeza de output funcionando.
+🚀 Verificação estática concluída com sucesso!
+```
+
+## Próximos Passos
+O sistema agora está pronto para gerar documentos de 1500-2500 tokens de saída, superando o limite de 1200 tokens do modo de geração única anterior.

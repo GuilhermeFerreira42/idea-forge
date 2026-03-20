@@ -1,0 +1,177 @@
+﻿============================= test session starts =============================
+platform win32 -- Python 3.11.9, pytest-9.0.2, pluggy-1.6.0
+rootdir: C:\Users\Usuario\Desktop\idea-forge\idea-forge
+plugins: anyio-4.11.0, langsmith-0.4.38
+collected 4 items
+
+tests\test_planner.py ..FF                                               [100%]
+
+================================== FAILURES ===================================
+________________________ test_planner_execution_simple ________________________
+
+    def test_planner_execution_simple():
+        bb = Blackboard()
+        store = ArtifactStore(bb, persist_dir=".tmp_planner")
+        pm_agent = MockAgent("PRD CONTENT")
+        agents = {"product_manager": pm_agent}
+    
+        planner = Planner(bb, store, agents=agents)
+    
+        # Custom simple DAG for testing
+        task = TaskDefinition(
+            task_id="T1",
+            agent_name="product_manager",
+            method_name="generate_prd",
+            input_artifacts=["user_idea"],
+            output_artifact="prd"
+        )
+        planner.dag = [task]
+        bb.set_task_status("T1", TaskStatus.PENDING)
+    
+        store.write("user_idea", "My Idea", "raw_input", "user")
+>       planner._execute_task(task)
+
+tests\test_planner.py:61: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+src\core\planner.py:216: in _execute_task
+    raise e
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <src.core.planner.Planner object at 0x00000171D87EBFD0>
+task = TaskDefinition(task_id='T1', agent_name='product_manager', method_name='generate_prd', input_artifacts=['user_idea'], output_artifact='prd', requires=[], task_type='AGENT', max_context_tokens=1500)
+
+    def _execute_task(self, task: TaskDefinition) -> None:
+        """Executa uma task individual com Budgeting e Post-processing (Fase 3.1)."""
+        self.blackboard.set_task_status(task.task_id, TaskStatus.RUNNING)
+    
+        # Mapping de usage hints e budgets por tipo de task
+        TASK_CONFIGS = {
+            "generate_prd": {"hint": "transform", "max_tokens": 1000},
+            "review_artifact": {"hint": "review", "max_tokens": 1200},
+            "design_system": {"hint": "transform", "max_tokens": 1500},
+            "run": {"hint": "reference", "max_tokens": 1000},
+            "generate_plan": {"hint": "transform", "max_tokens": 1800},
+        }
+    
+        config = TASK_CONFIGS.get(task.method_name, {"hint": "reference", "max_tokens": 1500})
+    
+        try:
+            # 1. Hot-load context com usage_hint
+            context = self.artifact_store.get_context_for_agent(
+                task.input_artifacts,
+                max_tokens=config["max_tokens"],
+                usage_hint=config["hint"]
+            )
+    
+            agent = self.agents.get(task.agent_name)
+    
+            if task.task_type == "HUMAN_GATE":
+                result = self._handle_human_gate(task, context)
+            else:
+                # Resgate do input primßrio
+                first_input_art = self.artifact_store.read(task.input_artifacts[0])
+                first_input = first_input_art.content if first_input_art else ""
+    
+                # FASE 4: Dispatch especializado para Security Review
+                if task.method_name == "review_security":
+                    # Security Reviewer recebe system_design como primeiro input, PRD como contexto
+                    prd_art = self.artifact_store.read("prd")
+                    result = method(
+                        system_design=first_input,
+                        prd_context=prd_art.content[:500] if prd_art else ""
+                    )
+                # FASE 3.1: Passagem explÝcita de contexto
+                elif len(task.input_artifacts) > 1 or context:
+>                   result = method(first_input, context)
+                             ^^^^^^
+E                   NameError: name 'method' is not defined
+
+src\core\planner.py:182: NameError
+_________________________ test_planner_pipeline_flow __________________________
+
+    def test_planner_pipeline_flow():
+        bb = Blackboard()
+        store = ArtifactStore(bb, persist_dir=".tmp_planner")
+        pm = MockAgent("PRD")
+        critic = MockAgent("CRITIQUE")
+        agents = {
+            "product_manager": pm,
+            "critic": critic,
+            "human_gate_callback": lambda x: "APPROVED"
+        }
+    
+        planner = Planner(bb, store, agents=agents)
+        # Subset of DAG
+        planner.dag = [
+            TaskDefinition("TASK_01", "product_manager", "generate_prd", ["user_idea"], "prd"),
+            TaskDefinition("TASK_02", "critic", "review_artifact", ["prd"], "prd_review", requires=["TASK_01"]),
+            TaskDefinition("TASK_03", "system", "human_gate", ["prd", "prd_review"], "approval", requires=["TASK_02"], task_type="HUMAN_GATE")
+        ]
+        for t in planner.dag:
+            bb.set_task_status(t.task_id, TaskStatus.PENDING)
+    
+>       result = planner.execute_pipeline("START")
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\test_planner.py:88: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+src\core\planner.py:127: in execute_pipeline
+    self._execute_task(task)
+src\core\planner.py:216: in _execute_task
+    raise e
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <src.core.planner.Planner object at 0x00000171D888CF10>
+task = TaskDefinition(task_id='TASK_01', agent_name='product_manager', method_name='generate_prd', input_artifacts=['user_idea'], output_artifact='prd', requires=[], task_type='AGENT', max_context_tokens=1500)
+
+    def _execute_task(self, task: TaskDefinition) -> None:
+        """Executa uma task individual com Budgeting e Post-processing (Fase 3.1)."""
+        self.blackboard.set_task_status(task.task_id, TaskStatus.RUNNING)
+    
+        # Mapping de usage hints e budgets por tipo de task
+        TASK_CONFIGS = {
+            "generate_prd": {"hint": "transform", "max_tokens": 1000},
+            "review_artifact": {"hint": "review", "max_tokens": 1200},
+            "design_system": {"hint": "transform", "max_tokens": 1500},
+            "run": {"hint": "reference", "max_tokens": 1000},
+            "generate_plan": {"hint": "transform", "max_tokens": 1800},
+        }
+    
+        config = TASK_CONFIGS.get(task.method_name, {"hint": "reference", "max_tokens": 1500})
+    
+        try:
+            # 1. Hot-load context com usage_hint
+            context = self.artifact_store.get_context_for_agent(
+                task.input_artifacts,
+                max_tokens=config["max_tokens"],
+                usage_hint=config["hint"]
+            )
+    
+            agent = self.agents.get(task.agent_name)
+    
+            if task.task_type == "HUMAN_GATE":
+                result = self._handle_human_gate(task, context)
+            else:
+                # Resgate do input primßrio
+                first_input_art = self.artifact_store.read(task.input_artifacts[0])
+                first_input = first_input_art.content if first_input_art else ""
+    
+                # FASE 4: Dispatch especializado para Security Review
+                if task.method_name == "review_security":
+                    # Security Reviewer recebe system_design como primeiro input, PRD como contexto
+                    prd_art = self.artifact_store.read("prd")
+                    result = method(
+                        system_design=first_input,
+                        prd_context=prd_art.content[:500] if prd_art else ""
+                    )
+                # FASE 3.1: Passagem explÝcita de contexto
+                elif len(task.input_artifacts) > 1 or context:
+>                   result = method(first_input, context)
+                             ^^^^^^
+E                   NameError: name 'method' is not defined
+
+src\core\planner.py:182: NameError
+=========================== short test summary info ===========================
+FAILED tests/test_planner.py::test_planner_execution_simple - NameError: name...
+FAILED tests/test_planner.py::test_planner_pipeline_flow - NameError: name 'm...
+========================= 2 failed, 2 passed in 0.17s =========================

@@ -5,7 +5,7 @@ from src.agents.proponent_agent import ProponentAgent
 from src.conversation.conversation_manager import ConversationManager
 
 class MockProvider(ModelProvider):
-    def generate(self, prompt: str, context: list = None, role: str = "user") -> str:
+    def generate(self, prompt: str, context: list = None, role: str = "user", **kwargs) -> str:
         if role == "critic":
             return "Critique: The idea lacks scalability."
         elif role == "proponent":

@@ -22,7 +22,8 @@ def test_planner_dag_initialization():
     planner = Planner(bb, store, agents={})
     planner.load_default_dag()
     
-    assert len(planner.dag) == 6
+    # FASE 4: Agora são 7 tasks
+    assert len(planner.dag) == 7
     assert bb.get_task_status("TASK_01") == str(TaskStatus.PENDING)
 
 def test_planner_dependency_check():

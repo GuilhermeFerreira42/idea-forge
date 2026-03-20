@@ -6,6 +6,7 @@ from src.agents.critic_agent import CriticAgent
 from src.agents.proponent_agent import ProponentAgent
 from src.agents.product_manager_agent import ProductManagerAgent
 from src.agents.architect_agent import ArchitectAgent
+from src.agents.security_reviewer_agent import SecurityReviewerAgent
 from src.debate.debate_engine import DebateEngine
 from src.planning.plan_generator import PlanGenerator
 from src.models.model_provider import ModelProvider
@@ -54,12 +55,13 @@ class AgentController:
             "architect": ArchitectAgent(provider, direct_mode=direct_mode),
             "critic": CriticAgent(provider, direct_mode=direct_mode),
             "proponent": ProponentAgent(provider, direct_mode=direct_mode),
+            "security_reviewer": SecurityReviewerAgent(provider, direct_mode=direct_mode),
             "debate_engine": DebateEngine(
                 proponent=ProponentAgent(provider, direct_mode=direct_mode),
                 critic=CriticAgent(provider, direct_mode=direct_mode),
                 rounds=3
             ),
-            "plan_generator": PlanGenerator(provider)
+            "plan_generator": PlanGenerator(provider, direct_mode=direct_mode)
         }
         
         # Atributos diretos para compatibilidade com a Fase 2 (necessário para testes legados)
@@ -113,7 +115,7 @@ class AgentController:
         """
         Executa o pipeline baseado em Blackboard.
         """
-        emit_pipeline_state("PIPELINE_START", "Iniciando migração para Blackboard (Fase 3)")
+        emit_pipeline_state("PIPELINE_START", "Iniciando Pipeline NEXUS (Fase 4)")
         
         # Armazena meta-informações
         self.blackboard.set_variable("initial_idea", initial_idea)
@@ -141,7 +143,10 @@ class AgentController:
 
     def _generate_final_report(self, filename: str):
         """Compila todos os artefatos em um único arquivo Markdown."""
-        artifacts_to_include = ["prd", "prd_review", "system_design", "debate_transcript", "development_plan"]
+        artifacts_to_include = [
+            "prd", "prd_review", "system_design", 
+            "security_review", "debate_transcript", "development_plan"
+        ]
         
         with open(filename, "w", encoding="utf-8") as f:
             f.write(f"# 💡 Relatório de Debate - IdeaForge CLI\n\n")
@@ -154,4 +159,28 @@ class AgentController:
                     f.write(f"**Criado por:** {artifact.created_by} | **Versão:** {artifact.version}\n\n")
                     f.write(f"{artifact.content}\n\n")
             
-            f.write(f"\n---\n*Gerado automaticamente via Blackboard Pattern.*")
+            f.write(f"\n---\n\n## 📊 Métricas de Qualidade (NEXUS Calibration)\n\n")
+            f.write("| Artefato | Density | Completude | Tabelas | Tokens |\n")
+            f.write("|---|---|---|---|---|\n")
+
+            from src.core.output_validator import OutputValidator
+            validator = OutputValidator()
+            
+            for art_name in artifacts_to_include:
+                artifact = self.artifact_store.read(art_name)
+                if artifact:
+                    # Mapear nome do artefato para o tipo do validador
+                    type_map = {
+                        "prd": "prd", "system_design": "system_design",
+                        "prd_review": "review", "security_review": "security_review",
+                        "development_plan": "plan"
+                    }
+                    val = validator.validate(artifact.content, type_map.get(art_name, "document"))
+                    f.write(
+                        f"| {art_name.upper()} | {val.get('density_score', 0):.2f} | "
+                        f"{int(val.get('completeness_score', 0)*100)}% | "
+                        f"{val.get('table_count', 0)} | "
+                        f"{artifact.token_estimate()} |\n"
+                    )
+
+            f.write(f"\n---\n*Gerado automaticamente via Blackboard Pattern — Calibração Seccional Ativa.*")
