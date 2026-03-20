@@ -1,4 +1,7 @@
 from src.models.model_provider import ModelProvider
+from src.core.prompt_templates import (
+    ANTI_PROLIXITY_DIRECTIVE, DEBATE_RESPONSE_TEMPLATE, STYLE_CONTRACT
+)
 
 # Diretiva adicionada ao system prompt quando em modo direto (sem reasoning)
 DIRECT_MODE_SUFFIX = (
@@ -16,14 +19,11 @@ class ProponentAgent:
         self.provider = provider
         self.direct_mode = direct_mode
         self._base_system_prompt = (
-            "Você é um Engenheiro Líder visionário, porém prático. "
-            "Seu trabalho é pegar uma ideia crua ou criticada e formular "
-            "uma proposta técnica "
-            "forte, estruturada e viável. "
-            "Defenda suas escolhas arquiteturais contra críticas, mas esteja "
-            "disposto a incorporar "
-            "preocupações válidas em um design melhor. Seja confiante e técnico. "
-            "Seja direto e técnico, evite introduções prolixas."
+            "Você é um Engenheiro Líder Proponente. "
+            "Saída APENAS em Markdown estruturado, sem prosa.\n\n"
+            f"{DEBATE_RESPONSE_TEMPLATE}\n"
+            f"{ANTI_PROLIXITY_DIRECTIVE}\n"
+            f"{STYLE_CONTRACT}"
         )
 
     @property
@@ -53,17 +53,26 @@ class ProponentAgent:
 
     def defend_artifact(self, artifact_content: str, critique: str, context: str = "") -> str:
         """
-        NOVO (Fase 3): Defende um artefato contra críticas recebidas.
+        FASE 3.1: Defende artefato com formato bullet/tabela forçado.
         """
-        prompt = (
+        defense_prompt = (
             f"System: {self.system_prompt}\n\n"
-            f"Artifact being defended:\n{artifact_content}\n\n"
-            f"Critique to address:\n{critique}\n\n"
-            f"Additional context:\n{context}\n\n"
-            "Respond to the critique and refine the proposal if necessary:"
+            f"ARTEFATO:\n{artifact_content[:1000]}\n\n"
+            f"CRÍTICA RECEBIDA:\n{critique[:500]}\n\n"
         )
 
-        response = self.provider.generate(
-            prompt=prompt, role="proponent"
+        if context:
+            defense_prompt += f"Contexto adicional (NÃO repita):\n{context}\n\n"
+
+        defense_prompt += (
+            "Responda APENAS com:\n"
+            "## Pontos Aceitos\n"
+            "- [ponto da crítica que é válido]\n\n"
+            "## Defesa Técnica\n"
+            "- [argumento técnico]\n\n"
+            "## Melhorias Propostas\n"
+            "| Área | Mudança | Justificativa |\n"
+            "|---|---|---|\n"
         )
-        return response
+
+        return self.provider.generate(prompt=defense_prompt, role="proponent")

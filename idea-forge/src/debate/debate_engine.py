@@ -30,8 +30,9 @@ class DebateEngine:
             f"{ANSIStyle.RESET}"
         )
         
-        # O contexto inicial inclui o que foi passado e o input principal
-        current_context = f"Main Subject:\n{first_input}\n\nRelated Context:\n{context}\n\n"
+        # FASE 3.1: O contexto inicial é enxuto.
+        initial_context = f"Main Subject:\n{first_input[:1000]}\n\nRelated Context:\n{context[:500]}\n\n"
+        current_context = initial_context
         
         for r in range(1, self.num_rounds + 1):
             # ── Round Header ──
@@ -49,14 +50,18 @@ class DebateEngine:
                 f"🛡️  PROPONENTE — formulando defesa arquitetural..."
                 f"{ANSIStyle.RESET}"
             )
-            # Na Fase 3, usamos o método defend_artifact se disponível
+            # FASE 3.1: O Proponente foca na crítica anterior
+            last_critique = self.debate_transcript[-1] if self.debate_transcript else "Inicie a defesa técnica."
+            
             prop_response = self.proponent.defend_artifact(
                 artifact_content=first_input, 
-                critique="Analyze the current state and defend the technical direction.",
-                context=current_context
+                critique=last_critique,
+                context=initial_context # Proponente sempre vê o PRD base
             )
             self.debate_transcript.append(f"Proponente:\n{prop_response}")
-            current_context += f"Proponent Defense (R{r}):\n{prop_response}\n\n"
+            
+            # Janela deslizante: O contexto para o próximo agente foca no que acabou de ser dito
+            current_context = f"{initial_context}\n\nÚltima Resposta (🛡️ Proponente):\n{prop_response}\n"
             
             if report_filename:
                 with open(report_filename, "a", encoding="utf-8") as f:
@@ -76,7 +81,9 @@ class DebateEngine:
                 context=current_context
             )
             self.debate_transcript.append(f"Crítico:\n{crit_response}")
-            current_context += f"Critic Critique (R{r}):\n{crit_response}\n\n"
+            
+            # Atualiza contexto para o próximo round (janela deslizante)
+            current_context = f"{initial_context}\n\nÚltima Crítica (⚡ Crítico):\n{crit_response}\n"
             
             if report_filename:
                 with open(report_filename, "a", encoding="utf-8") as f:

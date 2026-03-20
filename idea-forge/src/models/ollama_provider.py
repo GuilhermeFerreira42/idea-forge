@@ -64,8 +64,12 @@ class OllamaProvider(ModelProvider):
             "stream": True,
         }
 
-        # ── Configurar options com think explícito ──
-        options = {}
+        # ── Configurar options com restrições técnicas (Fase 3.1) ──
+        options = {
+            "num_predict": 800 if not self.think else 3000,
+            "temperature": 0.1 if not self.think else 0.7,
+        }
+        
         if self._is_reasoning_model:
             options["think"] = self.think
         elif self.think:

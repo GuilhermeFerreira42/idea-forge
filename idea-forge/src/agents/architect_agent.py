@@ -1,4 +1,7 @@
 from src.models.model_provider import ModelProvider
+from src.core.prompt_templates import (
+    ANTI_PROLIXITY_DIRECTIVE, SYSTEM_DESIGN_TEMPLATE, STYLE_CONTRACT
+)
 
 # Diretiva adicionada ao system prompt quando em modo direto (sem reasoning)
 DIRECT_MODE_SUFFIX = (
@@ -6,21 +9,24 @@ DIRECT_MODE_SUFFIX = (
     "Do NOT use <think> tags. Go straight to your System Design."
 )
 
+
 class ArchitectAgent:
     """
     Gera System Design a partir do PRD aprovado.
-    Responsável pela arquitetura técnica, escolha de stack e design de módulos.
+    Opera sob SOP com Schema Enforcement (Fase 3.1).
     """
 
     def __init__(self, provider: ModelProvider, direct_mode: bool = False):
         self.provider = provider
         self.direct_mode = direct_mode
         self._base_system_prompt = (
-            "Você é um Arquiteto de Software Líder especializado em sistemas escaláveis. "
-            "Seu trabalho é pegar um PRD e desenhar uma arquitetura técnica robusta. "
-            "O System Design deve incluir: Visão Geral da Arquitetura, Escolha de Stack, "
-            "Design de Módulos/Componentes, Modelo de Dados/Entidades e Fluxo de Dados. "
-            "Foque em simplicidade, mantenibilidade e performance. Seja técnico e direto."
+            "Você é um Arquiteto de Software. "
+            "Saída APENAS em Markdown estruturado, sem prosa.\n"
+            "NÃO reescreva nem resuma o PRD de entrada. "
+            "Use-o APENAS como fonte de requisitos.\n\n"
+            f"{SYSTEM_DESIGN_TEMPLATE}\n"
+            f"{ANTI_PROLIXITY_DIRECTIVE}\n"
+            f"{STYLE_CONTRACT}"
         )
 
     @property
@@ -31,16 +37,23 @@ class ArchitectAgent:
 
     def design_system(self, prd_content: str, context: str = "") -> str:
         """
-        Gera o design do sistema a partir do PRD.
+        Gera System Design a partir do PRD.
+        
+        FASE 3.1: Instrução explícita de não-repetição + formato tabular.
         """
-        prompt = (
-            f"System: {self.system_prompt}\n\n"
-            f"PRD Content:\n{prd_content}\n\n"
-            f"Additional Context:\n{context}\n\n"
-            "Generate a complete System Design document in Markdown format:"
+        prompt = f"System: {self.system_prompt}\n\n"
+
+        prompt += (
+            "PRD (REFERÊNCIA — NÃO reescreva, apenas extraia requisitos):\n"
+            f"{prd_content}\n\n"
         )
 
-        response = self.provider.generate(
-            prompt=prompt, role="architect"
+        if context:
+            prompt += f"Contexto adicional (NÃO repita):\n{context}\n\n"
+
+        prompt += (
+            "Preencha EXATAMENTE as seções do template acima. "
+            "Não adicione seções extras. Não repita dados do PRD."
         )
-        return response
+
+        return self.provider.generate(prompt=prompt, role="architect")

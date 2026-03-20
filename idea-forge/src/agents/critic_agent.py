@@ -1,5 +1,8 @@
 from src.models.model_provider import ModelProvider
 from src.conversation.conversation_manager import ConversationManager
+from src.core.prompt_templates import (
+    ANTI_PROLIXITY_DIRECTIVE, REVIEW_TEMPLATE, STYLE_CONTRACT
+)
 
 # Diretiva adicionada ao system prompt quando em modo direto (sem reasoning)
 DIRECT_MODE_SUFFIX = (
@@ -17,13 +20,11 @@ class CriticAgent:
         self.provider = provider
         self.direct_mode = direct_mode
         self._base_system_prompt = (
-            "Você é um Arquiteto de Software Sênior altamente analítico, "
-            "conhecido por suas críticas rigorosas. "
-            "Seu trabalho é analisar ideias de projetos/startups e encontrar "
-            "lacunas estruturais, componentes "
-            "ausentes, requisitos pouco claros e possíveis pontos de falha. "
-            "NÃO resolva os problemas. Faça perguntas incisivas e aponte os riscos. "
-            "Seja direto e técnico, evite introduções prolixas. Seja pragmático."
+            "Você é um Arquiteto de Software Sênior Crítico. "
+            "Saída APENAS em Markdown estruturado, sem prosa.\n\n"
+            f"{REVIEW_TEMPLATE}\n"
+            f"{ANTI_PROLIXITY_DIRECTIVE}\n"
+            f"{STYLE_CONTRACT}"
         )
 
     @property
@@ -54,17 +55,23 @@ class CriticAgent:
 
     def review_artifact(self, artifact_content: str, artifact_type: str = "document", context: str = "") -> str:
         """
-        NOVO (Fase 3): Analisa um artefato específico (PRD, System Design, etc) do Blackboard.
+        FASE 3.1: Analisa artefato com formato de lista/tabela forçado.
         """
-        prompt = (
+        review_prompt = (
             f"System: {self.system_prompt}\n\n"
-            f"Reviewing Artifact Type: {artifact_type}\n"
-            f"Artifact Content:\n{artifact_content}\n\n"
-            f"Additional context from Blackboard:\n{context}\n\n"
-            "Perform a rigorous technical review of this artifact, pointing out risks and gaps:"
+            f"ARTEFATO PARA REVISÃO (tipo: {artifact_type}):\n"
+            f"{artifact_content}\n\n"
         )
 
-        response = self.provider.generate(
-            prompt=prompt, role="critic"
+        if context:
+            review_prompt += (
+                "CONTEXTO ADICIONAL (NÃO repita):\n"
+                f"{context}\n\n"
+            )
+
+        review_prompt += (
+            "Preencha EXATAMENTE as seções do template de revisão acima. "
+            "NÃO escreva introduções ou conclusões."
         )
-        return response
+
+        return self.provider.generate(prompt=review_prompt, role="critic")

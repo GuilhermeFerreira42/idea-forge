@@ -1,3 +1,4 @@
+import re
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import List, Dict, Any, Optional, Callable
@@ -128,41 +129,52 @@ class Planner:
         return True
 
     def _execute_task(self, task: TaskDefinition) -> None:
-        """Executa uma task individual."""
+        """Executa uma task individual com Budgeting e Post-processing (Fase 3.1)."""
         self.blackboard.set_task_status(task.task_id, TaskStatus.RUNNING)
         
+        # Mapping de usage hints e budgets por tipo de task
+        TASK_CONFIGS = {
+            "generate_prd": {"hint": "transform", "max_tokens": 1000},
+            "review_artifact": {"hint": "review", "max_tokens": 1200},
+            "design_system": {"hint": "transform", "max_tokens": 1500},
+            "run": {"hint": "reference", "max_tokens": 1000},
+            "generate_plan": {"hint": "transform", "max_tokens": 1800},
+        }
+        
+        config = TASK_CONFIGS.get(task.method_name, {"hint": "reference", "max_tokens": 1500})
+        
         try:
-            # 1. Hot-load context
-            context = self.artifact_store.get_context_for_agent(task.input_artifacts, task.max_context_tokens)
+            # 1. Hot-load context com usage_hint
+            context = self.artifact_store.get_context_for_agent(
+                task.input_artifacts, 
+                max_tokens=config["max_tokens"],
+                usage_hint=config["hint"]
+            )
             
-            # 2. Prepare inputs for the agent method
-            # NOTE: This logic will need to be refined as we implement the actual agents
             agent = self.agents.get(task.agent_name)
             
             if task.task_type == "HUMAN_GATE":
-                # Handle human gate (this will interact with CLI via callback or direct input)
-                # For now, let's assume a callback is provided in agents or handled by Controller
                 result = self._handle_human_gate(task, context)
             else:
-                # Find the method
                 method = getattr(agent, task.method_name)
                 
-                # Dynamic call based on input artifacts (PM needs first input as 'idea', others as 'context')
-                # This is a bit brittle, but follows the blueprint's idea of "PM(idea, context)"
+                # Resgate do input primário (ex: a ideia para o PM, o PRD para o Arquiteto)
                 first_input_art = self.artifact_store.read(task.input_artifacts[0])
                 first_input = first_input_art.content if first_input_art else ""
                 
-                if len(task.input_artifacts) > 1:
-                    # Pass the first input and the rest as context
+                # FASE 3.1: Passagem explícita de contexto
+                if len(task.input_artifacts) > 1 or context:
                     result = method(first_input, context)
                 else:
-                    # Just pass the first input (which could be the context itself for some agents)
                     result = method(first_input)
+
+            # 2. Pós-processamento: Limpeza de ruído narrativo residual
+            clean_result = self._post_process_output(str(result))
 
             # 3. Store result
             self.artifact_store.write(
                 name=task.output_artifact,
-                content=str(result),
+                content=clean_result,
                 artifact_type=self._get_artifact_type_from_task(task),
                 created_by=task.agent_name
             )
@@ -170,16 +182,53 @@ class Planner:
             
         except Exception as e:
             self.blackboard.set_task_status(task.task_id, TaskStatus.FAILED)
-            # Re-raise or handle locally? For now let's raise to see errors
             raise e
+
+    def _post_process_output(self, text: str) -> str:
+        """Remove preâmbulos e conclusões típicas de Chat Interface."""
+        bad_starts = [
+            "Certamente", "Com certeza", "Aqui está", "Entendido", 
+            "Com base no", "Analisando o", "Como solicitado", "Segue o",
+            "Okay", "Let's", "I will", "Based on", "Here is", "Sure",
+            "Entendi", "Com base na", "De acordo"
+        ]
+        
+        lines = text.split('\n')
+        start_idx = 0
+        
+        for i, line in enumerate(lines[:10]):
+            line_strip = line.strip()
+            if not line_strip:
+                start_idx = i + 1
+                continue
+            
+            line_lower = line_strip.lower()
+            # Se a linha começa com um bad start, removemos ela.
+            # Mas não removemos se for um heading (##) ou lista (- ) ou tabela (|)
+            is_noise = any(line_lower.startswith(b.lower()) for b in bad_starts)
+            is_struct = line_strip.startswith(('#', '-', '|')) or re.match(r'^\d+\.', line_strip)
+            
+            if is_noise and not is_struct:
+                start_idx = i + 1
+            else:
+                # Encontramos conteúdo real
+                break
+        
+        clean_text = '\n'.join(lines[start_idx:]).strip()
+        
+        # Remove tags de pensamento residuais
+        if "<think>" in clean_text:
+            clean_text = re.sub(r'<think>.*?</think>', '', clean_text, flags=re.DOTALL).strip()
+            
+        return clean_text
 
     def _handle_human_gate(self, task: TaskDefinition, context: str) -> str:
         """Interage com o usuário para aprovação."""
-        # This will be overridden or implemented to call back into CLI
-        # For tests, we'll mock this
         if "human_gate_callback" in self.agents:
-            return self.agents["human_gate_callback"](context)
-        return "APPROVED" # Default for headless execution
+            # Passa apenas o resumo para o human gate se for muito grande
+            short_context = context[:2000] + "..." if len(context) > 2000 else context
+            return self.agents["human_gate_callback"](short_context)
+        return "APPROVED"
 
     def _get_artifact_type_from_task(self, task: TaskDefinition) -> str:
         if task.task_type == "HUMAN_GATE":

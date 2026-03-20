@@ -108,11 +108,19 @@ class ArtifactStore:
         """Verifica se artefato existe."""
         return name in self.artifacts
 
-    def get_context_for_agent(self, artifact_names: List[str], max_tokens: int = 1500) -> str:
+    def get_context_for_agent(self, artifact_names: List[str], max_tokens: int = 1500, usage_hint: str = "reference") -> str:
         """
         Hot-load: Monta string de contexto para injeção no prompt.
-        Trunca conteúdo se exceder max_tokens.
+        
+        FASE 3.1: Adicionado usage_hint para context framing.
         """
+        HINT_HEADERS = {
+            "reference": "↓ REFERÊNCIA — NÃO repita este conteúdo na sua resposta ↓",
+            "review": "↓ ARTEFATO PARA REVISÃO — Analise criticamente ↓",
+            "transform": "↓ INPUT — Transforme no formato solicitado ↓",
+            "summary": "↓ SUMÁRIO — Apenas campos-chave do artefato ↓",
+        }
+
         context_parts = []
         current_tokens = 0
 
@@ -121,14 +129,27 @@ class ArtifactStore:
             if not artifact:
                 continue
 
-            # Basic budget management
-            header = f"=== ARTIFACT: {artifact.name} (v{artifact.version}, {artifact.artifact_type}) ===\n"
+            hint = HINT_HEADERS.get(usage_hint, HINT_HEADERS["reference"])
+            header = (
+                f"=== ARTIFACT: {artifact.name} "
+                f"(v{artifact.version}, {artifact.artifact_type}) ===\n"
+                f"{hint}\n"
+            )
             footer = "\n=== END ARTIFACT ===\n"
             
             content = artifact.content
-            # Simple truncation if single artifact is too big
-            if (len(content) // 4) > max_tokens - current_tokens:
-                allowed_chars = (max_tokens - current_tokens) * 4
+            
+            # Simple summary logic: take first few lines if summary hint is used
+            if usage_hint == "summary" and len(content) > 500:
+                lines = content.split('\n')
+                content = '\n'.join(lines[:10]) + "... [SUMMARY ONLY]"
+
+            # Basic budget management
+            overhead = (len(header) + len(footer)) // 4
+            available_for_content = max_tokens - current_tokens - overhead
+            
+            if (len(content) // 4) > available_for_content:
+                allowed_chars = max(0, available_for_content * 4)
                 content = content[:allowed_chars] + "... [TRUNCATED]"
 
             context_parts.append(f"{header}{content}{footer}")
