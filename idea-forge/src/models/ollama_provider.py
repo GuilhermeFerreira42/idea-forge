@@ -2,6 +2,8 @@ import requests
 import json
 import sys
 from typing import Optional
+from src.core.pipeline_logger import get_pipeline_logger
+import time as _time
 from src.models.model_provider import ModelProvider, GenerationResult
 from src.config.settings import OLLAMA_ENDPOINT, MODEL_NAME
 from src.core.stream_handler import StreamHandler, ANSIStyle
@@ -88,6 +90,16 @@ class OllamaProvider(ModelProvider):
         timeout = 120 if self.think else 90
 
         try:
+            # ═══ LOGGER: Request ao LLM ═══
+            logger = get_pipeline_logger()
+            request_start = _time.time()
+            if logger:
+                logger.log_llm_request(
+                    agent="ollama",
+                    role=role,
+                    prompt=final_prompt,
+                )
+
             # Emitir estado: início da geração
             mode_label = "reasoning" if self.think else "direto"
             sys.stdout.write(
@@ -105,6 +117,19 @@ class OllamaProvider(ModelProvider):
             handler = StreamHandler(show_thinking=self.show_thinking)
             result = handler.process_ollama_stream(response.iter_lines())
 
+            # ═══ LOGGER: Response do LLM ═══
+            request_duration = int((_time.time() - request_start) * 1000)
+            if logger:
+                # O processamento do stream já exibe o progresso,
+                # logo enviamos as métricas finais para o log.
+                logger.log_llm_response(
+                    agent="ollama",
+                    content=result.content,
+                    thinking=result.thinking,
+                    tokens_processed=len(result.content) // 4,
+                    duration_ms=request_duration,
+                )
+
             return GenerationResult(
                 content=result.content,
                 thinking=result.thinking,
@@ -112,6 +137,10 @@ class OllamaProvider(ModelProvider):
             )
 
         except requests.exceptions.RequestException as e:
+            # ═══ LOGGER: Erro de comunicação ═══
+            if logger:
+                logger.log_error("ollama_generate", str(e))
+
             error_msg = f"Error communicating with Ollama: {str(e)}"
             return GenerationResult(content=error_msg, thinking="", raw=error_msg)
 

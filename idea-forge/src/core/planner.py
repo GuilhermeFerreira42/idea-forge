@@ -4,6 +4,7 @@ from enum import Enum
 from typing import List, Dict, Any, Optional, Callable
 from src.core.blackboard import Blackboard
 from src.core.artifact_store import ArtifactStore
+from src.core.pipeline_logger import get_pipeline_logger
 
 class TaskStatus(Enum):
     PENDING = "pending"
@@ -140,6 +141,17 @@ class Planner:
     def _execute_task(self, task: TaskDefinition) -> None:
         """Executa uma task individual com Budgeting e Post-processing (Fase 3.1)."""
         self.blackboard.set_task_status(task.task_id, TaskStatus.RUNNING)
+
+        # ═══ LOGGER: Task iniciada ═══
+        logger = get_pipeline_logger()
+        if logger:
+            logger.log_task(task.task_id, "START", {
+                "agent": task.agent_name,
+                "method": task.method_name,
+                "input_artifacts": task.input_artifacts,
+                "output_artifact": task.output_artifact,
+                "task_type": task.task_type,
+            })
         
         # Mapping de usage hints e budgets por tipo de task
         TASK_CONFIGS = {
@@ -199,6 +211,20 @@ class Planner:
             artifact_type_tag = self._get_artifact_tag_for_validator(task)
             validation = validator.validate(clean_result, artifact_type_tag)
 
+            # ═══ LOGGER: Validação do artefato ═══
+            if logger:
+                logger.log_validation(task.output_artifact, validation)
+
+                if not validation.get("valid", True):
+                    logger.log("HARD_GATE", {
+                        "artifact": task.output_artifact,
+                        "fail_reasons": validation.get("fail_reasons", []),
+                        "completeness": validation.get("completeness_score", 0),
+                        "density": validation.get("density_score", 0),
+                        "is_empty": any("EMPTY" in r or "TOO_SHORT" in r
+                                        for r in validation.get("fail_reasons", [])),
+                    })
+
             if not validation.get("valid", True):
                 fail_reasons = validation.get("fail_reasons", [])
                 import sys
@@ -252,8 +278,24 @@ class Planner:
                 created_by=task.agent_name
             )
             self.blackboard.set_task_status(task.task_id, TaskStatus.COMPLETED)
+
+            # ═══ LOGGER: Task concluída ═══
+            if logger:
+                logger.log_task(task.task_id, "COMPLETE", {
+                    "output_artifact": task.output_artifact,
+                    "output_chars": len(clean_result),
+                    "output_tokens_est": len(clean_result) // 4,
+                })
             
         except Exception as e:
+            # ═══ LOGGER: Task falhou ═══
+            if logger:
+                import traceback
+                logger.log_task(task.task_id, "FAIL", {
+                    "error": str(e),
+                    "traceback": traceback.format_exc()[:1000],
+                })
+
             self.blackboard.set_task_status(task.task_id, TaskStatus.FAILED)
             raise e
 

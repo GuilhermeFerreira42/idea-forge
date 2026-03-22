@@ -1,0 +1,939 @@
+# BLUEPRINT — IMPLEMENTAÇÃO DO PIPELINE LOGGER
+
+## 1. DIAGNÓSTICO DO ESTADO ATUAL
+
+```
+PROBLEMA:
+O pipeline emite eventos apenas via stdout (terminal).
+Quando o terminal fecha ou o output é grande demais, PERDE-SE:
+├── Decisões do Planner (qual task, qual status)
+├── Retries (quantos, por quê, o que mudou)
+├── Validações (density score, completude, seções faltantes)
+├── Prompts enviados ao LLM
+├── Respostas brutas do LLM (antes do pós-processamento)
+├── Tempos de execução por pass/task
+└── Erros e recuperações
+
+SOLUÇÃO:
+Arquivo JSONL (.forge/logs/pipeline_TIMESTAMP.jsonl)
+Cada linha = 1 evento JSON independente com timestamp + tipo + dados
+```
+
+## 2. ARQUIVOS A CRIAR/MODIFICAR
+
+| Arquivo | Ação | Mudança |
+|---|---|---|
+| `src/core/pipeline_logger.py` | **CRIAR** | Logger JSONL com singleton global |
+| `src/core/controller.py` | MODIFICAR | Inicializar/fechar logger, log de pipeline start/end |
+| `src/core/planner.py` | MODIFICAR | Log de task start/complete/fail + validação |
+| `src/core/sectional_generator.py` | MODIFICAR | Log de pass start/retry/fail/success |
+| `src/models/ollama_provider.py` | MODIFICAR | Log de LLM request/response |
+| `src/debate/debate_engine.py` | MODIFICAR | Log de round start/proponent/critic |
+| `tests/test_pipeline_logger.py` | **CRIAR** | Testes unitários do logger |
+
+### Arquivos NÃO alterados
+- `src/models/model_provider.py`
+- `src/core/stream_handler.py`
+- `src/core/blackboard.py`
+- `src/core/artifact_store.py`
+- `src/core/output_validator.py`
+- `src/core/golden_examples.py`
+- `src/core/prompt_templates.py`
+- `src/agents/*` (nenhum agente é modificado)
+- `src/cli/main.py`
+
+---
+
+## 3. CÓDIGO DE IMPLEMENTAÇÃO
+
+### 3.1 — `src/core/pipeline_logger.py` (CRIAR)
+
+```python
+"""
+pipeline_logger.py — Logger estruturado do pipeline completo.
+
+Captura TODOS os eventos do pipeline em formato JSONL para
+análise posterior. Cada linha é um JSON independente.
+
+Eventos registrados:
+- PIPELINE_INIT / PIPELINE_END
+- TASK_START / TASK_COMPLETE / TASK_FAIL
+- PASS_START / PASS_VALID / PASS_FAIL / PASS_RETRY
+- LLM_REQUEST / LLM_RESPONSE
+- VALIDATION
+- DEBATE_ROUND_START / DEBATE_PROPONENT / DEBATE_CRITIC
+- HARD_GATE
+- ERROR
+
+Uso:
+    logger = PipelineLogger()
+    logger.log("TASK_START", {"task_id": "TASK_01"})
+    logger.close()
+
+Singleton:
+    init_pipeline_logger()  # Uma vez no controller
+    get_pipeline_logger()   # Em qualquer módulo
+"""
+
+import json
+import time
+import datetime
+import os
+from typing import Any, Dict, List, Optional
+
+
+class PipelineLogger:
+    """Logger estruturado que captura todo o pipeline em JSONL."""
+
+    def __init__(self, log_dir: str = ".forge/logs"):
+        os.makedirs(log_dir, exist_ok=True)
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        self.filepath = os.path.join(log_dir, f"pipeline_{timestamp}.jsonl")
+        self.start_time = time.time()
+        self._file = open(self.filepath, "w", encoding="utf-8")
+
+        # Primeiro evento
+        self.log("PIPELINE_INIT", {
+            "timestamp": datetime.datetime.now().isoformat(),
+            "log_file": self.filepath,
+        })
+
+    def log(self, event_type: str, data: Dict[str, Any] = None,
+            truncate_fields: Optional[List[str]] = None,
+            max_field_len: int = 3000) -> None:
+        """
+        Registra um evento no log.
+
+        Args:
+            event_type: Tipo do evento (TASK_START, LLM_REQUEST, etc)
+            data: Dados do evento (dict)
+            truncate_fields: Campos para truncar (ex: ["prompt", "content"])
+            max_field_len: Tamanho máximo de campos truncados
+        """
+        entry = {
+            "t": event_type,
+            "ts": round(time.time() - self.start_time, 3),
+            "wall": datetime.datetime.now().isoformat(),
+        }
+
+        if data:
+            if truncate_fields:
+                data = dict(data)  # Cópia para não mutar original
+                for field in truncate_fields:
+                    if field in data and isinstance(data[field], str):
+                        if len(data[field]) > max_field_len:
+                            original_len = len(data[field])
+                            data[field] = (
+                                data[field][:max_field_len]
+                                + f"\n[TRUNCATED: {original_len} chars total]"
+                            )
+            entry["d"] = data
+
+        try:
+            self._file.write(json.dumps(entry, ensure_ascii=False) + "\n")
+            self._file.flush()  # Flush imediato para não perder em crash
+        except Exception:
+            pass  # Logger nunca deve crashar o pipeline
+
+    def log_task(self, task_id: str, status: str,
+                 details: Dict[str, Any] = None) -> None:
+        """Atalho para logar transição de task."""
+        self.log(f"TASK_{status}", {
+            "task_id": task_id,
+            **(details or {}),
+        })
+
+    def log_pass(self, pass_id: str, event: str,
+                 details: Dict[str, Any] = None) -> None:
+        """Atalho para logar evento de pass."""
+        self.log(f"PASS_{event}", {
+            "pass_id": pass_id,
+            **(details or {}),
+        })
+
+    def log_llm_request(self, agent: str, role: str, prompt: str,
+                        pass_info: str = "", attempt: int = 1) -> None:
+        """Atalho para logar requisição ao LLM."""
+        self.log("LLM_REQUEST", {
+            "agent": agent,
+            "role": role,
+            "prompt": prompt,
+            "pass": pass_info,
+            "attempt": attempt,
+            "prompt_chars": len(prompt),
+            "prompt_tokens_est": len(prompt) // 4,
+        }, truncate_fields=["prompt"])
+
+    def log_llm_response(self, agent: str, content: str,
+                         thinking: str = "", tokens_processed: int = 0,
+                         duration_ms: int = 0) -> None:
+        """Atalho para logar resposta do LLM."""
+        self.log("LLM_RESPONSE", {
+            "agent": agent,
+            "content": content,
+            "thinking_chars": len(thinking) if thinking else 0,
+            "content_chars": len(content),
+            "tokens_processed": tokens_processed,
+            "duration_ms": duration_ms,
+        }, truncate_fields=["content"])
+
+    def log_validation(self, artifact: str, validation_result: Dict) -> None:
+        """Atalho para logar resultado de validação."""
+        # Remover campos muito grandes do validation_result
+        safe_result = {k: v for k, v in validation_result.items()
+                       if k != "present_sections"}  # Evitar listas longas
+        self.log("VALIDATION", {
+            "artifact": artifact,
+            **safe_result,
+        })
+
+    def log_error(self, context: str, error: str,
+                  traceback_str: str = "") -> None:
+        """Atalho para logar erro."""
+        self.log("ERROR", {
+            "context": context,
+            "error": error,
+            "traceback": traceback_str[:2000] if traceback_str else "",
+        })
+
+    def get_filepath(self) -> str:
+        """Retorna o caminho do arquivo de log."""
+        return self.filepath
+
+    def close(self) -> None:
+        """Fecha o arquivo de log com evento final."""
+        total_time = time.time() - self.start_time
+        self.log("PIPELINE_END", {
+            "total_duration_seconds": round(total_time, 2),
+            "total_duration_human": f"{int(total_time // 60)}m {int(total_time % 60)}s",
+        })
+        try:
+            self._file.close()
+        except Exception:
+            pass
+
+
+# ─── Singleton Global ──────────────────────────────────
+_global_logger: Optional[PipelineLogger] = None
+
+
+def init_pipeline_logger(log_dir: str = ".forge/logs") -> PipelineLogger:
+    """Inicializa o logger global do pipeline."""
+    global _global_logger
+    _global_logger = PipelineLogger(log_dir)
+    return _global_logger
+
+
+def get_pipeline_logger() -> Optional[PipelineLogger]:
+    """Retorna o logger global (None se não inicializado)."""
+    return _global_logger
+```
+
+---
+
+### 3.2 — `src/core/controller.py` (MODIFICAR)
+
+Mudanças necessárias em 3 pontos:
+
+**Ponto 1: Import no topo do arquivo**
+
+```python
+# Adicionar ao bloco de imports existente:
+from src.core.pipeline_logger import init_pipeline_logger, get_pipeline_logger
+```
+
+**Ponto 2: Dentro de `run_pipeline()`, ANTES da linha `emit_pipeline_state("PIPELINE_START"...)`**
+
+```python
+    def run_pipeline(self, initial_idea: str, report_filename: str = None) -> str:
+        """
+        Executa o pipeline baseado em Blackboard.
+        """
+        # ═══ LOGGER: Inicializar ═══
+        self.logger = init_pipeline_logger()
+        self.logger.log("PIPELINE_START", {
+            "idea": initial_idea[:500],
+            "model": self.provider.model_name if hasattr(self.provider, 'model_name') else "unknown",
+            "think": self.think,
+            "report_filename": report_filename or "",
+        })
+
+        emit_pipeline_state("PIPELINE_START", "Iniciando Pipeline NEXUS (Fase 4)")
+
+        # ... resto do método existente mantido EXATAMENTE como está ...
+```
+
+**Ponto 3: Dentro de `run_pipeline()`, ANTES do `return final_plan` e no bloco `except`**
+
+```python
+        # Dentro do try, ANTES de "emit_pipeline_state("PIPELINE_COMPLETE"..."
+        # Adicionar:
+            if self.logger:
+                self.logger.log("REPORT_GENERATED", {
+                    "filename": report_filename or "",
+                    "artifacts_count": len([
+                        n for n in ["prd", "prd_review", "system_design",
+                                    "security_review", "debate_transcript",
+                                    "development_plan"]
+                        if self.artifact_store.exists(n)
+                    ]),
+                })
+
+            emit_pipeline_state("PIPELINE_COMPLETE", "Pipeline Blackboard concluído")
+
+            # ═══ LOGGER: Fechar ═══
+            if self.logger:
+                self.logger.close()
+                import sys
+                sys.stdout.write(
+                    f"\n Log completo salvo em: {self.logger.get_filepath()}\n"
+                )
+                sys.stdout.flush()
+
+            return final_plan
+
+        except Exception as e:
+            # ═══ LOGGER: Registrar erro ═══
+            logger = get_pipeline_logger()
+            if logger:
+                import traceback
+                logger.log_error(
+                    context="run_pipeline",
+                    error=str(e),
+                    traceback_str=traceback.format_exc(),
+                )
+                logger.close()
+
+            print(f"\n{ANSIStyle.RED}[ERRO] Falha no pipeline: {str(e)}{ANSIStyle.RESET}")
+            self.blackboard.persist_to_disk()
+            raise e
+```
+
+---
+
+### 3.3 — `src/core/planner.py` (MODIFICAR)
+
+**Ponto 1: Import no topo**
+
+```python
+# Adicionar ao topo, junto com os outros imports:
+from src.core.pipeline_logger import get_pipeline_logger
+```
+
+**Ponto 2: Dentro de `_execute_task()`, NO INÍCIO do método (logo após `self.blackboard.set_task_status(task.task_id, TaskStatus.RUNNING)`)**
+
+```python
+    def _execute_task(self, task: TaskDefinition) -> None:
+        """Executa uma task individual com Budgeting e Post-processing (Fase 3.1)."""
+        self.blackboard.set_task_status(task.task_id, TaskStatus.RUNNING)
+
+        # ═══ LOGGER: Task iniciada ═══
+        logger = get_pipeline_logger()
+        if logger:
+            logger.log_task(task.task_id, "START", {
+                "agent": task.agent_name,
+                "method": task.method_name,
+                "input_artifacts": task.input_artifacts,
+                "output_artifact": task.output_artifact,
+                "task_type": task.task_type,
+            })
+
+        # ... resto do código existente mantido ...
+```
+
+**Ponto 3: Dentro de `_execute_task()`, APÓS o bloco do HARD GATE, logo ANTES de `# 3. Store result`**
+
+```python
+        # ═══ LOGGER: Validação do artefato ═══
+        if logger:
+            logger.log_validation(task.output_artifact, validation)
+
+            if not validation.get("valid", True):
+                logger.log("HARD_GATE", {
+                    "artifact": task.output_artifact,
+                    "fail_reasons": validation.get("fail_reasons", []),
+                    "completeness": validation.get("completeness_score", 0),
+                    "density": validation.get("density_score", 0),
+                    "is_empty": any("EMPTY" in r or "TOO_SHORT" in r
+                                    for r in validation.get("fail_reasons", [])),
+                })
+```
+
+**Ponto 4: Dentro de `_execute_task()`, logo APÓS `self.blackboard.set_task_status(task.task_id, TaskStatus.COMPLETED)`**
+
+```python
+        self.blackboard.set_task_status(task.task_id, TaskStatus.COMPLETED)
+
+        # ═══ LOGGER: Task concluída ═══
+        if logger:
+            logger.log_task(task.task_id, "COMPLETE", {
+                "output_artifact": task.output_artifact,
+                "output_chars": len(clean_result),
+                "output_tokens_est": len(clean_result) // 4,
+            })
+```
+
+**Ponto 5: No bloco `except` do `_execute_task()`**
+
+```python
+        except Exception as e:
+            # ═══ LOGGER: Task falhou ═══
+            if logger:
+                import traceback
+                logger.log_task(task.task_id, "FAIL", {
+                    "error": str(e),
+                    "traceback": traceback.format_exc()[:1000],
+                })
+
+            self.blackboard.set_task_status(task.task_id, TaskStatus.FAILED)
+            raise e
+```
+
+---
+
+### 3.4 — `src/core/sectional_generator.py` (MODIFICAR)
+
+**Ponto 1: Import no topo**
+
+```python
+# Adicionar ao topo, junto com os outros imports:
+from src.core.pipeline_logger import get_pipeline_logger
+```
+
+**Ponto 2: Dentro de `_execute_pass_with_retry()`, NO INÍCIO do loop `for attempt`**
+
+```python
+    def _execute_pass_with_retry(self, section_pass: SectionPass,
+                                  user_input: str, context: str,
+                                  previous_output: str,
+                                  pass_number: int,
+                                  total_passes: int) -> Optional[str]:
+        last_fail_reasons = []
+
+        for attempt in range(1, MAX_RETRIES_PER_PASS + 2):
+            logger = get_pipeline_logger()
+
+            # ═══ LOGGER: Pass iniciado ═══
+            if logger:
+                logger.log_pass(section_pass.pass_id, "START", {
+                    "attempt": attempt,
+                    "sections": section_pass.sections,
+                    "pass_number": pass_number,
+                    "total_passes": total_passes,
+                })
+
+            # Construir prompt
+            prompt = self._build_pass_prompt(
+                # ... existente mantido ...
+            )
+
+            # ═══ LOGGER: Prompt construído ═══
+            if logger:
+                logger.log_llm_request(
+                    agent=section_pass.pass_id,
+                    role=self._get_role(section_pass.pass_id),
+                    prompt=prompt,
+                    pass_info=f"pass_{pass_number}_attempt_{attempt}",
+                    attempt=attempt,
+                )
+
+            # ... Se é retry, adicionar instrução corretiva (existente) ...
+
+            # Gerar
+            result = self.provider.generate(prompt=prompt, role=self._get_role(section_pass.pass_id))
+            result = self._clean_pass_output(result)
+
+            # ═══ LOGGER: Resposta recebida ═══
+            if logger:
+                logger.log_llm_response(
+                    agent=section_pass.pass_id,
+                    content=result,
+                    tokens_processed=len(result) // 4 if result else 0,
+                )
+
+            # Validar
+            validation = self.validator.validate_pass(
+                # ... existente mantido ...
+            )
+
+            if validation["valid"]:
+                # ═══ LOGGER: Pass aprovado ═══
+                if logger:
+                    logger.log_pass(section_pass.pass_id, "VALID", {
+                        "attempt": attempt,
+                        "char_count": validation.get("char_count", 0),
+                        "has_table": validation.get("has_table", False),
+                    })
+                if attempt > 1:
+                    self._emit_ok(f"  Pass {pass_number} corrigido na tentativa {attempt}")
+                return result
+
+            # Falhou — preparar retry
+            last_fail_reasons = validation.get("fail_reasons", ["UNKNOWN"])
+
+            # ═══ LOGGER: Pass falhou ═══
+            if logger:
+                logger.log_pass(section_pass.pass_id, "FAIL", {
+                    "attempt": attempt,
+                    "fail_reasons": last_fail_reasons,
+                    "action": "RETRYING" if attempt <= MAX_RETRIES_PER_PASS else "GIVING_UP",
+                    "char_count": validation.get("char_count", 0),
+                })
+
+            if attempt <= MAX_RETRIES_PER_PASS:
+                self._emit_warn(
+                    f"  Pass {pass_number} tentativa {attempt} falhou: "
+                    f"{last_fail_reasons}. Retentando..."
+                )
+
+        # Todos os retries falharam
+        return None
+```
+
+---
+
+### 3.5 — `src/models/ollama_provider.py` (MODIFICAR)
+
+**Ponto 1: Import no topo**
+
+```python
+# Adicionar ao topo:
+from src.core.pipeline_logger import get_pipeline_logger
+import time as _time
+```
+
+**Ponto 2: Dentro de `generate_with_thinking()`, ANTES e DEPOIS da chamada HTTP**
+
+```python
+    def generate_with_thinking(self, prompt: str, context: list = None,
+                                role: str = "user",
+                                max_tokens: Optional[int] = None) -> GenerationResult:
+        final_prompt = self._build_prompt(prompt)
+
+        # ... payload e options existentes mantidos ...
+
+        try:
+            # ═══ LOGGER: Request ao LLM ═══
+            logger = get_pipeline_logger()
+            request_start = _time.time()
+            if logger:
+                logger.log_llm_request(
+                    agent="ollama",
+                    role=role,
+                    prompt=final_prompt,
+                )
+
+            # Emitir estado visual (existente)
+            mode_label = "reasoning" if self.think else "direto"
+            sys.stdout.write(
+                f"{ANSIStyle.CYAN} Gerando com {self.model_name} "
+                f"(modo {mode_label})...{ANSIStyle.RESET}\n"
+            )
+            sys.stdout.flush()
+
+            response = requests.post(
+                self.endpoint, json=payload, timeout=timeout, stream=True
+            )
+            response.raise_for_status()
+
+            handler = StreamHandler(show_thinking=self.show_thinking)
+            result = handler.process_ollama_stream(response.iter_lines())
+
+            # ═══ LOGGER: Response do LLM ═══
+            request_duration = int((_time.time() - request_start) * 1000)
+            if logger:
+                logger.log_llm_response(
+                    agent="ollama",
+                    content=result.content,
+                    thinking=result.thinking,
+                    tokens_processed=len(result.content) // 4,
+                    duration_ms=request_duration,
+                )
+
+            return GenerationResult(
+                content=result.content,
+                thinking=result.thinking,
+                raw=result.raw
+            )
+
+        except requests.exceptions.RequestException as e:
+            # ═══ LOGGER: Erro de comunicação ═══
+            if logger:
+                logger.log_error("ollama_generate", str(e))
+
+            error_msg = f"Error communicating with Ollama: {str(e)}"
+            return GenerationResult(content=error_msg, thinking="", raw=error_msg)
+```
+
+---
+
+### 3.6 — `src/debate/debate_engine.py` (MODIFICAR)
+
+**Ponto 1: Import no topo**
+
+```python
+# Adicionar ao topo:
+from src.core.pipeline_logger import get_pipeline_logger
+```
+
+**Ponto 2: Dentro de `run()`, no início do loop `for r in range(...)`**
+
+```python
+        for r in range(1, self.num_rounds + 1):
+            # ═══ LOGGER: Round iniciado ═══
+            logger = get_pipeline_logger()
+            if logger:
+                logger.log("DEBATE_ROUND_START", {
+                    "round": r,
+                    "total_rounds": self.num_rounds,
+                })
+
+            # ── Round Header (existente) ──
+            print(
+                # ... existente mantido ...
+            )
+```
+
+**Ponto 3: Dentro de `run()`, APÓS `self.debate_transcript.append(f"Proponente:...")` (depois da resposta do proponente)**
+
+```python
+            self.debate_transcript.append(f"Proponente:\n{prop_response}")
+
+            # ═══ LOGGER: Proponente respondeu ═══
+            if logger:
+                logger.log("DEBATE_PROPONENT", {
+                    "round": r,
+                    "response_chars": len(prop_response),
+                    "response_tokens_est": len(prop_response) // 4,
+                })
+```
+
+**Ponto 4: Dentro de `run()`, APÓS `self.debate_transcript.append(f"Crítico:...")` (depois da resposta do crítico)**
+
+```python
+            self.debate_transcript.append(f"Crítico:\n{crit_response}")
+
+            # ═══ LOGGER: Crítico respondeu ═══
+            if logger:
+                logger.log("DEBATE_CRITIC", {
+                    "round": r,
+                    "response_chars": len(crit_response),
+                    "response_tokens_est": len(crit_response) // 4,
+                })
+```
+
+---
+
+### 3.7 — `tests/test_pipeline_logger.py` (CRIAR)
+
+```python
+"""
+test_pipeline_logger.py — Testes unitários para o PipelineLogger.
+"""
+
+import pytest
+import json
+import os
+import tempfile
+from src.core.pipeline_logger import (
+    PipelineLogger, init_pipeline_logger, get_pipeline_logger
+)
+
+
+class TestPipelineLogger:
+    """Testes para o PipelineLogger."""
+
+    def test_creates_log_file(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            logger = PipelineLogger(log_dir=tmpdir)
+            assert os.path.exists(logger.filepath)
+            assert logger.filepath.endswith(".jsonl")
+            logger.close()
+
+    def test_log_writes_valid_jsonl(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            logger = PipelineLogger(log_dir=tmpdir)
+            logger.log("TEST_EVENT", {"key": "value"})
+            logger.close()
+
+            with open(logger.filepath, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+
+            # Pelo menos 3 linhas: PIPELINE_INIT + TEST_EVENT + PIPELINE_END
+            assert len(lines) >= 3
+
+            for line in lines:
+                data = json.loads(line)
+                assert "t" in data  # event type
+                assert "ts" in data  # timestamp relativo
+                assert "wall" in data  # timestamp absoluto
+
+    def test_log_event_structure(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            logger = PipelineLogger(log_dir=tmpdir)
+            logger.log("MY_EVENT", {"foo": "bar", "num": 42})
+            logger.close()
+
+            with open(logger.filepath, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+
+            # Segunda linha é MY_EVENT (primeira é PIPELINE_INIT)
+            event = json.loads(lines[1])
+            assert event["t"] == "MY_EVENT"
+            assert event["d"]["foo"] == "bar"
+            assert event["d"]["num"] == 42
+            assert event["ts"] >= 0
+
+    def test_truncate_fields(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            logger = PipelineLogger(log_dir=tmpdir)
+            long_text = "A" * 5000
+            logger.log("BIG_EVENT", {"prompt": long_text},
+                        truncate_fields=["prompt"], max_field_len=100)
+            logger.close()
+
+            with open(logger.filepath, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+
+            event = json.loads(lines[1])
+            assert len(event["d"]["prompt"]) < 200
+            assert "TRUNCATED" in event["d"]["prompt"]
+
+    def test_log_task(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            logger = PipelineLogger(log_dir=tmpdir)
+            logger.log_task("TASK_01", "START", {"agent": "pm"})
+            logger.log_task("TASK_01", "COMPLETE", {"output_chars": 500})
+            logger.close()
+
+            with open(logger.filepath, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+
+            events = [json.loads(l) for l in lines]
+            task_events = [e for e in events if e["t"].startswith("TASK_")]
+            assert len(task_events) == 2
+            assert task_events[0]["t"] == "TASK_START"
+            assert task_events[1]["t"] == "TASK_COMPLETE"
+
+    def test_log_pass(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            logger = PipelineLogger(log_dir=tmpdir)
+            logger.log_pass("prd_p1", "START", {"attempt": 1})
+            logger.log_pass("prd_p1", "VALID", {"char_count": 200})
+            logger.close()
+
+            with open(logger.filepath, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+
+            events = [json.loads(l) for l in lines]
+            pass_events = [e for e in events if e["t"].startswith("PASS_")]
+            assert len(pass_events) == 2
+
+    def test_log_llm_request_response(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            logger = PipelineLogger(log_dir=tmpdir)
+            logger.log_llm_request("pm", "product_manager", "Generate PRD")
+            logger.log_llm_response("pm", "## Objetivo\n- Teste", tokens_processed=50)
+            logger.close()
+
+            with open(logger.filepath, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+
+            events = [json.loads(l) for l in lines]
+            llm_events = [e for e in events if e["t"].startswith("LLM_")]
+            assert len(llm_events) == 2
+
+    def test_log_validation(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            logger = PipelineLogger(log_dir=tmpdir)
+            logger.log_validation("prd", {
+                "valid": True,
+                "completeness_score": 1.0,
+                "density_score": 0.95,
+                "table_count": 5,
+            })
+            logger.close()
+
+            with open(logger.filepath, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+
+            events = [json.loads(l) for l in lines]
+            val_events = [e for e in events if e["t"] == "VALIDATION"]
+            assert len(val_events) == 1
+            assert val_events[0]["d"]["valid"] is True
+
+    def test_log_error(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            logger = PipelineLogger(log_dir=tmpdir)
+            logger.log_error("test_context", "Something broke", "traceback...")
+            logger.close()
+
+            with open(logger.filepath, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+
+            events = [json.loads(l) for l in lines]
+            err_events = [e for e in events if e["t"] == "ERROR"]
+            assert len(err_events) == 1
+            assert err_events[0]["d"]["error"] == "Something broke"
+
+    def test_pipeline_end_has_duration(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            logger = PipelineLogger(log_dir=tmpdir)
+            logger.close()
+
+            with open(logger.filepath, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+
+            last_event = json.loads(lines[-1])
+            assert last_event["t"] == "PIPELINE_END"
+            assert "total_duration_seconds" in last_event["d"]
+            assert "total_duration_human" in last_event["d"]
+
+    def test_logger_never_crashes_pipeline(self):
+        """Logger com arquivo já fechado não deve lançar exceção."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            logger = PipelineLogger(log_dir=tmpdir)
+            logger._file.close()  # Forçar fechamento
+            # Não deve lançar exceção
+            logger.log("AFTER_CLOSE", {"test": True})
+
+
+class TestPipelineLoggerSingleton:
+    """Testes para o singleton global."""
+
+    def test_init_and_get(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            logger = init_pipeline_logger(log_dir=tmpdir)
+            retrieved = get_pipeline_logger()
+            assert logger is retrieved
+            logger.close()
+
+    def test_get_before_init_returns_none(self):
+        import src.core.pipeline_logger as plm
+        plm._global_logger = None
+        assert get_pipeline_logger() is None
+```
+
+---
+
+## 4. ORDEM DE IMPLEMENTAÇÃO
+
+```
+STEP 01: src/core/pipeline_logger.py         ← CRIAR
+    Dependências: ZERO
+    Validação: python -c "from src.core.pipeline_logger import PipelineLogger; print('OK')"
+
+STEP 02: tests/test_pipeline_logger.py       ← CRIAR
+    Dependências: STEP 01
+    Validação: python -m pytest tests/test_pipeline_logger.py -v
+
+STEP 03: src/core/controller.py              ← MODIFICAR
+    Mudança: import + init logger + close logger + log start/end/error
+    Validação: python -m pytest tests/test_pipeline.py -v
+
+STEP 04: src/core/planner.py                 ← MODIFICAR
+    Mudança: import + log task start/complete/fail + log validation + log hard gate
+    Validação: python -m pytest tests/test_planner.py -v
+
+STEP 05: src/core/sectional_generator.py     ← MODIFICAR
+    Mudança: import + log pass start/valid/fail/retry + log llm request/response
+    Validação: python -m pytest tests/test_retry_logic.py -v
+
+STEP 06: src/models/ollama_provider.py       ← MODIFICAR
+    Mudança: import + log llm request/response + timing
+    Validação: python -m pytest tests/test_stream_handler.py -v
+
+STEP 07: src/debate/debate_engine.py         ← MODIFICAR
+    Mudança: import + log round start/proponent/critic
+    Validação: python -m pytest tests/test_debate.py -v
+
+STEP 08: VALIDAÇÃO FINAL
+    Comando: python -m pytest tests/ -v
+    Critério: 100% passed
+
+STEP 09: TESTE E2E
+    Comando: python src/cli/main.py
+    Verificação: .forge/logs/pipeline_*.jsonl existe com eventos
+```
+
+---
+
+## 5. INVARIANTES GARANTIDAS
+
+```
+1. Logger NUNCA crashar o pipeline
+   - Todos os logs estão em try/except ou guard "if logger:"
+   - Se o arquivo falhar, o log é silenciosamente ignorado
+
+2. Contrato generate(prompt, context, role) → str PRESERVADO
+   - Nenhuma assinatura de método é alterada
+
+3. Zero dependências externas novas
+   - Apenas json, time, datetime, os (stdlib)
+
+4. Backward compatibility total
+   - Se init_pipeline_logger() nunca for chamado, get_pipeline_logger() retorna None
+   - Todos os guards "if logger:" simplesmente pulam o log
+
+5. Performance negligenciável
+   - json.dumps de dicts pequenos + file.write + flush: <1ms por evento
+   - Truncamento evita campos de 10K+ chars
+
+6. Rollback em 1 passo
+   - Deletar pipeline_logger.py e remover os imports/chamadas adicionados
+```
+
+---
+
+## 6. CHECKLIST DE TESTE
+
+```
+ETAPA 1: Unitários do Logger
+1. [ ] python -m pytest tests/test_pipeline_logger.py -v → ALL PASSED
+
+ETAPA 2: Imports
+2. [ ] python -c "from src.core.pipeline_logger import PipelineLogger, init_pipeline_logger, get_pipeline_logger; print('OK')"
+
+ETAPA 3: Regressão
+3. [ ] python -m pytest tests/ -v → 100% PASSED
+
+ETAPA 4: E2E com Ollama
+4. [ ] python src/cli/main.py (executar pipeline completo)
+5. [ ] Verificar que .forge/logs/pipeline_*.jsonl existe
+6. [ ] Verificar que o arquivo contém PIPELINE_INIT como primeira linha
+7. [ ] Verificar que o arquivo contém PIPELINE_END como última linha
+8. [ ] Verificar que o arquivo contém eventos TASK_START
+9. [ ] Verificar que o arquivo contém eventos PASS_START
+10.[ ] Verificar que o arquivo contém eventos LLM_REQUEST
+11.[ ] Verificar que o arquivo contém eventos LLM_RESPONSE
+12.[ ] Verificar que o arquivo contém eventos VALIDATION
+13.[ ] Terminal exibe "Log completo salvo em: .forge/logs/pipeline_*.jsonl"
+
+ETAPA 5: Análise do Log
+14.[ ] Abrir o .jsonl e verificar que cada linha é JSON válido
+15.[ ] Copiar conteúdo do .jsonl e enviar para análise
+```
+
+---
+
+## 7. COMO ENVIAR O LOG PARA ANÁLISE
+
+```bash
+# Após rodar o pipeline:
+cat .forge/logs/pipeline_*.jsonl
+
+# Ou copiar apenas o mais recente:
+ls -t .forge/logs/pipeline_*.jsonl | head -1 | xargs cat
+```
+
+Cole o conteúdo do arquivo `.jsonl` na conversa. Cada linha é um evento autocontido. Com esse log eu consigo reconstruir:
+
+| Informação | Uso |
+|---|---|
+| Prompt exato de cada pass | Identificar prompts ambíguos |
+| Resposta bruta do LLM | Ver se copiou exemplo ou gerou original |
+| Tempo por pass (duration_ms) | Identificar gargalos |
+| Retries e motivos | Ver padrões de falha por modelo |
+| Validação por artefato | Comparar density/completude |
+| Sequência de tasks | Verificar ordem da DAG |
+| Erros e tracebacks | Diagnosticar sem reproduzir |

@@ -11,6 +11,7 @@ from src.debate.debate_engine import DebateEngine
 from src.planning.plan_generator import PlanGenerator
 from src.models.model_provider import ModelProvider
 from src.core.stream_handler import ANSIStyle
+from src.core.pipeline_logger import init_pipeline_logger, get_pipeline_logger
 
 
 def emit_pipeline_state(state: str, detail: str = ""):
@@ -115,6 +116,15 @@ class AgentController:
         """
         Executa o pipeline baseado em Blackboard.
         """
+        # ═══ LOGGER: Inicializar ═══
+        self.logger = init_pipeline_logger()
+        self.logger.log("PIPELINE_START", {
+            "idea": initial_idea[:500],
+            "model": self.provider.model_name if hasattr(self.provider, 'model_name') else "unknown",
+            "think": self.think,
+            "report_filename": report_filename or "",
+        })
+
         emit_pipeline_state("PIPELINE_START", "Iniciando Pipeline NEXUS (Fase 4)")
         
         # Armazena meta-informações
@@ -133,10 +143,42 @@ class AgentController:
             if report_filename:
                 self._generate_final_report(report_filename)
 
+            if self.logger:
+                self.logger.log("REPORT_GENERATED", {
+                    "filename": report_filename or "",
+                    "artifacts_count": len([
+                        n for n in ["prd", "prd_review", "system_design",
+                                    "security_review", "debate_transcript",
+                                    "development_plan"]
+                        if self.artifact_store.exists(n)
+                    ]),
+                })
+
             emit_pipeline_state("PIPELINE_COMPLETE", "Pipeline Blackboard concluído")
+
+            # ═══ LOGGER: Fechar ═══
+            if self.logger:
+                self.logger.close()
+                import sys
+                sys.stdout.write(
+                    f"\n Log completo salvo em: {self.logger.get_filepath()}\n"
+                )
+                sys.stdout.flush()
+
             return final_plan
             
         except Exception as e:
+            # ═══ LOGGER: Registrar erro ═══
+            logger = get_pipeline_logger()
+            if logger:
+                import traceback
+                logger.log_error(
+                    context="run_pipeline",
+                    error=str(e),
+                    traceback_str=traceback.format_exc(),
+                )
+                logger.close()
+
             print(f"\n{ANSIStyle.RED}[ERRO] Falha no pipeline: {str(e)}{ANSIStyle.RESET}")
             self.blackboard.persist_to_disk() # Salva o que deu pra salvar
             raise e

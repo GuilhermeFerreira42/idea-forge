@@ -43,4 +43,12 @@ F5.1 | ADD | Hard Gate | Bloquear artefatos vazios ou curtos no Planner | `plann
 F5.1 | MOD | Retry Mechanism | Implementar 2 retries por pass com prompt corretivo | `sectional_generator.py`
 F5.1 | MOD | Placeholder Detection | Rejeitar outputs com excesso de "A DEFINIR" | `output_validator.py`
 F5.1 | ADD | Unit Tests v2 | Testes de validação e retry para garantir robustez | `tests/test_output_validator_v2.py`, `tests/test_retry_logic.py`
-F5.1 | RULE | Corrective Prompting | Injetar motivos de falha no retry para guiar o modelo | `sectional_generator.py`
+F6 | RULE | Corrective Prompting | Injetar motivos de falha no retry para guiar o modelo | `sectional_generator.py`
+
+### Fase 6 — Pipeline Logger
+F6 | ADD | `PipelineLogger` | Registro estruturado em JSONL para observabilidade | `pipeline_logger.py`
+F6 | MOD | `AgentController` | Inicialização e fechamento global do logger | `controller.py`
+F6 | MOD | `Planner` | Log de ciclo de vida de tasks e Hard Gate | `planner.py`
+F6 | MOD | `SectionalGenerator` | Log detalhado de passes e retries | `sectional_generator.py`
+F6 | MOD | `OllamaProvider` | Log de performance e tokens do LLM | `ollama_provider.py`
+F6 | RULE | JSONL Observability | Priorizar logs estruturados para depuração profunda | `pipeline_logger.py`

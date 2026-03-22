@@ -13,6 +13,7 @@ from typing import List, Dict, Optional
 from src.models.model_provider import ModelProvider
 from src.core.stream_handler import ANSIStyle
 from src.core.output_validator import OutputValidator
+from src.core.pipeline_logger import get_pipeline_logger
 
 
 MAX_RETRIES_PER_PASS = 2
@@ -134,6 +135,17 @@ class SectionalGenerator:
         last_fail_reasons = []
 
         for attempt in range(1, MAX_RETRIES_PER_PASS + 2):  # attempt 1 = original, 2-3 = retries
+            logger = get_pipeline_logger()
+
+            # ═══ LOGGER: Pass iniciado ═══
+            if logger:
+                logger.log_pass(section_pass.pass_id, "START", {
+                    "attempt": attempt,
+                    "sections": section_pass.sections,
+                    "pass_number": pass_number,
+                    "total_passes": total_passes,
+                })
+
             # Construir prompt
             prompt = self._build_pass_prompt(
                 section_pass=section_pass,
@@ -143,6 +155,16 @@ class SectionalGenerator:
                 pass_number=pass_number,
                 total_passes=total_passes,
             )
+
+            # ═══ LOGGER: Prompt construído (Request) ═══
+            if logger:
+                logger.log_llm_request(
+                    agent=section_pass.pass_id,
+                    role=self._get_role(section_pass.pass_id),
+                    prompt=prompt,
+                    pass_info=f"pass_{pass_number}_attempt_{attempt}",
+                    attempt=attempt,
+                )
 
             # Se é retry, adicionar instrução corretiva
             if attempt > 1 and last_fail_reasons:
@@ -154,6 +176,14 @@ class SectionalGenerator:
             result = self.provider.generate(prompt=prompt, role=self._get_role(section_pass.pass_id))
             result = self._clean_pass_output(result)
 
+            # ═══ LOGGER: Resposta recebida ═══
+            if logger:
+                logger.log_llm_response(
+                    agent=section_pass.pass_id,
+                    content=result,
+                    tokens_processed=len(result) // 4 if result else 0,
+                )
+
             # Validar
             validation = self.validator.validate_pass(
                 content=result,
@@ -163,12 +193,29 @@ class SectionalGenerator:
             )
 
             if validation["valid"]:
+                # ═══ LOGGER: Pass aprovado ═══
+                if logger:
+                    logger.log_pass(section_pass.pass_id, "VALID", {
+                        "attempt": attempt,
+                        "char_count": validation.get("char_count", 0),
+                        "has_table": validation.get("has_table", False),
+                    })
+
                 if attempt > 1:
                     self._emit_ok(f"  Pass {pass_number} corrigido na tentativa {attempt}")
                 return result
 
             # Falhou — preparar retry
             last_fail_reasons = validation.get("fail_reasons", ["UNKNOWN"])
+
+            # ═══ LOGGER: Pass falhou ═══
+            if logger:
+                logger.log_pass(section_pass.pass_id, "FAIL", {
+                    "attempt": attempt,
+                    "fail_reasons": last_fail_reasons,
+                    "action": "RETRYING" if attempt <= MAX_RETRIES_PER_PASS else "GIVING_UP",
+                    "char_count": validation.get("char_count", 0),
+                })
 
             if attempt <= MAX_RETRIES_PER_PASS:
                 self._emit_warn(

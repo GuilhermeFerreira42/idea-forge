@@ -2,6 +2,7 @@ from typing import Dict, Any
 from src.agents.critic_agent import CriticAgent
 from src.agents.proponent_agent import ProponentAgent
 from src.core.stream_handler import ANSIStyle
+from src.core.pipeline_logger import get_pipeline_logger
 
 
 class DebateEngine:
@@ -35,6 +36,14 @@ class DebateEngine:
         current_context = initial_context
         
         for r in range(1, self.num_rounds + 1):
+            # ═══ LOGGER: Round iniciado ═══
+            logger = get_pipeline_logger()
+            if logger:
+                logger.log("DEBATE_ROUND_START", {
+                    "round": r,
+                    "total_rounds": self.num_rounds,
+                })
+
             # ── Round Header ──
             print(
                 f"\n{ANSIStyle.BOLD}{ANSIStyle.BLUE}"
@@ -59,6 +68,14 @@ class DebateEngine:
                 context=initial_context # Proponente sempre vê o PRD base
             )
             self.debate_transcript.append(f"Proponente:\n{prop_response}")
+
+            # ═══ LOGGER: Proponente respondeu ═══
+            if logger:
+                logger.log("DEBATE_PROPONENT", {
+                    "round": r,
+                    "response_chars": len(prop_response),
+                    "response_tokens_est": len(prop_response) // 4,
+                })
             
             # Janela deslizante: O contexto para o próximo agente foca no que acabou de ser dito
             current_context = f"{initial_context}\n\nÚltima Resposta (🛡️ Proponente):\n{prop_response}\n"
@@ -81,6 +98,14 @@ class DebateEngine:
                 context=current_context
             )
             self.debate_transcript.append(f"Crítico:\n{crit_response}")
+
+            # ═══ LOGGER: Crítico respondeu ═══
+            if logger:
+                logger.log("DEBATE_CRITIC", {
+                    "round": r,
+                    "response_chars": len(crit_response),
+                    "response_tokens_est": len(crit_response) // 4,
+                })
             
             # Atualiza contexto para o próximo round (janela deslizante)
             current_context = f"{initial_context}\n\nÚltima Crítica (⚡ Crítico):\n{crit_response}\n"

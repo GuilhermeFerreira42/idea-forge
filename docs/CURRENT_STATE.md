@@ -1,10 +1,11 @@
 # CURRENT_STATE — IdeaForge CLI
-> Última atualização: Fase 5.1 | 2026-03-20
+> Última atualização: Fase 6 | 2026-03-21
 
 ## Arquitetura Ativa
 - **Padrão**: Blackboard com Grafo de Artefatos (DAG).
 - **Orquestração**: Planner determinístico com **Hard Gate** (validação bloqueante).
 - **Estado**: Persistência reativa em `.forge/` (JSON).
+- **Observabilidade**: Logging estruturado total em JSONL (`.forge/logs/`).
 - **Inference**: Ollama (Local) com Reasoning Suppression e Geração Seccional (Multi-pass).
 - **Robustez**: Lógica de **Retry por Pass** (até 2 tentativas) com prompts corretivos.
 
@@ -13,6 +14,7 @@
 |---|---|---|---|
 | Blackboard | `blackboard.py` | `set_variable`, `get_variable`, `set_task_status`, `snapshot` | F3 |
 | ArtifactStore | `artifact_store.py` | `write(name, content, type)`, `read(name, version)`, `get_context_for_agent` | F3 |
+| PipelineLogger | `pipeline_logger.py` | `log(type, data)`, `log_task`, `log_pass`, `log_llm_request/response` | F6 |
 | Planner | `planner.py` | `load_default_dag()`, `execute_pipeline(user_idea)` | F4 |
 | Controller | `controller.py` | `run_pipeline(initial_idea)` | F1 |
 | StreamHandler | `stream_handler.py` | `process_ollama_stream(iterator) -> StreamResult` | F1 |
@@ -44,15 +46,18 @@
 5. **Portuguese Output**: 100% da interação e artefatos devem ser em Português.
 6. **Semantic Compression**: Formatos tabulares/bullets preferidos (Density ≥ 0.7).
 7. **Pass-level Retry**: Seções individuais de artefatos core têm até 2 retries automáticos em caso de falha.
+8. **Structured Observability**: 100% dos eventos do pipeline são logados em JSONL para auditoria.
 
 ## Restrições Técnicas Ativas
 - **Inference**: `temperature=0.1` (direct), `num_predict=1500`.
 - **Modo Direto**: Injeção de `DIRECT_MODE_SUFFIX` e `think=false` no Ollama.
 - **Sectional**: Geração em múltiplos passes (2-4 seções por artefato core).
 - **Validation**: Schema enforcement agressivo via `OutputValidator`.
+- **Logs**: Rotação manual (por execução) em `.forge/logs/pipeline_TIMESTAMP.jsonl`.
 
 ## Testes de Regressão
 - `tests/test_stream_handler.py` (Streaming & Parser)
 - `tests/test_planner.py` (DAG & Execution Flow)
 - `tests/test_output_validator_v2.py` (Hard Gate & Placeholder Detection)
 - `tests/test_retry_logic.py` (Sectional Retry Mechanism)
+- `tests/test_pipeline_logger.py` (Structured Logging JSONL)
