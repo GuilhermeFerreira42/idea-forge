@@ -85,10 +85,10 @@ class CriticAgent:
         """
         from src.core.sectional_generator import SectionalGenerator
 
-        # Montar input combinado para o generator
+        # FASE 7.1: Aumentar truncamento para PRDs NEXUS densos (era [:1500])
         combined_input = (
             f"ARTEFATO PARA REVISÃO (tipo: {artifact_type}):\n"
-            f"{artifact_content[:1500]}"
+            f"{artifact_content[:3000]}"
         )
 
         generator = SectionalGenerator(

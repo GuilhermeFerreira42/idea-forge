@@ -1,0 +1,718 @@
+# Blueprint — Fase 7.1: Consolidação NEXUS + Fix Critic
+
+## Projeto: IdeaForge CLI
+
+### Gerado seguindo: Meta-Comando Universal de Documentação Arquitetural Determinística v3.0
+
+---
+
+## SEÇÃO 1 — OVERVIEW
+
+### Objetivo de Negócio Mensurável
+
+Corrigir o truncamento de contexto que impede o Critic de avaliar o PRD completo, e adicionar uma etapa final ao pipeline que consolida todos os artefatos em um PRD definitivo no padrão NEXUS Protocol v1.0.
+
+### Problema Resolvido
+
+| # | Patologia | Causa Raiz | Evidência |
+|---|---|---|---|
+| P-01 | Critic marca RF como "não atendido" quando o PRD tem 8 RF completos | `max_tokens=1200` no `TASK_CONFIGS` trunca o PRD antes das seções de RF/RNF | Teste E2E: Critic output diz "ausência de requisitos" com PRD válido |
+| P-02 | `artifact_content[:1500]` no `critic_agent.py` corta PRD NEXUS pela metade | PRD NEXUS tem ~4000+ chars, truncamento em 1500 elimina 60% do conteúdo | Log: Critic recebe apenas Objetivo+Problema+Público-Alvo |
+| P-03 | Pipeline não gera documento final consolidado | Não existe TASK_07 — pipeline termina no Development Plan | Relatório `.md` é concatenação bruta de artefatos separados |
+| P-04 | Insights do debate e correções do Critic não retornam ao PRD | PRD v1 é gerado na TASK_01 e nunca atualizado | PRD final não incorpora ADRs, mitigações de segurança nem decisões do debate |
+
+### Métricas de Sucesso
+
+| Métrica | Valor Atual | Target | Como Medir |
+|---|---|---|---|
+| RF marcados como "atendido" pelo Critic | 0/8 (todos ❌) | ≥6/8 (≥75% ✅) | Contar status ✅ no output do Critic |
+| Artefato `prd_final` existe após pipeline | Não existe | Existe com completeness ≥0.75 | `artifact_store.exists("prd_final")` |
+| Relatório `.md` tem PRD consolidado no topo | Não — tem concatenação | Sim — PRD final é seção principal | Inspeção do arquivo gerado |
+| Critic avalia ≥8 RF individualmente | Avalia 1-2 RF genéricos | Lista ≥8 RF-XX com status | Contagem de `RF-` no output do Critic |
+
+### Impacto Sistêmico
+
+| Componente | Impacto | Risco de Regressão |
+|---|---|---|
+| `planner.py` | MÉDIO — aumentar `max_tokens` em TASK_CONFIGS + adicionar TASK_07 na DAG | Testes `test_planner.py` verificam tamanho da DAG (7→8 tasks) |
+| `critic_agent.py` | BAIXO — mudar `[:1500]` para `[:3000]` | Nenhum — é apenas um número |
+| `product_manager_agent.py` | MÉDIO — adicionar método `consolidate_prd()` | Nenhum — método novo, não altera existentes |
+| `controller.py` | BAIXO — `_generate_final_report` prioriza `prd_final` | Nenhum — lógica aditiva |
+| `prompt_templates.py` | BAIXO — adicionar `NEXUS_CONSOLIDATION_TEMPLATE` | Nenhum — nova constante |
+| `sectional_generator.py` | NENHUM | Nenhum |
+| `output_validator.py` | NENHUM | Nenhum |
+
+### Escopo Fechado — INCLUI
+
+- Fix de `max_tokens` em `TASK_CONFIGS` no `planner.py`
+- Fix de truncamento `[:1500]` → `[:3000]` no `critic_agent.py`
+- Nova constante `NEXUS_CONSOLIDATION_TEMPLATE` em `prompt_templates.py`
+- Novo método `consolidate_prd()` em `product_manager_agent.py`
+- Nova TASK_07 na DAG em `planner.py`
+- Atualização de `_generate_final_report` em `controller.py`
+- Atualização de testes afetados
+
+### Escopo Fechado — NÃO INCLUI
+
+- Mudanças de velocidade (flags `--fast`, `--quiet`)
+- Mudanças no DebateEngine
+- Mudanças no SecurityReviewerAgent
+- Mudanças no ArchitectAgent
+- Mudanças no SectionalGenerator ou OutputValidator
+- Suporte a arquivos/PDFs
+- Interface web
+
+### Invariantes Invioláveis
+
+1. **Tasks 01-06 inalteradas:** Quantidade, ordem e dependências das tasks existentes não mudam.
+2. **Contratos existentes preservados:** `generate_prd()`, `design_system()`, `review_artifact()` mantêm mesma assinatura.
+3. **TASK_07 é aditiva:** Apenas adiciona ao final da DAG, não altera o fluxo existente.
+4. **PRD v1 permanece:** O artefato `prd` original continua existindo — `prd_final` é uma versão consolidada separada.
+5. **Backward compatibility:** Se TASK_07 falhar, o pipeline ainda entrega o Development Plan (comportamento atual).
+
+### Dependências Externas
+
+| Dependência | Versão | Status |
+|---|---|---|
+| Todas as mesmas da Fase 7 | — | Já instaladas |
+
+### Riscos Estratégicos
+
+| Risco | Probabilidade | Impacto | Mitigação |
+|---|---|---|---|
+| Prompt de consolidação excede janela de contexto | Média | Alto | Resumir artefatos antes de injetar (usar `_summarize_previous`) |
+| LLM não segue template NEXUS na consolidação | Baixa | Médio | Template é explícito + golden example embutido |
+| TASK_07 falha e impede relatório final | Baixa | Baixo | Fallback: relatório usa artefatos separados (comportamento atual) |
+| Aumento de `max_tokens` no Critic causa timeout | Baixa | Baixo | Modelo cloud tem 32K+ de contexto — 2500 tokens é pequeno |
+
+### Critérios Objetivos de Conclusão
+
+- [ ] Critic lista ≥6 RF com status individual (RF-01, RF-02, etc.)
+- [ ] Artefato `prd_final` existe no `.forge/artifacts/` após pipeline
+- [ ] `prd_final` contém seções de todos os artefatos consolidados
+- [ ] Relatório `.md` tem PRD final como seção principal
+- [ ] DAG tem 8 tasks (era 7)
+- [ ] Todos os testes passam
+
+---
+
+## SEÇÃO 2 — ARCHITECTURE
+
+### Fluxo Operacional (Atualizado)
+
+```
+01-10. [INALTERADO — mesmo fluxo da Fase 7]
+11. planner → TASK_07 (PM)    → consolidate_prd(todos os artefatos)
+    └── PM usa NEXUS_CONSOLIDATION_TEMPLATE [NOVO]
+    └── Chamada única com num_predict=5000
+    └── Output: prd_final
+12. controller → relatório    → _generate_final_report com prd_final no topo
+```
+
+### Lista de Arquivos ALTERÁVEIS
+
+| Arquivo | Ação | Justificativa |
+|---|---|---|
+| `src/core/planner.py` | MODIFICAR | Aumentar `max_tokens` em TASK_CONFIGS + adicionar TASK_07 |
+| `src/agents/critic_agent.py` | MODIFICAR | `[:1500]` → `[:3000]` no `review_artifact` |
+| `src/agents/product_manager_agent.py` | MODIFICAR | Adicionar método `consolidate_prd()` |
+| `src/core/prompt_templates.py` | MODIFICAR | Adicionar `NEXUS_CONSOLIDATION_TEMPLATE` |
+| `src/core/controller.py` | MODIFICAR | `_generate_final_report` prioriza `prd_final` |
+| `tests/test_planner.py` | MODIFICAR | DAG agora tem 8 tasks |
+
+### Lista de Arquivos PROTEGIDOS
+
+| Arquivo | Motivo |
+|---|---|
+| `src/core/blackboard.py` | Não impactado |
+| `src/core/artifact_store.py` | Não impactado |
+| `src/core/stream_handler.py` | Não impactado |
+| `src/core/output_validator.py` | Não impactado |
+| `src/core/sectional_generator.py` | Não impactado |
+| `src/core/golden_examples.py` | Não impactado |
+| `src/models/ollama_provider.py` | Não impactado |
+| `src/agents/architect_agent.py` | Não impactado |
+| `src/agents/proponent_agent.py` | Não impactado |
+| `src/agents/security_reviewer_agent.py` | Não impactado |
+| `src/debate/debate_engine.py` | Não impactado |
+
+### Política de Rollback
+
+```
+1. git revert do commit da Fase 7.1
+2. TASK_07 some da DAG — pipeline volta a ter 7 tasks
+3. Relatório volta ao formato concatenado
+4. Nenhuma dependência nova — sem pip uninstall
+```
+
+---
+
+## SEÇÃO 3 — TECH SPECS
+
+### Fix do Critic — Valores Exatos
+
+**Arquivo: `planner.py`, dicionário `TASK_CONFIGS`**
+
+| Config | Valor Atual | Novo Valor | Justificativa |
+|---|---|---|---|
+| `review_artifact.max_tokens` | 1200 | 2500 | PRD NEXUS tem 11 seções — 1200 tokens corta nas primeiras 3 |
+| `design_system.max_tokens` | 1500 | 2500 | System Design também é denso |
+| `run.max_tokens` | 1000 | 1500 | Debate precisa de mais contexto |
+| `generate_plan.max_tokens` | 1800 | 2500 | Plan recebe 4 artefatos |
+
+**Arquivo: `critic_agent.py`, método `review_artifact`**
+
+| Parâmetro | Valor Atual | Novo Valor |
+|---|---|---|
+| `artifact_content[:1500]` | 1500 chars | 3000 chars |
+
+### TASK_07 — Especificação
+
+| Atributo | Valor |
+|---|---|
+| task_id | `TASK_07` |
+| agent_name | `product_manager` |
+| method_name | `consolidate_prd` |
+| input_artifacts | `["prd", "prd_review", "system_design", "security_review", "debate_transcript", "development_plan"]` |
+| output_artifact | `prd_final` |
+| requires | `["TASK_06"]` |
+| task_type | `"AGENT"` |
+
+### Método `consolidate_prd()` — Contrato
+
+```
+consolidate_prd(artifacts_context: str, original_idea: str = "") -> str
+
+Input:
+  - artifacts_context: String com todos os artefatos resumidos/concatenados
+  - original_idea: Ideia original do usuário (para referência)
+
+Output:
+  - String Markdown: PRD Final no padrão NEXUS Protocol v1.0
+
+Comportamento:
+  - Chamada ÚNICA ao LLM (sem SectionalGenerator)
+  - Usa NEXUS_CONSOLIDATION_TEMPLATE como prompt
+  - num_predict controlado pelo provider (5000 em reasoning, 2500 em direto)
+  - Se falhar, retorna string de fallback indicando falha
+```
+
+### Template de Consolidação — Estrutura
+
+O `NEXUS_CONSOLIDATION_TEMPLATE` deve instruir o LLM a:
+
+1. Ler os artefatos de entrada (PRD v1, Review, Design, Security, Debate, Plan)
+2. Incorporar correções do Critic
+3. Adicionar ADRs do System Design
+4. Incluir mitigações do Security Review
+5. Integrar decisões do Debate
+6. Gerar um documento único no formato PRD NEXUS com TODAS as seções
+
+### Requisitos Funcionais da Fase 7.1
+
+| ID | Requisito | Critério de Aceite |
+|---|---|---|
+| RF-7.1-01 | Critic avalia cada RF individualmente | Output contém ≥6 linhas com `RF-XX \| ✅` ou `RF-XX \| ❌` |
+| RF-7.1-02 | Pipeline gera artefato `prd_final` | `artifact_store.exists("prd_final") == True` |
+| RF-7.1-03 | `prd_final` contém seções do NEXUS Protocol | `OutputValidator.validate(prd_final, "prd")["valid"] == True` |
+| RF-7.1-04 | `prd_final` incorpora ADRs do System Design | `"ADR-" in prd_final` |
+| RF-7.1-05 | `prd_final` incorpora ameaças do Security Review | `"T-0" in prd_final` ou `"STRIDE" in prd_final` |
+| RF-7.1-06 | Relatório `.md` tem PRD final como documento principal | Primeira seção após índice é `## PRD FINAL` |
+| RF-7.1-07 | DAG tem 8 tasks | `len(planner.dag) == 8` |
+
+---
+
+## SEÇÃO 4 — STRUCTURAL STANDARDS
+
+### Alterações Proibidas
+
+| Item | Motivo |
+|---|---|
+| Assinatura de `generate_prd()` | Contrato público da Fase 7 |
+| Estrutura das TASK_01 a TASK_06 | Invariante |
+| Lógica do `SectionalGenerator` | Não impactado |
+| Lógica do `OutputValidator` | Não impactado |
+| Formato de persistência em `.forge/` | Backward compatibility |
+
+### Regras de Acoplamento da TASK_07
+
+| Componente | Pode Depender De | NÃO Pode Depender De |
+|---|---|---|
+| `consolidate_prd()` | `prompt_templates.py`, `model_provider` | Controller, Planner, Blackboard, outros agentes |
+
+---
+
+## SEÇÃO 5 — EXECUTION
+
+### Ordem de Implementação
+
+```
+STEP 01: planner.py (TASK_CONFIGS)  ← MODIFICAR | Deps: ZERO    | Validação: testes existentes passam
+STEP 02: critic_agent.py            ← MODIFICAR | Deps: ZERO    | Validação: import sem erro
+STEP 03: prompt_templates.py        ← MODIFICAR | Deps: ZERO    | Validação: import sem erro
+STEP 04: product_manager_agent.py   ← MODIFICAR | Deps: STEP 03 | Validação: import sem erro
+STEP 05: planner.py (TASK_07)       ← MODIFICAR | Deps: STEP 04 | Validação: DAG tem 8 tasks
+STEP 06: controller.py              ← MODIFICAR | Deps: STEP 05 | Validação: relatório tem prd_final
+STEP 07: testes                     ← MODIFICAR | Deps: ALL     | Validação: pytest → ALL PASSED
+STEP 08: teste E2E                  ← EXECUTAR  | Deps: ALL     | Validação: checklist
+```
+
+---
+
+### STEP 01 — planner.py (TASK_CONFIGS)
+
+**Localização:** `src/core/planner.py`, método `_execute_task`, dicionário `TASK_CONFIGS`
+
+```python
+# FASE 7.1: Aumentar budget de contexto para artefatos NEXUS densos
+TASK_CONFIGS = {
+    "generate_prd": {"hint": "transform", "max_tokens": 1000},
+    "review_artifact": {"hint": "review", "max_tokens": 2500},      # era 1200
+    "design_system": {"hint": "transform", "max_tokens": 2500},     # era 1500
+    "run": {"hint": "reference", "max_tokens": 1500},               # era 1000
+    "generate_plan": {"hint": "transform", "max_tokens": 2500},     # era 1800
+    "review_security": {"hint": "review", "max_tokens": 2000},      # novo
+    "consolidate_prd": {"hint": "reference", "max_tokens": 3000},   # FASE 7.1: TASK_07
+}
+```
+
+---
+
+### STEP 02 — critic_agent.py
+
+**Localização:** `src/agents/critic_agent.py`, método `review_artifact`
+
+**Mudança:** Linha com `artifact_content[:1500]`
+
+```python
+def review_artifact(self, artifact_content: str,
+                    artifact_type: str = "document",
+                    context: str = "") -> str:
+    """
+    FASE 5.1: Review com geração seccional (2 passes).
+    Fallback para chamada única se seccional falhar.
+    """
+    from src.core.sectional_generator import SectionalGenerator
+
+    # FASE 7.1: Aumentar truncamento para PRDs NEXUS densos (era [:1500])
+    combined_input = (
+        f"ARTEFATO PARA REVISÃO (tipo: {artifact_type}):\n"
+        f"{artifact_content[:3000]}"
+    )
+    # ... resto do método permanece igual
+```
+
+---
+
+### STEP 03 — prompt_templates.py
+
+**Localização:** `src/core/prompt_templates.py`
+
+**Mudança:** Adicionar nova constante no final do arquivo:
+
+```python
+# ─── Template: Consolidação NEXUS (Fase 7.1) ────────────────────────
+NEXUS_CONSOLIDATION_TEMPLATE = (
+    "TAREFA: Consolidar todos os artefatos abaixo em um PRD FINAL DEFINITIVO.\n\n"
+    
+    "REGRAS DE CONSOLIDAÇÃO:\n"
+    "1. O documento final deve ser AUTOCONTIDO — alguém que leia apenas ele entende o projeto inteiro.\n"
+    "2. INCORPORAR correções e issues do Critic (resolver, não apenas listar).\n"
+    "3. INCORPORAR ADRs e decisões do System Design.\n"
+    "4. INCORPORAR mitigações do Security Review.\n"
+    "5. INCORPORAR pontos de consenso do Debate.\n"
+    "6. NÃO copiar artefatos inteiros — sintetizar e consolidar.\n"
+    "7. Cada seção deve refletir o estado FINAL (pós-debate, pós-review).\n"
+    "8. Responder em Português.\n\n"
+
+    "FORMATO OBRIGATÓRIO DO PRD FINAL (PADRÃO NEXUS v1.0):\n\n"
+
+    "## Visão do Produto\n"
+    "- Codinome: [nome do projeto]\n"
+    "- Declaração de visão: [1 frase, máx 30 palavras]\n\n"
+
+    "## Problema e Solução\n"
+    "| ID | Problema | Impacto | Como o Sistema Resolve |\n"
+    "|---|---|---|---|\n\n"
+
+    "## Público-Alvo\n"
+    "| Segmento | Perfil | Prioridade |\n"
+    "|---|---|---|\n\n"
+
+    "## Princípios Arquiteturais\n"
+    "| Princípio | Descrição | Implicação Técnica |\n"
+    "|---|---|---|\n\n"
+
+    "## Diferenciais\n"
+    "| Abordagem Atual | Problema | Como Este Sistema Supera |\n"
+    "|---|---|---|\n\n"
+
+    "## Requisitos Funcionais (Consolidados)\n"
+    "| ID | Requisito | Critério de Aceite | Prioridade | Complexidade | Status Pós-Review |\n"
+    "|---|---|---|---|---|---|\n"
+    "(incluir coluna de status baseada no Review)\n\n"
+
+    "## Requisitos Não-Funcionais\n"
+    "| ID | Categoria | Requisito | Métrica | Target |\n"
+    "|---|---|---|---|---|\n\n"
+
+    "## Arquitetura e Tech Stack (do System Design)\n"
+    "- Estilo: [tipo]\n"
+    "- Stack resumida em tabela\n"
+    "| Camada | Tecnologia | Justificativa |\n"
+    "|---|---|---|\n\n"
+
+    "## ADRs (do System Design)\n"
+    "| ID | Decisão | Alternativa Rejeitada | Consequências |\n"
+    "|---|---|---|---|\n\n"
+
+    "## Análise de Segurança (do Security Review)\n"
+    "| ID | Ameaça STRIDE | Componente | Severidade | Mitigação |\n"
+    "|---|---|---|---|---|\n\n"
+
+    "## Escopo MVP\n"
+    "**Inclui:** [lista com RF-XX]\n"
+    "**NÃO inclui:** [lista com justificativa]\n\n"
+
+    "## Riscos Consolidados (PRD + Design + Security)\n"
+    "| ID | Risco | Fonte | Probabilidade | Impacto | Mitigação |\n"
+    "|---|---|---|---|---|---|\n\n"
+
+    "## Métricas de Sucesso\n"
+    "| Métrica | Target | Prazo | Como Medir |\n"
+    "|---|---|---|---|\n\n"
+
+    "## Plano de Implementação (resumo do Development Plan)\n"
+    "| Fase | Duração | Entregas | Critério de Conclusão |\n"
+    "|---|---|---|---|\n\n"
+
+    "## Decisões do Debate (pontos de consenso)\n"
+    "- [Decisão 1 com justificativa]\n"
+    "- [Decisão 2 com justificativa]\n\n"
+
+    "## Constraints Técnicos\n"
+    "- Linguagem: [...]\n"
+    "- Framework: [...]\n"
+    "- Banco de dados: [...]\n"
+    "- Infraestrutura: [...]\n"
+)
+```
+
+---
+
+### STEP 04 — product_manager_agent.py
+
+**Localização:** `src/agents/product_manager_agent.py`
+
+**Mudança:** Adicionar método `consolidate_prd()` após o método `_generate_single_pass()`:
+
+```python
+def consolidate_prd(self, artifacts_context: str, original_idea: str = "") -> str:
+    """
+    FASE 7.1: Consolida todos os artefatos do pipeline em um PRD final
+    no padrão NEXUS Protocol v1.0.
+    
+    Chamada ÚNICA ao LLM (sem SectionalGenerator) para máxima coerência.
+    """
+    from src.core.prompt_templates import NEXUS_CONSOLIDATION_TEMPLATE
+    
+    prompt = (
+        f"System: Você é o Agente PRODUCT MANAGER do sistema IdeaForge.\n"
+        f"Sua tarefa é consolidar os artefatos de um projeto em um PRD FINAL definitivo.\n"
+        f"Responda em Português. Use APENAS tabelas e bullets.\n\n"
+        f"{NEXUS_CONSOLIDATION_TEMPLATE}\n\n"
+    )
+    
+    if original_idea:
+        prompt += f"IDEIA ORIGINAL DO USUÁRIO:\n{original_idea[:500]}\n\n"
+    
+    prompt += (
+        f"ARTEFATOS DO PIPELINE (sintetize, não copie):\n"
+        f"{artifacts_context}\n\n"
+        f"GERE O PRD FINAL CONSOLIDADO AGORA."
+    )
+    
+    result = self.provider.generate(
+        prompt=prompt,
+        role="product_manager"
+    )
+    
+    # Fallback se resultado for muito curto
+    if not result or len(result.strip()) < 200:
+        return (
+            "## PRD FINAL — CONSOLIDAÇÃO FALHOU\n\n"
+            "O modelo não produziu um PRD consolidado válido.\n"
+            "Consulte os artefatos individuais no relatório.\n"
+        )
+    
+    return result
+```
+
+**Import necessário:** Nenhum novo — `prompt_templates` já é importado.
+
+---
+
+### STEP 05 — planner.py (TASK_07)
+
+**Localização:** `src/core/planner.py`, método `load_default_dag()`
+
+**Mudança:** Adicionar TASK_07 após TASK_06:
+
+```python
+def load_default_dag(self) -> None:
+    """Carrega a DAG padrão de 8 tasks conforme o Blueprint NEXUS (Fase 7.1)."""
+    self.dag = [
+        # ... TASK_01 a TASK_06 permanecem INALTERADAS ...
+        
+        TaskDefinition(
+            task_id="TASK_06",
+            agent_name="plan_generator",
+            method_name="generate_plan",
+            input_artifacts=["prd", "system_design", "security_review", "debate_transcript"],
+            output_artifact="development_plan",
+            requires=["TASK_05"],
+            task_type="ENGINE"
+        ),
+        # FASE 7.1: Consolidação final — PRD definitivo no padrão NEXUS
+        TaskDefinition(
+            task_id="TASK_07",
+            agent_name="product_manager",
+            method_name="consolidate_prd",
+            input_artifacts=["prd", "prd_review", "system_design", 
+                           "security_review", "debate_transcript", "development_plan"],
+            output_artifact="prd_final",
+            requires=["TASK_06"],
+            task_type="AGENT",
+            max_context_tokens=3000
+        ),
+    ]
+    # ... resto do método permanece igual
+```
+
+**Mudança adicional no `_execute_task`:** O dispatch para `consolidate_prd` precisa passar o contexto e a ideia original.
+
+No método `_execute_task`, após o bloco de dispatch para `review_security`, adicionar:
+
+```python
+# FASE 7.1: Dispatch especializado para Consolidação NEXUS
+elif task.method_name == "consolidate_prd":
+    original_idea = self.blackboard.get_variable("initial_idea", "")
+    result = method(
+        artifacts_context=context,
+        original_idea=original_idea
+    )
+```
+
+**Mudança no `_execute_task`:** O `TASK_CONFIGS` já foi atualizado no STEP 01. Mas o `consolidate_prd` usa `max_tokens=3000` para receber mais contexto dos 6 artefatos.
+
+**Mudança no `_get_artifact_tag_for_validator`:** Adicionar mapeamento:
+
+```python
+def _get_artifact_tag_for_validator(self, task: TaskDefinition) -> str:
+    mapping = {
+        "prd": "prd",
+        "system_design": "system_design",
+        "prd_review": "review",
+        "security_review": "security_review",
+        "development_plan": "plan",
+        "prd_final": "prd",  # FASE 7.1: Valida como PRD
+    }
+    return mapping.get(task.output_artifact, "document")
+```
+
+---
+
+### STEP 06 — controller.py
+
+**Localização:** `src/core/controller.py`, método `_generate_final_report`
+
+**Mudança:** Priorizar `prd_final` como documento principal:
+
+```python
+def _generate_final_report(self, filename: str):
+    """Compila todos os artefatos em um único arquivo Markdown."""
+    
+    with open(filename, "w", encoding="utf-8") as f:
+        # FASE 7.1: Sumário executivo
+        f.write(f"# Relatório IdeaForge — Padrão NEXUS\n\n")
+        f.write(f"**Ideia:** {self.blackboard.get_variable('initial_idea')}\n\n")
+        f.write(f"**Modelo:** {self.provider.model_name if hasattr(self.provider, 'model_name') else 'N/A'}\n\n")
+
+        # FASE 7.1: PRD Final como documento principal
+        prd_final = self.artifact_store.read("prd_final")
+        if prd_final:
+            f.write("---\n\n")
+            f.write("## PRD FINAL CONSOLIDADO (Padrão NEXUS)\n\n")
+            f.write(f"{prd_final.content}\n\n")
+            f.write("---\n\n")
+
+        # Índice dos artefatos de apoio
+        artifacts_to_include = [
+            "prd", "prd_review", "system_design",
+            "security_review", "debate_transcript", "development_plan"
+        ]
+        
+        f.write("## Artefatos de Apoio (Processo de Elaboração)\n\n")
+        for art_name in artifacts_to_include:
+            if self.artifact_store.exists(art_name):
+                f.write(f"- [{art_name.upper().replace('_', ' ')}](#{art_name})\n")
+        f.write("\n---\n\n")
+
+        # Artefatos individuais
+        for art_name in artifacts_to_include:
+            artifact = self.artifact_store.read(art_name)
+            if artifact:
+                f.write(f"<a id='{art_name}'></a>\n\n")
+                f.write(f"## {art_name.upper().replace('_', ' ')}\n")
+                f.write(f"**Criado por:** {artifact.created_by} | **Versão:** {artifact.version}\n\n")
+                f.write(f"{artifact.content}\n\n")
+                f.write("---\n\n")
+
+        # Métricas de qualidade
+        f.write("## Métricas de Qualidade (NEXUS Calibration)\n\n")
+        f.write("| Artefato | Density | Completude | Tabelas | Tokens |\n")
+        f.write("|---|---|---|---|---|\n")
+        from src.core.output_validator import OutputValidator
+        validator = OutputValidator()
+        
+        # Incluir prd_final nas métricas
+        all_artifacts = ["prd_final"] + artifacts_to_include
+        for art_name in all_artifacts:
+            artifact = self.artifact_store.read(art_name)
+            if artifact:
+                type_map = {
+                    "prd": "prd", "prd_final": "prd",
+                    "system_design": "system_design",
+                    "prd_review": "review", "security_review": "security_review",
+                    "development_plan": "plan"
+                }
+                val = validator.validate(artifact.content, type_map.get(art_name, "document"))
+                f.write(
+                    f"| {art_name.upper()} | {val.get('density_score', 0):.2f} | "
+                    f"{int(val.get('completeness_score', 0)*100)}% | "
+                    f"{val.get('table_count', 0)} | {artifact.token_estimate()} |\n"
+                )
+
+        f.write(f"\n---\n*Gerado via IdeaForge CLI — Calibração NEXUS Fase 7.1*")
+```
+
+**Mudança no `run_pipeline`:** O retorno do pipeline agora deve ser o `prd_final` se existir:
+
+No método `run_pipeline`, antes do `return final_plan`, adicionar:
+
+```python
+# FASE 7.1: Se prd_final existe, retornar ele como output principal
+prd_final = self.artifact_store.read("prd_final")
+if prd_final:
+    final_output = prd_final.content
+else:
+    final_output = final_plan
+
+# ... Persistência e relatório ...
+return final_output
+```
+
+**Nota:** Isso requer mover a lógica de persistência e relatório para antes do return. O ajuste exato:
+
+```python
+try:
+    final_plan = self.planner.execute_pipeline(initial_idea)
+    
+    # Persistência final
+    self.blackboard.persist_to_disk()
+    self.artifact_store.persist_to_disk()
+    
+    # Geração do relatório
+    if report_filename:
+        self._generate_final_report(report_filename)
+    
+    emit_pipeline_state("PIPELINE_COMPLETE", "Pipeline Blackboard concluído")
+    
+    # FASE 7.1: Retornar PRD final se existir, senão Development Plan
+    prd_final_art = self.artifact_store.read("prd_final")
+    if prd_final_art and len(prd_final_art.content.strip()) > 200:
+        return prd_final_art.content
+    return final_plan
+```
+
+---
+
+### STEP 07 — Testes
+
+**Arquivo: `tests/test_planner.py`**
+
+Atualizar o teste de inicialização da DAG:
+
+```python
+def test_planner_dag_initialization():
+    bb = Blackboard()
+    store = ArtifactStore(bb, persist_dir=".tmp_planner")
+    planner = Planner(bb, store, agents={})
+    planner.load_default_dag()
+    
+    # FASE 7.1: Agora são 8 tasks (era 7)
+    assert len(planner.dag) == 8
+    assert bb.get_task_status("TASK_01") == str(TaskStatus.PENDING)
+    assert bb.get_task_status("TASK_07") == str(TaskStatus.PENDING)
+```
+
+**Nota:** Os outros testes (`test_planner_execution_simple`, `test_planner_pipeline_flow`) usam DAGs customizadas e não são afetados pela mudança na DAG padrão.
+
+---
+
+### STEP 08 — Teste E2E
+
+```bash
+python src/cli/main.py --no-gate
+
+# Selecionar qwen3-coder:480b-cloud
+# Inserir ideia de teste
+
+# Checklist:
+# [ ] Critic lista RF-01 a RF-08 individualmente com status
+# [ ] Pipeline executa TASK_07 após TASK_06
+# [ ] Artefato prd_final existe em .forge/artifacts/
+# [ ] prd_final contém seções: Visão, Problema, Público-Alvo, RF, ADRs, STRIDE
+# [ ] Relatório .md tem PRD FINAL CONSOLIDADO como primeira seção
+# [ ] Terminal mostra PRD final (não Development Plan) como output
+# [ ] Todos os testes passam
+```
+
+---
+
+## SEÇÃO 6 — TRACEABILITY MATRIX
+
+| RF/RNF | Componente | Arquivo | Método/Constante | Teste que Valida | Critério Binário |
+|---|---|---|---|---|---|
+| RF-7.1-01 | Planner | `planner.py` | `TASK_CONFIGS["review_artifact"]` | Teste E2E manual | Critic lista ≥6 RF com status |
+| RF-7.1-02 | PM Agent | `product_manager_agent.py` | `consolidate_prd()` | Teste E2E manual | `artifact_store.exists("prd_final")` |
+| RF-7.1-03 | PM Agent | `product_manager_agent.py` | `consolidate_prd()` | Teste E2E manual | `validate(prd_final, "prd")["valid"]` |
+| RF-7.1-04 | Template | `prompt_templates.py` | `NEXUS_CONSOLIDATION_TEMPLATE` | Teste E2E manual | `"ADR-" in prd_final` |
+| RF-7.1-05 | Template | `prompt_templates.py` | `NEXUS_CONSOLIDATION_TEMPLATE` | Teste E2E manual | `"T-0" in prd_final` |
+| RF-7.1-06 | Controller | `controller.py` | `_generate_final_report` | Teste E2E manual | `"PRD FINAL" in relatório` |
+| RF-7.1-07 | Planner | `planner.py` | `load_default_dag()` | `test_planner_dag_initialization` | `len(dag) == 8` |
+
+---
+
+## Garantia de Não-Superficialidade
+
+Esta documentação foi estruturada para eliminar ambiguidade operacional. Se qualquer seção permitir múltiplas interpretações, expandir até que reste apenas uma forma implementável.
+
+Toda decisão é rastreável, testável e verificável.
+
+---
+
+## DECISION_LOG — Entrada para Fase 7.1
+
+```
+### Fase 7.1 — Consolidação NEXUS + Fix Critic
+F7.1 | MOD | `TASK_CONFIGS` | max_tokens review 1200→2500, design 1500→2500, run 1000→1500, plan 1800→2500 | `planner.py`
+F7.1 | MOD | `critic_agent.py` | artifact_content[:1500] → [:3000] | `critic_agent.py`
+F7.1 | ADD | `NEXUS_CONSOLIDATION_TEMPLATE` | Template de consolidação final | `prompt_templates.py`
+F7.1 | ADD | `consolidate_prd()` | Método de síntese de todos os artefatos em PRD final | `product_manager_agent.py`
+F7.1 | ADD | `TASK_07` | Consolidação NEXUS como última task da DAG | `planner.py`
+F7.1 | MOD | `_generate_final_report` | PRD final como documento principal do relatório | `controller.py`
+F7.1 | MOD | `run_pipeline` | Retorna prd_final em vez de development_plan | `controller.py`
+F7.1 | MOD | DAG | 7→8 tasks (adição de TASK_07) | `planner.py`
+F7.1 | RULE | Single-Call Consolidation | TASK_07 usa chamada única ao LLM para máxima coerência | `product_manager_agent.py`
+```

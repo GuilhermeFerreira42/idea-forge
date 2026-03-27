@@ -41,7 +41,7 @@ class Planner:
         self.dag: List[TaskDefinition] = []
 
     def load_default_dag(self) -> None:
-        """Carrega a DAG padrão de 7 tasks conforme o Blueprint NEXUS (Fase 4)."""
+        """Carrega a DAG padrão de 8 tasks conforme o Blueprint NEXUS (Fase 7.1)."""
         self.dag = [
             TaskDefinition(
                 task_id="TASK_01",
@@ -102,6 +102,18 @@ class Planner:
                 output_artifact="development_plan",
                 requires=["TASK_05"],
                 task_type="ENGINE"
+            ),
+            # FASE 7.1: Consolidação final — PRD definitivo no padrão NEXUS
+            TaskDefinition(
+                task_id="TASK_07",
+                agent_name="product_manager",
+                method_name="consolidate_prd",
+                input_artifacts=["prd", "prd_review", "system_design", 
+                               "security_review", "debate_transcript", "development_plan"],
+                output_artifact="prd_final",
+                requires=["TASK_06"],
+                task_type="AGENT",
+                max_context_tokens=3000
             )
         ]
         for task in self.dag:
@@ -141,13 +153,15 @@ class Planner:
         """Executa uma task individual com Budgeting e Post-processing (Fase 3.1)."""
         self.blackboard.set_task_status(task.task_id, TaskStatus.RUNNING)
         
-        # Mapping de usage hints e budgets por tipo de task
+        # FASE 7.1: Aumentar budget de contexto para artefatos NEXUS densos
         TASK_CONFIGS = {
             "generate_prd": {"hint": "transform", "max_tokens": 1000},
-            "review_artifact": {"hint": "review", "max_tokens": 1200},
-            "design_system": {"hint": "transform", "max_tokens": 1500},
-            "run": {"hint": "reference", "max_tokens": 1000},
-            "generate_plan": {"hint": "transform", "max_tokens": 1800},
+            "review_artifact": {"hint": "review", "max_tokens": 2500},      # era 1200
+            "design_system": {"hint": "transform", "max_tokens": 2500},     # era 1500
+            "run": {"hint": "reference", "max_tokens": 1500},               # era 1000
+            "generate_plan": {"hint": "transform", "max_tokens": 2500},     # era 1800
+            "review_security": {"hint": "review", "max_tokens": 2000},
+            "consolidate_prd": {"hint": "reference", "max_tokens": 3000},   # FASE 7.1: TASK_07
         }
         
         config = TASK_CONFIGS.get(task.method_name, {"hint": "reference", "max_tokens": 1500})
@@ -178,6 +192,13 @@ class Planner:
                     result = method(
                         system_design=first_input,
                         prd_context=prd_art.content[:500] if prd_art else ""
+                    )
+                # FASE 7.1: Dispatch especializado para Consolidação NEXUS
+                elif task.method_name == "consolidate_prd":
+                    original_idea = self.blackboard.get_variable("initial_idea", "")
+                    result = method(
+                        artifacts_context=context,
+                        original_idea=original_idea
                     )
                 # FASE 3.1: Passagem explícita de contexto
                 elif method and (len(task.input_artifacts) > 1 or context):
@@ -321,6 +342,7 @@ class Planner:
             "system_design": "system_design",
             "prd_review": "review",
             "security_review": "security_review",
-            "development_plan": "plan"
+            "development_plan": "plan",
+            "prd_final": "prd",  # FASE 7.1: Valida como PRD
         }
         return mapping.get(task.output_artifact, "document")

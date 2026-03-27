@@ -250,3 +250,89 @@ DEBATE_RESPONSE_TEMPLATE = (
     "- Máximo 300 palavras\n"
     "- Responda em Português\n"
 )
+
+# ─── Template: Consolidação NEXUS (Fase 7.1) ────────────────────────
+NEXUS_CONSOLIDATION_TEMPLATE = (
+    "TAREFA: Consolidar todos os artefatos abaixo em um PRD FINAL DEFINITIVO.\n\n"
+    
+    "REGRAS DE CONSOLIDAÇÃO:\n"
+    "1. O documento final deve ser AUTOCONTIDO — alguém que leia apenas ele entende o projeto inteiro.\n"
+    "2. INCORPORAR correções e issues do Critic (resolver, não apenas listar).\n"
+    "3. INCORPORAR ADRs e decisões do System Design.\n"
+    "4. INCORPORAR mitigações do Security Review.\n"
+    "5. INCORPORAR pontos de consenso do Debate.\n"
+    "6. NÃO copiar artefatos inteiros — sintetizar e consolidar.\n"
+    "7. Cada seção deve refletir o estado FINAL (pós-debate, pós-review).\n"
+    "8. Responder em Português.\n\n"
+
+    "FORMATO OBRIGATÓRIO DO PRD FINAL (PADRÃO NEXUS v1.0):\n\n"
+
+    "## Visão do Produto\n"
+    "- Codinome: [nome do projeto]\n"
+    "- Declaração de visão: [1 frase, máx 30 palavras]\n\n"
+
+    "## Problema e Solução\n"
+    "| ID | Problema | Impacto | Como o Sistema Resolve |\n"
+    "|---|---|---|---|\n\n"
+
+    "## Público-Alvo\n"
+    "| Segmento | Perfil | Prioridade |\n"
+    "|---|---|---|\n\n"
+
+    "## Princípios Arquiteturais\n"
+    "| Princípio | Descrição | Implicação Técnica |\n"
+    "|---|---|---|\n\n"
+
+    "## Diferenciais\n"
+    "| Abordagem Atual | Problema | Como Este Sistema Supera |\n"
+    "|---|---|---|\n\n"
+
+    "## Requisitos Funcionais (Consolidados)\n"
+    "| ID | Requisito | Critério de Aceite | Prioridade | Complexidade | Status Pós-Review |\n"
+    "|---|---|---|---|---|---|\n"
+    "(incluir coluna de status baseada no Review)\n\n"
+
+    "## Requisitos Não-Funcionais\n"
+    "| ID | Categoria | Requisito | Métrica | Target |\n"
+    "|---|---|---|---|---|\n\n"
+
+    "## Arquitetura e Tech Stack (do System Design)\n"
+    "- Estilo: [tipo]\n"
+    "- Stack resumida em tabela\n"
+    "| Camada | Tecnologia | Justificativa |\n"
+    "|---|---|---|\n\n"
+
+    "## ADRs (do System Design)\n"
+    "| ID | Decisão | Alternativa Rejeitada | Consequências |\n"
+    "|---|---|---|---|\n\n"
+
+    "## Análise de Segurança (do Security Review)\n"
+    "| ID | Ameaça STRIDE | Componente | Severidade | Mitigação |\n"
+    "|---|---|---|---|---|\n\n"
+
+    "## Escopo MVP\n"
+    "**Inclui:** [lista com RF-XX]\n"
+    "**NÃO inclui:** [lista com justificativa]\n\n"
+
+    "## Riscos Consolidados (PRD + Design + Security)\n"
+    "| ID | Risco | Fonte | Probabilidade | Impacto | Mitigação |\n"
+    "|---|---|---|---|---|---|\n\n"
+
+    "## Métricas de Sucesso\n"
+    "| Métrica | Target | Prazo | Como Medir |\n"
+    "|---|---|---|---|\n\n"
+
+    "## Plano de Implementação (resumo do Development Plan)\n"
+    "| Fase | Duração | Entregas | Critério de Conclusão |\n"
+    "|---|---|---|---|\n\n"
+
+    "## Decisões do Debate (pontos de consenso)\n"
+    "- [Decisão 1 com justificativa]\n"
+    "- [Decisão 2 com justificativa]\n\n"
+
+    "## Constraints Técnicos\n"
+    "- Linguagem: [...]\n"
+    "- Framework: [...]\n"
+    "- Banco de dados: [...]\n"
+    "- Infraestrutura: [...]\n"
+)

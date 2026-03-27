@@ -1,13 +1,11 @@
 # CURRENT_STATE — IdeaForge CLI
-> Última atualização: Fase 7 (NEXUS v1.0) | 2026-03-27
+> Última atualização: Fase 7.1 (NEXUS Consolidation) | 2026-03-27
 
-## Arquitetura NEXUS v1.0
-- **Padrão**: Blackboard com Grafo de Artefatos (DAG) de 7 tarefas.
-- **Calibração**: Templates de alta densidade semântica (tabelas mandatórias).
-- **Orquestração**: Planner determinístico com **NEXUS Gate** (validação de 600+ chars).
-- **Estado**: Persistência versionada em `.forge/` (JSON).
-- **Inference**: Ollama (Local) com `num_predict` expandido (2500 direct / 5000 reasoning).
-- **Automação**: Suporte a execução headless via flag `--no-gate`.
+## Arquitetura NEXUS v1.0 (Consolidação)
+- **Padrão**: Blackboard com Grafo de Artefatos (DAG) de 8 tarefas.
+- **Consolidação**: TASK_07 unifica PRD, Design, Security, Debate e Plan em um PRD Final.
+- **Calibração**: Limites de contexto expandidos (2500 tokens para review/design) e truncamento de 3000 chars para Agente Crítico.
+- **Orquestração**: Planner determinístico com **NEXUS Gate** e aprovação automática via `--no-gate`.
 
 ## Módulos e Contratos Vigentes
 | Módulo | Arquivo | Contrato Público | Versão |

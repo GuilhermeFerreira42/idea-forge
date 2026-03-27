@@ -81,3 +81,43 @@ class ProductManagerAgent:
         prompt += "\nPreencha EXATAMENTE as seções do template acima."
         
         return self.provider.generate(prompt=prompt, role="product_manager")
+
+    def consolidate_prd(self, artifacts_context: str, original_idea: str = "") -> str:
+        """
+        FASE 7.1: Consolida todos os artefatos do pipeline em um PRD final
+        no padrão NEXUS Protocol v1.0.
+        
+        Chamada ÚNICA ao LLM (sem SectionalGenerator) para máxima coerência.
+        """
+        from src.core.prompt_templates import NEXUS_CONSOLIDATION_TEMPLATE
+        
+        prompt = (
+            f"System: Você é o Agente PRODUCT MANAGER do sistema IdeaForge.\n"
+            f"Sua tarefa é consolidar os artefatos de um projeto em um PRD FINAL definitivo.\n"
+            f"Responda em Português. Use APENAS tabelas e bullets.\n\n"
+            f"{NEXUS_CONSOLIDATION_TEMPLATE}\n\n"
+        )
+        
+        if original_idea:
+            prompt += f"IDEIA ORIGINAL DO USUÁRIO:\n{original_idea[:500]}\n\n"
+        
+        prompt += (
+            f"ARTEFATOS DO PIPELINE (sintetize, não copie):\n"
+            f"{artifacts_context}\n\n"
+            f"GERE O PRD FINAL CONSOLIDADO AGORA."
+        )
+        
+        result = self.provider.generate(
+            prompt=prompt,
+            role="product_manager"
+        )
+        
+        # Fallback se resultado for muito curto
+        if not result or len(result.strip()) < 200:
+            return (
+                "## PRD FINAL — CONSOLIDAÇÃO FALHOU\n\n"
+                "O modelo não produziu um PRD consolidado válido.\n"
+                "Consulte os artefatos individuais no relatório.\n"
+            )
+        
+        return result

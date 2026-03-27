@@ -1,0 +1,34 @@
+# Walkthrough — Fase 7.1: Consolidação NEXUS + Fix Critic
+
+Esta fase consolidou o padrão **NEXUS Protocol v1.0** no IdeaForge CLI, resolvendo falhas de percepção do Agente Crítico e introduzindo uma síntese final de todos os artefatos.
+
+## Principais Mudanças
+
+### 1. Fix de Contexto e Truncamento (P-01, P-02)
+- **`planner.py`**: O orçamento de tokens (`max_tokens`) foi elevado para refletir a densidade dos artefatos NEXUS. O Crítico agora tem 2500 tokens de contexto garantidos.
+- **`critic_agent.py`**: O limite de leitura do artefato foi dobrado de 1500 para **3000 caracteres**, permitindo que o Agente Crítico avalie PRDs completos sem perder as seções de requisitos.
+
+### 2. TASK_07 — Consolidação PRD Final (P-03, P-04)
+- **`product_manager_agent.py`**: Novo método `consolidate_prd()` que atua como um "synthesizer" final.
+- **`planner.py`**: A DAG foi expandida para **8 tarefas**, incluindo a nova `TASK_07` que recebe todos os artefatos anteriores como input.
+- **`prompt_templates.py`**: Adicionado o `NEXUS_CONSOLIDATION_TEMPLATE` que instrui o LLM a incorporar correções do Critic, ADRs do Architect e decisões do Debate em um único documento autossuficiente.
+
+### 3. Reporting e UX
+- **`controller.py`**: O pipeline agora retorna o conteúdo do `prd_final` (se gerado) como output principal.
+- **Relatório Final**: O arquivo `.md` gerado agora apresenta o **PRD FINAL CONSOLIDADO** no topo, seguido pelos artefatos de apoio e métricas de qualidade atualizadas.
+
+## Verificação Realizada
+
+### Testes Automatizados
+- Executado `pytest tests/test_planner.py`: **4/4 PASSED** (Verificando DAG de 8 tasks e dispatch).
+- Executado `pytest tests/`: **53/53 PASSED** (Suíte completa estabilizada).
+- Executado `pytest tests/test_pipeline.py`: **1/1 PASSED** (Pipeline E2E mockado com 8 tasks).
+
+### Verificação Manual (Mocked)
+- Validado que o Agente Crítico agora lê até 3000 caracteres.
+- Validado que a `prd_final` é persistida no `artifact_store`.
+- Validado que o relatório final contém a nova seção de consolidação.
+
+## Próximos Passos
+1. Execute o comando `python src/cli/main.py` com uma ideia complexa para ver a consolidação em ação.
+2. Iniciar planejamento da Fase 8 conforme o roadmap.

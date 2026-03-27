@@ -25,15 +25,20 @@ class MockAgent:
         self.called_with.append((system_design, prd_context))
         return self.return_val
 
+    def consolidate_prd(self, artifacts_context, original_idea=""):
+        self.called_with.append((artifacts_context, original_idea))
+        return self.return_val
+
 def test_planner_dag_initialization():
     bb = Blackboard()
     store = ArtifactStore(bb, persist_dir=".tmp_planner")
     planner = Planner(bb, store, agents={})
     planner.load_default_dag()
     
-    # FASE 4: Agora são 7 tasks
-    assert len(planner.dag) == 7
+    # FASE 7.1: Agora são 8 tasks
+    assert len(planner.dag) == 8
     assert bb.get_task_status("TASK_01") == str(TaskStatus.PENDING)
+    assert bb.get_task_status("TASK_07") == str(TaskStatus.PENDING)
 
 def test_planner_dependency_check():
     bb = Blackboard()

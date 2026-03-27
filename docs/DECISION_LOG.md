@@ -46,3 +46,12 @@ F7 | MOD | `OutputValidator` | Thresholds aumentados (PRD 600 chars, completenes
 F7 | ADD | `--no-gate` | Flag para automação síncrona sem interrupção humana | `main.py`, `controller.py`
 F7 | MOD | `AgentController` | Relatório final com Executive Summary e NEXUS Metrics | `controller.py`
 F7 | RULE | Technical First | Priorizar tabelas comparativas sobre prosa narrativa | `prompt_templates.py`, `golden_examples.py`
+
+### Fase 7.1 — Consolidação NEXUS + Fix Critic
+F7.1 | MOD | `TASK_CONFIGS` | `max_tokens` review 2500, design 2500, run 1500, plan 2500 | `planner.py`
+F7.1 | MOD | `CriticAgent` | `artifact_content[:3000]` para análise completa do PRD | `critic_agent.py`
+F7.1 | ADD | `NEXUS_CONSOLIDATION_TEMPLATE` | Template de síntese final unificando artefatos | `prompt_templates.py`
+F7.1 | ADD | `consolidate_prd()` | Novo método para geração do PRD Final consolidado | `product_manager_agent.py`
+F7.1 | ADD | `TASK_07` | Consolidação final como oitava tarefa do pipeline | `planner.py`
+F7.1 | MOD | `AgentController` | Retorno de `prd_final` e relatório com PRD no topo | `controller.py`
+F7.1 | RULE | Single-Call Consolidation | Forçar síntese em chamada única para máxima coerência final | `product_manager_agent.py`
