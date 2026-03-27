@@ -1,63 +1,50 @@
 # CURRENT_STATE — IdeaForge CLI
-> Última atualização: Fase 6 | 2026-03-21
+> Última atualização: Fase 7 (NEXUS v1.0) | 2026-03-27
 
-## Arquitetura Ativa
-- **Padrão**: Blackboard com Grafo de Artefatos (DAG).
-- **Orquestração**: Planner determinístico com **Hard Gate** (validação bloqueante).
-- **Estado**: Persistência reativa em `.forge/` (JSON).
-- **Observabilidade**: Logging estruturado total em JSONL (`.forge/logs/`).
-- **Inference**: Ollama (Local) com Reasoning Suppression e Geração Seccional (Multi-pass).
-- **Robustez**: Lógica de **Retry por Pass** (até 2 tentativas) com prompts corretivos.
+## Arquitetura NEXUS v1.0
+- **Padrão**: Blackboard com Grafo de Artefatos (DAG) de 7 tarefas.
+- **Calibração**: Templates de alta densidade semântica (tabelas mandatórias).
+- **Orquestração**: Planner determinístico com **NEXUS Gate** (validação de 600+ chars).
+- **Estado**: Persistência versionada em `.forge/` (JSON).
+- **Inference**: Ollama (Local) com `num_predict` expandido (2500 direct / 5000 reasoning).
+- **Automação**: Suporte a execução headless via flag `--no-gate`.
 
 ## Módulos e Contratos Vigentes
-| Módulo | Arquivo | Contrato Público | Desde |
+| Módulo | Arquivo | Contrato Público | Versão |
 |---|---|---|---|
 | Blackboard | `blackboard.py` | `set_variable`, `get_variable`, `set_task_status`, `snapshot` | F3 |
-| ArtifactStore | `artifact_store.py` | `write(name, content, type)`, `read(name, version)`, `get_context_for_agent` | F3 |
-| PipelineLogger | `pipeline_logger.py` | `log(type, data)`, `log_task`, `log_pass`, `log_llm_request/response` | F6 |
-| Planner | `planner.py` | `load_default_dag()`, `execute_pipeline(user_idea)` | F4 |
-| Controller | `controller.py` | `run_pipeline(initial_idea)` | F1 |
-| StreamHandler | `stream_handler.py` | `process_ollama_stream(iterator) -> StreamResult` | F1 |
-| OutputValidator| `output_validator.py`| `validate(content, type)`, `validate_pass(content, sections)` | F5.1 |
-| SectionalGen | `sectional_generator.py`| `generate_sectional(artifact_type, context) -> str` | F5 |
-| ModelProvider | `model_provider.py` | `generate(prompt, **kwargs) -> str`, `generate_with_thinking` | F1 |
-| OllamaProvider | `ollama_provider.py` | `generate(prompt, max_tokens, think) -> str` | F1 |
-| PM Agent | `product_manager_agent.py`| `generate_prd(idea, context) -> str` | F5.1 |
-| Architect Agent| `architect_agent.py` | `design_system(prd, context) -> str` | F5.1 |
-| Critic Agent | `critic_agent.py` | `review_artifact(content, type) -> str` | F5.1 |
-| Security Agent | `security_reviewer_agent.py`| `review_security(system_design, prd) -> str` | F5.1 |
-| Debate Engine | `debate_engine.py` | `run(refined_idea) -> transcript` | F1 |
-| Plan Generator | `plan_generator.py` | `generate_plan(input, context) -> str` | F5.1 |
+| ArtifactStore | `artifact_store.py` | `write`, `read`, `get_context_for_agent` | F3 |
+| Planner | `planner.py` | `load_default_dag()`, `execute_pipeline(user_idea)` | F7 |
+| Controller | `controller.py` | `run_pipeline(idea)`, `_generate_final_report` | F7 |
+| OutputValidator| `output_validator.py`| `validate(content, type)`, `validate_pass(content, sections)` | F7 |
+| SectionalGen | `sectional_generator.py`| `generate_sectional(artifact_type, context)` | F7 |
+| ModelProvider | `ollama_provider.py` | `generate(prompt, think)`, `num_predict` (2500/5000) | F7 |
+| Agents | `agents/*.py` | PM, Architect, Critic, Security | F7 |
+| Engines | `debate`, `planning` | `DebateEngine.run`, `PlanGenerator.generate_plan` | F7 |
 
-## DAG de Tarefas Padrão
-- TASK_01: PM.generate_prd [user_idea] → prd (requires: [])
-- TASK_02: Critic.review_artifact [prd] → prd_review (requires: T01)
-- TASK_03: System.human_gate [prd, prd_review] → approval (requires: T02)
-- TASK_04: Architect.design_system [prd, approval] → system_design (requires: T03)
-- TASK_04b: Security.review_security [system_design, prd] → security_review (requires: T04)
-- TASK_05: Debate.run [prd, system_design, security_review] → debate_transcript (requires: T04b)
-- TASK_06: PlanGen.generate_plan [prd, system_design, transcript] → development_plan (requires: T05)
+## DAG de Tarefas (NEXUS DAG)
+- **TASK_01**: PM.generate_prd [user_idea] → prd
+- **TASK_02**: Critic.review_artifact [prd] → prd_review
+- **TASK_03**: System.human_gate [prd, prd_review] → approval (Pode ser auto via `--no-gate`)
+- **TASK_04**: Architect.design_system [prd, approval] → system_design
+- **TASK_04b**: Security.review_security [system_design, prd] → security_review
+- **TASK_05**: Debate.run [prd, system_design, security_review] → debate_transcript
+- **TASK_06**: PlanGen.generate_plan [prd, system_design, transcript] → development_plan
 
-## Invariantes Globais (Muro de Arrimo)
-1. **Hard Gate Enforcement**: Artefatos sem seções obrigatórias ou vazios são BLOQUEADOS (`[GERAÇÃO FALHOU]`).
-2. **Zero-Knowledge Primary**: Agente nunca lê o Blackboard diretamente, apenas via parâmetros injetados.
-3. **Artifact Immutability**: Uma vez escrito, um artefato (versão X) nunca é alterado; cria-se versão X+1.
-4. **Thinking Separation**: Tokens de raciocínio nunca poluem o artefato final (`content`).
-5. **Portuguese Output**: 100% da interação e artefatos devem ser em Português.
-6. **Semantic Compression**: Formatos tabulares/bullets preferidos (Density ≥ 0.7).
-7. **Pass-level Retry**: Seções individuais de artefatos core têm até 2 retries automáticos em caso de falha.
-8. **Structured Observability**: 100% dos eventos do pipeline são logados em JSONL para auditoria.
+## Invariantes NEXUS (Quality Gates)
+1. **Density Threshold**: Mínimo de 0.75 de densidade semântica (tabelas e listas técnicas).
+2. **Min Length**: PRDs exigem 600+ caracteres; Design exige 400+; Reviews 200+.
+3. **Completeness**: Threshold de 75% para PRDs (exige 8+ de 11 seções mandatórias).
+4. **Zero-Knowledge**: Agentes isolados; contexto injetado via ArtifactStore.
+5. **No-Gate Logic**: Quando `--no-gate` ativa, aprovações são automáticas (`APPROVED`).
 
-## Restrições Técnicas Ativas
-- **Inference**: `temperature=0.1` (direct), `num_predict=1500`.
-- **Modo Direto**: Injeção de `DIRECT_MODE_SUFFIX` e `think=false` no Ollama.
-- **Sectional**: Geração em múltiplos passes (2-4 seções por artefato core).
-- **Validation**: Schema enforcement agressivo via `OutputValidator`.
-- **Logs**: Rotação manual (por execução) em `.forge/logs/pipeline_TIMESTAMP.jsonl`.
+## Configurações de Inferência
+- **Tokens**: `num_predict: 2500` (Direct) / `5000` (Reasoning).
+- **Temperatura**: `0.1` para consistência técnica.
+- **Seccional**: 5 passes para PRD, 2 para Review, 2 para Design, 2 para Plan.
 
-## Testes de Regressão
-- `tests/test_stream_handler.py` (Streaming & Parser)
-- `tests/test_planner.py` (DAG & Execution Flow)
-- `tests/test_output_validator_v2.py` (Hard Gate & Placeholder Detection)
-- `tests/test_retry_logic.py` (Sectional Retry Mechanism)
-- `tests/test_pipeline_logger.py` (Structured Logging JSONL)
+## Testes de Certificação
+- **Unitários**: `test_planner.py`, `test_agents.py`, `test_debate.py`, `test_blackboard.py`.
+- **Validação**: `test_output_validator_v2.py`, `test_retry_logic.py`.
+- **E2E Integration**: `test_pipeline.py` (Mocked NEXUS pipeline).
+- **ANSI/Stream**: `test_stream_handler.py`.

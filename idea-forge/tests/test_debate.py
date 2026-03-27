@@ -16,7 +16,7 @@ def test_debate_engine_execution():
     assert "Proponente:" in result
     assert "Crítico:" in result
     assert "Defense" in result
-    assert "Critique" in result
+    assert "Score de Qualidade" in result
     
     # Engine should record 4 interactions in transcript (2 rounds * 2 agents)
     # The list debate_transcript has one entry per agent turn

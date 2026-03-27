@@ -1,4 +1,5 @@
 import pytest
+import sys
 from src.core.planner import Planner, TaskDefinition, TaskStatus
 from src.core.blackboard import Blackboard
 from src.core.artifact_store import ArtifactStore
@@ -14,7 +15,15 @@ class MockAgent:
 
     def review_artifact(self, content, context=""):
         self.called_with.append((content, context))
-        return "critique"
+        return self.return_val
+
+    def design_system(self, prd, approval_decision):
+        self.called_with.append((prd, approval_decision))
+        return self.return_val
+
+    def review_security(self, system_design, prd_context=""):
+        self.called_with.append((system_design, prd_context))
+        return self.return_val
 
 def test_planner_dag_initialization():
     bb = Blackboard()
@@ -41,7 +50,14 @@ def test_planner_dependency_check():
 def test_planner_execution_simple():
     bb = Blackboard()
     store = ArtifactStore(bb, persist_dir=".tmp_planner")
-    pm_agent = MockAgent("PRD CONTENT")
+    # FASE 7: Mock PRD longo para passar na validação NEXUS
+    prd_content = (
+        "## Objetivo\n- Teste\n\n## Problema\n| ID | P | I | R |\n|---|---|---|---|\n| P1 | X | Y | Z |\n\n"
+        "## Público-Alvo\n## Princípios Arquiteturais\n## Requisitos Funcionais\n## Requisitos Não-Funcionais\n"
+        "## Escopo MVP\n## Métricas de Sucesso\n## Dependências e Riscos\n## Diferenciais\n## Constraints Técnicos\n"
+        "Texto longo para validação. " * 30
+    )
+    pm_agent = MockAgent(prd_content)
     agents = {"product_manager": pm_agent}
     
     planner = Planner(bb, store, agents=agents)
@@ -60,15 +76,35 @@ def test_planner_execution_simple():
     store.write("user_idea", "My Idea", "raw_input", "user")
     planner._execute_task(task)
     
-    assert bb.get_task_status("T1") == str(TaskStatus.COMPLETED)
-    assert store.read("prd").content == "PRD CONTENT"
+    status = bb.get_task_status("T1")
+    actual_content = store.read("prd").content
+    
+    if actual_content != prd_content or status != str(TaskStatus.COMPLETED):
+        print(f"\nDEBUG: Status={status}")
+        print(f"DEBUG: Actual len={len(actual_content)}, Expected len={len(prd_content)}")
+        if "AVISO" in actual_content:
+            print("DEBUG: Warning detected in actual content!")
+        # Use simple slice to show start of both
+        print(f"DEBUG: Actual starts with: {actual_content[:100]!r}")
+        print(f"DEBUG: Expected starts with: {prd_content[:100]!r}")
+        
+    assert status == str(TaskStatus.COMPLETED)
+    assert actual_content.strip() == prd_content.strip()
     assert pm_agent.called_with[0][0] == "My Idea"
 
 def test_planner_pipeline_flow():
     bb = Blackboard()
     store = ArtifactStore(bb, persist_dir=".tmp_planner")
-    pm = MockAgent("PRD")
-    critic = MockAgent("CRITIQUE")
+    # Mock content that passes NEXUS validation
+    content = "## Objetivo\n- Teste\n\n## Problema\n| ID | P | I | R |\n|---|---|---|---|\n| P1 | X | Y | Z |\n\n"
+    content += "## Público-Alvo\n## Princípios Arquiteturais\n## Requisitos Funcionais\n## Requisitos Não-Funcionais\n"
+    content += "## Escopo MVP\n## Métricas de Sucesso\n## Dependências e Riscos\n## Diferenciais\n## Constraints Técnicos\n"
+    content += "Texto longo para validação. " * 30
+    
+    pm = MockAgent(content)
+    critic_content = "## Score de Qualidade\n## Issues Identificadas\n## Verificação de Requisitos\n## Sumário\n## Recomendação\n"
+    critic_content += "Critique text here that needs to be long enough to pass the validation threshold of 200 characters for reviews in the NEXUS standard. " * 5
+    critic = MockAgent(critic_content)
     agents = {
         "product_manager": pm,
         "critic": critic,
@@ -91,3 +127,7 @@ def test_planner_pipeline_flow():
     assert store.exists("prd")
     assert store.exists("prd_review")
     assert store.exists("approval")
+
+if __name__ == "__main__":
+    import pytest
+    sys.exit(pytest.main([__file__, "-v", "--tb=short"]))

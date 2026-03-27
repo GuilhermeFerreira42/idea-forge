@@ -6,7 +6,7 @@ Após a conclusão e validação de cada nova fase do projeto.
 ## Passos Obrigatórios
 
 ### 1. Arquivar Blueprint Completo
-- Salvar o blueprint da fase em `docs/archive/phase_XX_nome.md`
+- Salvar o blueprint da fase em `docs/archive/phase_XX/phase_XX_nome.resolved`
 - Este arquivo NUNCA será lido pela IA — existe para auditoria humana
 
 ### 2. Reescrever CURRENT_STATE.md
@@ -31,6 +31,21 @@ Após a conclusão e validação de cada nova fase do projeto.
   - Blackboard Pattern com DAG de 6 tasks (F3)
   - Schema Enforcement com templates tabulares (F3.1)
   ```
+
+  ### 5. limpeza do projeto
+- Mova os scripts de verificação para a pasta adequada
+- elimine os arquivos que não são mais necessários
+- mova o blueprint da fase para a pasta adequada
+- renomeie o arquivo do blueprint para document.resolved
+- copie para a pasta da fase o arquivo walkthrough.md.resolved
+- deixe tudo em pt-br
+
+
+### 6. Sugira para o usuario um nome de commit para o github
+- O nome deve ser curto e descritivo
+- O nome deve ser em portugues
+- O nome deve ser em maiusculo
+
 
 ## Regras de Leitura para a IA
 - **SEMPRE ler**: `docs/CURRENT_STATE.md`

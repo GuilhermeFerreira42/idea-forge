@@ -1,0 +1,1115 @@
+# Blueprint — Fase 7: Calibração para Padrão NEXUS
+
+## Projeto: IdeaForge CLI
+
+### Gerado seguindo: Meta-Comando Universal de Documentação Arquitetural Determinística v3.0
+
+---
+
+## SEÇÃO 1 — OVERVIEW
+
+### Objetivo de Negócio Mensurável
+
+Calibrar os templates de geração e limites de tokens do IdeaForge para que o pipeline produza PRDs no padrão de excelência NEXUS Protocol v1.0, medido pela aprovação em checklist de 13 critérios binários.
+
+### Problema Resolvido
+
+| # | Patologia | Causa Raiz | Evidência |
+|---|---|---|---|
+| P-01 | PRD gerado é superficial — faltam personas, princípios, ADRs | `PRD_TEMPLATE` não exige essas seções | Output atual tem 7 seções; NEXUS exige 11+ |
+| P-02 | Modelo corta resposta antes de completar | `num_predict=1200` em modo direto | Seções de RF frequentemente truncadas |
+| P-03 | Exemplos few-shot são genéricos | `golden_examples.py` usa exemplos simples | Modelo não aprende o nível de densidade esperado |
+| P-04 | Passes do SectionalGenerator têm budget insuficiente | `max_output_tokens=800` por pass | Tabelas complexas não cabem em 800 tokens |
+| P-05 | Relatório final é concatenação bruta | `_generate_final_report` não tem sumário nem índice | Documento gerado não é autocontido para leitura humana |
+
+### Métricas de Sucesso
+
+| Métrica | Valor Atual | Target | Como Medir |
+|---|---|---|---|
+| Seções presentes no PRD | 7/7 do template atual | 11/11 do template NEXUS | `OutputValidator.validate()` |
+| Linhas de tabela em RF | ~5 requisitos | ≥8 requisitos com critério verificável | Contagem de linhas `\|RF-` no output |
+| Density score do PRD | ~0.60 | ≥0.75 | `OutputValidator._calculate_density()` |
+| Completeness score | ~0.70 | ≥0.85 | `OutputValidator.validate()["completeness_score"]` |
+| Tokens por pass (PRD) | 800 max | 1500 max | Configuração em `SectionPass.max_output_tokens` |
+| Checklist NEXUS | Não medido | 13/13 critérios | Checklist manual no primeiro run |
+
+### Impacto Sistêmico
+
+| Componente | Impacto | Risco de Regressão |
+|---|---|---|
+| `prompt_templates.py` | ALTO — reescrita completa das 5 constantes de template | Agentes que usam templates podem gerar output em formato diferente do que testes esperam |
+| `golden_examples.py` | MÉDIO — substituição dos 4 fragmentos de exemplo | Nenhum — exemplos são strings sem lógica |
+| `ollama_provider.py` | BAIXO — mudar 2 números de configuração | Modelos menores podem demorar mais com `num_predict` maior |
+| `sectional_generator.py` | MÉDIO — recalibrar passes (quantidades, tokens, seções) | Testes de retry logic dependem da estrutura de passes |
+| `output_validator.py` | MÉDIO — novas seções no `REQUIRED_SECTIONS["prd"]` | Testes `test_output_validator_v2.py` precisam de atualização |
+| `controller.py` | BAIXO — melhorar formatação do relatório final | Nenhum |
+| `main.py` + `planner.py` | BAIXO — flag `--no-gate` para pular HUMAN_GATE | Nenhum — é adição, não modificação |
+
+### Escopo Fechado — INCLUI
+
+- Reescrita de `PRD_TEMPLATE` em `prompt_templates.py`
+- Reescrita de `SYSTEM_DESIGN_TEMPLATE` em `prompt_templates.py`
+- Reescrita de `PLAN_TEMPLATE` em `prompt_templates.py`
+- Reescrita de `REVIEW_TEMPLATE` em `prompt_templates.py`
+- Reescrita de `SECURITY_REVIEW_TEMPLATE` em `prompt_templates.py`
+- Substituição dos 4 fragmentos em `golden_examples.py`
+- Alteração de `num_predict` em `ollama_provider.py`
+- Recalibração de `PRD_PASSES`, `DESIGN_PASSES`, `PLAN_PASSES` em `sectional_generator.py`
+- Atualização de `REQUIRED_SECTIONS` em `output_validator.py`
+- Melhoria de `_generate_final_report` em `controller.py`
+- Adição de `--no-gate` em `main.py` e `planner.py`
+- Atualização de testes afetados
+
+### Escopo Fechado — NÃO INCLUI
+
+- Criação de novos agentes (Consultor de Negócios)
+- Suporte a leitura de arquivos/PDFs
+- Interface web
+- Múltiplos modelos por agente (HybridProvider)
+- Mudanças na DAG de tasks (ordem e quantidade de tasks)
+- Mudanças no Blackboard, ArtifactStore, StreamHandler
+- Mudanças no DebateEngine
+
+### Invariantes Invioláveis
+
+1. **DAG Intacta:** As 7 tasks (TASK_01 a TASK_06 + TASK_04b) permanecem inalteradas em quantidade, ordem e dependências.
+2. **Contratos Públicos Preservados:** Nenhuma assinatura de método público muda (ex: `generate_prd(user_idea, context)` mantém mesma interface).
+3. **Blackboard Zero-Knowledge:** Agentes continuam sem acesso direto ao Blackboard.
+4. **Artifact Immutability:** Artefatos escritos nunca são sobrescritos — versão incrementa.
+5. **Thinking Separation:** Tokens de raciocínio nunca poluem artefato final.
+6. **Portuguese Output:** 100% dos artefatos em Português.
+7. **48 testes existentes devem continuar passando** (com ajustes em test_output_validator_v2.py se `REQUIRED_SECTIONS` mudar).
+
+### Dependências Externas
+
+| Dependência | Versão | Status |
+|---|---|---|
+| Ollama | Qualquer com API /api/generate | Já instalado |
+| qwen3-coder:480b-cloud | Via Ollama cloud | Disponível |
+| Python | 3.10+ | Já instalado |
+| requests | Qualquer | Já no projeto |
+| pytest | 7.4+ | Já no projeto |
+
+### Riscos Estratégicos
+
+| Risco | Probabilidade | Impacto | Mitigação |
+|---|---|---|---|
+| Templates NEXUS geram prompts maiores que a janela de contexto | Média | Alto | Testar com modelo cloud que tem 32K+ de contexto |
+| `num_predict` maior causa timeout em modelos locais | Média | Médio | Timeout já é 90s (direto) / 120s (reasoning) — suficiente para 2500 tokens |
+| Testes existentes quebram por mudança em `REQUIRED_SECTIONS` | Alta | Baixo | Atualizar `test_output_validator_v2.py` junto com a mudança |
+| Output mais longo sobrecarrega `get_context_for_agent` nos passes seguintes | Baixa | Médio | Budget de contexto já é controlado por `max_tokens` no ArtifactStore |
+
+### Critérios Objetivos de Conclusão
+
+- [ ] Pipeline roda do início ao fim sem erro com qwen3-coder:480b-cloud
+- [ ] PRD gerado contém 11+ seções do template NEXUS
+- [ ] PRD contém ≥8 RF com critérios de aceite verificáveis
+- [ ] PRD contém ≥3 ADRs com alternativas rejeitadas
+- [ ] PRD contém personas com nome + dor
+- [ ] System Design contém diagrama Mermaid (em texto)
+- [ ] Relatório final tem sumário executivo no topo
+- [ ] `OutputValidator.validate(prd, "prd")` retorna `valid=True` com `completeness_score ≥ 0.85`
+- [ ] Todos os testes passam (48 originais + atualizados)
+
+---
+
+## SEÇÃO 2 — ARCHITECTURE
+
+### Diagrama de Arquitetura (Componentes Impactados)
+
+```mermaid
+flowchart TD
+    subgraph FASE7["Fase 7 — Arquivos Alterados"]
+        PT["prompt_templates.py\n(5 templates reescritos)"]
+        GE["golden_examples.py\n(4 fragmentos substituídos)"]
+        OP["ollama_provider.py\n(num_predict aumentado)"]
+        SG["sectional_generator.py\n(passes recalibrados)"]
+        OV["output_validator.py\n(REQUIRED_SECTIONS atualizado)"]
+        CT["controller.py\n(relatório melhorado)"]
+        MN["main.py\n(--no-gate flag)"]
+        PL["planner.py\n(--no-gate support)"]
+    end
+
+    subgraph PROTEGIDOS["Arquivos NÃO Alterados"]
+        BB["blackboard.py"]
+        AS["artifact_store.py"]
+        SH["stream_handler.py"]
+        DE["debate_engine.py"]
+        CM["conversation_manager.py"]
+        AG["agents/*.py\n(system_prompt interno não muda)"]
+    end
+
+    PT --> SG
+    PT --> AG
+    GE --> AG
+    SG --> OV
+    OP --> SG
+    MN --> PL
+    CT --> OV
+```
+
+### Fluxo Operacional (Inalterado — apenas calibração interna)
+
+```
+01. Usuário → main.py         → Insere ideia + seleciona modelo
+02. main.py → controller.py   → Inicializa pipeline
+03. controller → planner.py   → Carrega DAG (7 tasks)
+04. planner → TASK_01 (PM)    → generate_prd(ideia, contexto)
+    └── PM usa PRD_TEMPLATE [ALTERADO] + PRD_EXAMPLE [ALTERADO]
+    └── SectionalGenerator usa PRD_PASSES [RECALIBRADO]
+    └── OllamaProvider gera com num_predict=2500 [ALTERADO]
+05. planner → TASK_02 (Critic) → review_artifact(prd)
+06. planner → TASK_03 (Gate)  → HUMAN_GATE ou auto-approve [--no-gate]
+07. planner → TASK_04 (Arch)  → design_system(prd, approval)
+08. planner → TASK_04b (Sec)  → review_security(design, prd)
+09. planner → TASK_05 (Debate) → run(prd, design, security)
+10. planner → TASK_06 (Plan)  → generate_plan(all_artifacts)
+11. controller → relatório    → _generate_final_report [MELHORADO]
+```
+
+### Contratos de Interface (Preservados)
+
+| Módulo | Método | Assinatura | Status |
+|---|---|---|---|
+| ProductManagerAgent | generate_prd | `(user_idea: str, context: str = "") -> str` | INALTERADO |
+| ArchitectAgent | design_system | `(prd_content: str, approval_context: str = "") -> str` | INALTERADO |
+| CriticAgent | review_artifact | `(artifact_content: str, artifact_type: str, context: str) -> str` | INALTERADO |
+| SecurityReviewerAgent | review_security | `(system_design: str, prd_context: str) -> str` | INALTERADO |
+| PlanGenerator | generate_plan | `(prd_system_security: str, context: str) -> str` | INALTERADO |
+| DebateEngine | run | `(first_input: str, context: str, report_filename: str) -> str` | INALTERADO |
+| SectionalGenerator | generate_sectional | `(artifact_type: str, user_input: str, context: str, passes: List) -> Optional[str]` | INALTERADO |
+| OutputValidator | validate | `(content: str, artifact_type: str) -> Dict` | INALTERADO (retorno muda internamente) |
+| OllamaProvider | generate | `(prompt: str, context: list, role: str, max_tokens: Optional[int]) -> str` | INALTERADO |
+
+### Lista de Arquivos ALTERÁVEIS
+
+| Arquivo | Ação | Justificativa |
+|---|---|---|
+| `src/core/prompt_templates.py` | MODIFICAR | Reescrever 5 constantes de template + `ANTI_PROLIXITY_DIRECTIVE` |
+| `src/core/golden_examples.py` | MODIFICAR | Substituir 4 fragmentos de exemplo |
+| `src/models/ollama_provider.py` | MODIFICAR | Alterar `num_predict` (2 linhas) |
+| `src/core/sectional_generator.py` | MODIFICAR | Recalibrar `PRD_PASSES`, `DESIGN_PASSES`, `PLAN_PASSES` |
+| `src/core/output_validator.py` | MODIFICAR | Atualizar `REQUIRED_SECTIONS["prd"]` e `MIN_COMPLETENESS` |
+| `src/core/controller.py` | MODIFICAR | Melhorar `_generate_final_report` + aceitar `no_gate` param |
+| `src/cli/main.py` | MODIFICAR | Adicionar argumento `--no-gate` |
+| `src/core/planner.py` | MODIFICAR | Respeitar `no_gate` flag no TASK_03 |
+| `tests/test_output_validator_v2.py` | MODIFICAR | Atualizar testes para novas seções obrigatórias |
+
+### Lista de Arquivos PROTEGIDOS
+
+| Arquivo | Motivo da Proteção |
+|---|---|
+| `src/core/blackboard.py` | Invariante: estado global não muda nesta fase |
+| `src/core/artifact_store.py` | Invariante: versionamento de artefatos não muda |
+| `src/core/stream_handler.py` | Invariante: streaming não é impactado |
+| `src/core/pipeline_logger.py` | Invariante: logging não muda |
+| `src/debate/debate_engine.py` | Fora do escopo desta fase |
+| `src/conversation/conversation_manager.py` | Fora do escopo |
+| `src/agents/critic_agent.py` | System prompt interno não muda — template vem de `prompt_templates.py` |
+| `src/agents/proponent_agent.py` | Idem |
+| `src/agents/architect_agent.py` | Idem |
+| `src/agents/product_manager_agent.py` | Idem |
+| `src/agents/security_reviewer_agent.py` | Idem |
+| `src/config/settings.py` | Configuração base não muda |
+| `src/models/model_provider.py` | Interface abstrata não muda |
+| `src/models/cloud_provider.py` | Não utilizado nesta fase |
+
+### Política de Rollback
+
+```
+Para reverter 100% das mudanças da Fase 7:
+
+1. git stash ou git revert do commit da Fase 7
+2. Verificar: python -m pytest tests/ -v → 48/48 PASSED
+3. Nenhuma dependência nova foi adicionada — não há pip uninstall
+4. Nenhum arquivo novo foi criado — não há arquivos órfãos
+5. Nenhuma mudança de schema no .forge/ — estado persistido compatível
+```
+
+---
+
+## SEÇÃO 3 — TECH SPECS
+
+### Configuração de Tokens (Alterações Exatas)
+
+**Arquivo: `ollama_provider.py`, método `generate_with_thinking`**
+
+| Parâmetro | Valor Atual | Novo Valor | Justificativa |
+|---|---|---|---|
+| `num_predict` (modo direto, `think=False`) | 1200 | 2500 | PRD com 11 seções precisa de mais espaço por pass |
+| `num_predict` (modo reasoning, `think=True`) | 3000 | 5000 | Reasoning models geram mais tokens internos |
+
+**Arquivo: `sectional_generator.py`, constantes de passes**
+
+| Pass | `max_output_tokens` Atual | Novo Valor |
+|---|---|---|
+| PRD passes (todos) | 800 | 1500 |
+| Design passes (todos) | 800 (default) | 1200 |
+| Review passes (todos) | 800 (default) | 1000 |
+| Security passes (todos) | 800 (default) | 1000 |
+| Plan passes (todos) | 800 (default) | 1200 |
+
+### Novas Seções Obrigatórias do PRD
+
+**Arquivo: `output_validator.py`, dicionário `REQUIRED_SECTIONS["prd"]`**
+
+| # | Seção Atual | Status | Seção NEXUS | Status |
+|---|---|---|---|---|
+| 1 | `## Objetivo` | MANTER | `## Objetivo` | = |
+| 2 | `## Problema` | MANTER | `## Problema` | = |
+| 3 | — | ADICIONAR | `## Público-Alvo` | NOVO |
+| 4 | — | ADICIONAR | `## Princípios Arquiteturais` | NOVO |
+| 5 | `## Requisitos Funcionais` | MANTER | `## Requisitos Funcionais` | = |
+| 6 | `## Requisitos Não-Funcionais` | MANTER | `## Requisitos Não-Funcionais` | = |
+| 7 | `## Escopo MVP` | MANTER | `## Escopo MVP` | = |
+| 8 | `## Métricas de Sucesso` | MANTER | `## Métricas de Sucesso` | = |
+| 9 | `## Dependências e Riscos` | MANTER | `## Dependências e Riscos` | = |
+| 10 | — | ADICIONAR | `## Diferenciais` | NOVO |
+| 11 | `## Constraints Técnicos` | MANTER | `## Constraints Técnicos` | = |
+
+**Nova lista (11 seções):**
+```python
+"prd": [
+    "## Objetivo",
+    "## Problema",
+    "## Público-Alvo",
+    "## Princípios Arquiteturais",
+    "## Requisitos Funcionais",
+    "## Requisitos Não-Funcionais",
+    "## Escopo MVP",
+    "## Métricas de Sucesso",
+    "## Dependências e Riscos",
+    "## Diferenciais",
+    "## Constraints Técnicos",
+],
+```
+
+**`MIN_COMPLETENESS["prd"]`:** de `0.70` para `0.75`
+
+### Requisitos Funcionais da Fase 7
+
+| ID | Requisito | Critério de Aceite |
+|---|---|---|
+| RF-F7-01 | PRD gerado contém seção `## Público-Alvo` com tabela de personas | `"## Público-Alvo" in prd_output and "\|" in seção` |
+| RF-F7-02 | PRD gerado contém seção `## Princípios Arquiteturais` com tabela | `"## Princípios" in prd_output and "\|---\|" in seção` |
+| RF-F7-03 | PRD gerado contém seção `## Diferenciais` com tabela comparativa | `"## Diferenciais" in prd_output` |
+| RF-F7-04 | PRD contém ≥8 requisitos funcionais com IDs sequenciais | `count("RF-") >= 8` |
+| RF-F7-05 | Cada RF tem critério de aceite que é um teste automatizável | Inspeção manual no primeiro run |
+| RF-F7-06 | PRD contém ≥3 riscos com probabilidade + impacto + mitigação | `count("R-0") >= 3 and all have 3 columns filled` |
+| RF-F7-07 | System Design contém ADRs com alternativa rejeitada | `"Alternativa Rejeitada" in design_output` |
+| RF-F7-08 | Relatório final começa com sumário executivo | `relatório.startswith("# Relatório") and "## Sumário" in relatório[:500]` |
+| RF-F7-09 | Pipeline roda sem HUMAN_GATE quando `--no-gate` é passado | `python src/cli/main.py --no-gate` completa sem input do usuário |
+| RF-F7-10 | `OutputValidator.validate(prd, "prd")` retorna `completeness_score ≥ 0.75` | Assert no teste |
+
+### Requisitos Não-Funcionais
+
+| ID | Categoria | Requisito | Métrica |
+|---|---|---|---|
+| RNF-F7-01 | Compatibilidade | 48 testes existentes continuam passando | `pytest tests/ → ALL PASSED` |
+| RNF-F7-02 | Performance | Pipeline completo ≤15 min com modelo cloud | Tempo medido no log |
+| RNF-F7-03 | Manutenibilidade | Todas as mudanças comentadas com `# FASE 7:` | Grep no diff |
+
+### Estratégia de Tratamento de Erro
+
+| Cenário | Ação | Fallback |
+|---|---|---|
+| Pass gera output com <80 chars | Retry com prompt corretivo (já implementado) | Marcador `[GERAÇÃO FALHOU]` |
+| Template novo é grande demais para contexto | Modelo cloud tem 32K+ — não deve ocorrer | Se ocorrer, truncar contexto anterior |
+| `--no-gate` passado mas TASK_03 espera callback | Retornar "APPROVED" automaticamente | Nenhum |
+
+---
+
+## SEÇÃO 4 — STRUCTURAL STANDARDS
+
+### Padrões Adotados
+
+| Padrão | Aplicação | Justificativa |
+|---|---|---|
+| Constantes String como Templates | `prompt_templates.py` | Templates separados do código — iteração sem redeploy |
+| Few-Shot Examples | `golden_examples.py` | Ensina formato ao modelo sem fine-tuning |
+| Multi-Pass Generation | `sectional_generator.py` | Supera limite de tokens por resposta |
+| Schema Enforcement | `output_validator.py` | Garante que output segue formato |
+
+### Design Patterns Permitidos
+
+| Pattern | Uso |
+|---|---|
+| Template Method | Templates de prompt substituem placeholders |
+| Strategy | Provider abstrai LLM (Ollama/Cloud) |
+| Chain of Responsibility | Passes sequenciais acumulam output |
+
+### Design Patterns Proibidos (nesta fase)
+
+| Pattern | Motivo |
+|---|---|
+| Factory para criar agentes dinamicamente | Fora do escopo — DAG é estática |
+| Observer para notificar mudanças de template | Over-engineering — templates são constantes |
+| Decorator para wrappear agentes | Adiciona complexidade sem valor nesta fase |
+
+### Regras de Acoplamento
+
+| Componente | Pode Depender De | NÃO Pode Depender De |
+|---|---|---|
+| `prompt_templates.py` | Nada (constantes puras) | Qualquer módulo |
+| `golden_examples.py` | Nada (constantes puras) | Qualquer módulo |
+| `sectional_generator.py` | `prompt_templates`, `output_validator`, `model_provider` | Agentes, Controller, Blackboard |
+| `output_validator.py` | Nada (lógica pura) | Qualquer módulo |
+| Agentes (`*_agent.py`) | `prompt_templates`, `golden_examples`, `sectional_generator` | Controller, Planner, Blackboard |
+
+### Estratégia de Testes
+
+| Camada | Tipo | Framework | Cobertura Mínima |
+|---|---|---|---|
+| `output_validator.py` | Unitário | pytest | 100% das novas seções |
+| `sectional_generator.py` | Unitário | pytest + mock | Passes recalibrados geram output |
+| Pipeline E2E | Integração | pytest + mock provider | Pipeline completa sem erro |
+| Validação NEXUS | Manual (1ª vez) | Checklist | 13/13 critérios |
+
+### Alterações Proibidas
+
+| Item | Motivo |
+|---|---|
+| Assinatura de `generate_prd()`, `design_system()`, `review_artifact()` | Contratos públicos |
+| Estrutura da DAG em `planner.py` (7 tasks) | Invariante da Fase 4 |
+| Formato de persistência em `.forge/` | Backward compatibility |
+| Lógica do `StreamHandler` | Não impactado |
+| Lógica do `DebateEngine` | Não impactado |
+
+---
+
+## SEÇÃO 5 — EXECUTION
+
+### Ordem de Implementação
+
+```
+STEP 01: ollama_provider.py      ← MODIFICAR | Deps: ZERO       | Validação: pytest tests/test_stream_handler.py
+STEP 02: prompt_templates.py     ← MODIFICAR | Deps: ZERO       | Validação: import sem erro
+STEP 03: golden_examples.py      ← MODIFICAR | Deps: ZERO       | Validação: import sem erro
+STEP 04: sectional_generator.py  ← MODIFICAR | Deps: STEP 02    | Validação: pytest tests/test_retry_logic.py
+STEP 05: output_validator.py     ← MODIFICAR | Deps: STEP 02    | Validação: pytest tests/test_output_validator_v2.py
+STEP 06: main.py + planner.py    ← MODIFICAR | Deps: ZERO       | Validação: --no-gate flag funciona
+STEP 07: controller.py           ← MODIFICAR | Deps: STEP 05    | Validação: pytest tests/test_pipeline.py
+STEP 08: testes                  ← MODIFICAR | Deps: STEP 01-07 | Validação: pytest tests/ -v → ALL PASSED
+STEP 09: teste E2E com modelo    ← EXECUTAR  | Deps: STEP 01-08 | Validação: checklist NEXUS
+```
+
+---
+
+### STEP 01 — ollama_provider.py
+
+**Localização:** `src/models/ollama_provider.py`, método `generate_with_thinking`
+
+**Mudança:** Linhas com `num_predict`
+
+```python
+# FASE 7: Aumentar budget de tokens para suportar templates NEXUS
+if max_tokens:
+    num_predict = max_tokens
+else:
+    num_predict = 2500 if not self.think else 5000  # FASE 7: era 1200/3000
+```
+
+**Validação:** `python -m pytest tests/test_stream_handler.py -v` → ALL PASSED
+
+---
+
+### STEP 02 — prompt_templates.py
+
+**Localização:** `src/core/prompt_templates.py`
+
+**Mudança:** Reescrever `PRD_TEMPLATE`. O template completo novo:
+
+```python
+# FASE 7: Template PRD calibrado para padrão NEXUS Protocol v1.0
+PRD_TEMPLATE = (
+    "FORMATO OBRIGATÓRIO DO PRD (PADRÃO NEXUS v1.0):\n\n"
+
+    "## Objetivo\n"
+    "- [1 frase, verbo no infinitivo, máximo 30 palavras, que capture o diferencial]\n\n"
+
+    "## Problema\n"
+    "| ID | Problema | Impacto | Como o Sistema Resolve |\n"
+    "|---|---|---|---|\n"
+    "| P-01 | ... | ... | ... |\n"
+    "| P-02 | ... | ... | ... |\n"
+    "| P-03 | ... | ... | ... |\n"
+    "| P-04 | ... | ... | ... |\n\n"
+
+    "## Público-Alvo\n"
+    "| Segmento | Perfil (nome fictício + dor específica) | Prioridade (P0/P1/P2) |\n"
+    "|---|---|---|\n"
+    "| ... | Ex: 'Lucas, dev backend, quer API sem boilerplate' | P0 |\n\n"
+
+    "## Princípios Arquiteturais\n"
+    "| Princípio | Descrição Concreta | Implicação Técnica |\n"
+    "|---|---|---|\n"
+    "| ... | ... | ... |\n\n"
+
+    "## Diferenciais\n"
+    "| Abordagem Atual/Concorrente | Problema | Como Este Sistema Supera |\n"
+    "|---|---|---|\n"
+    "| ... | ... | ... |\n\n"
+
+    "## Requisitos Funcionais\n"
+    "| ID | Requisito | Critério de Aceite (verificável) | Prioridade (MoSCoW) | Complexidade |\n"
+    "|---|---|---|---|---|\n"
+    "| RF-01 | ... | [teste automatizável: ex: 'POST /api/x retorna 201'] | Must | Low |\n\n"
+
+    "## Requisitos Não-Funcionais\n"
+    "| ID | Categoria | Requisito | Métrica | Target |\n"
+    "|---|---|---|---|---|\n"
+    "| RNF-01 | Performance/Segurança/Usabilidade | ... | ... | ... |\n\n"
+
+    "## Escopo MVP\n"
+    "**Inclui:** [lista com bullets, referenciando IDs RF-XX]\n"
+    "**NÃO inclui:** [lista com bullets, com justificativa curta]\n\n"
+
+    "## Métricas de Sucesso\n"
+    "| Métrica | Target | Prazo | Como Medir |\n"
+    "|---|---|---|---|\n\n"
+
+    "## Dependências e Riscos\n"
+    "| ID | Tipo (Dep/Risco) | Descrição | Probabilidade | Impacto | Mitigação |\n"
+    "|---|---|---|---|---|---|\n"
+    "| R-01 | Risco | ... | Alta/Média/Baixa | Alto/Médio/Baixo | ... |\n\n"
+
+    "## Constraints Técnicos\n"
+    "- Linguagem: [valor ou 'A DEFINIR']\n"
+    "- Framework: [valor ou 'A DEFINIR']\n"
+    "- Banco de dados: [valor ou 'A DEFINIR']\n"
+    "- Infraestrutura: [valor ou 'A DEFINIR']\n"
+    "- Restrições de segurança: [valor ou 'A DEFINIR']\n"
+)
+```
+
+**Mudança:** Reescrever `SYSTEM_DESIGN_TEMPLATE`:
+
+```python
+# FASE 7: Template System Design calibrado para padrão NEXUS
+SYSTEM_DESIGN_TEMPLATE = (
+    "FORMATO OBRIGATÓRIO DO SYSTEM DESIGN (PADRÃO NEXUS):\n"
+    "NÃO repita informações do PRD — referencie por ID (RF-XX, RNF-XX).\n\n"
+
+    "## Arquitetura Geral\n"
+    "- Estilo: [ex: Monolito Modular | Microsserviços | Serverless]\n"
+    "- Containers: [lista de componentes de deploy]\n"
+    "- Comunicação: [sync/async, protocolos]\n"
+    "- Diagrama (descrever em texto):\n"
+    "  1. [Componente A] → [Componente B] via [protocolo]\n\n"
+
+    "## Tech Stack\n"
+    "| Camada | Tecnologia | Versão | Justificativa | Alternativa Rejeitada | Motivo Rejeição |\n"
+    "|---|---|---|---|---|---|\n\n"
+
+    "## Módulos\n"
+    "| Módulo | Responsabilidade | Interface Pública | Requisitos Atendidos (RF-XX) |\n"
+    "|---|---|---|---|\n\n"
+
+    "## Modelo de Dados\n"
+    "| Entidade | Atributos-chave | Tipo | Relações | Constraints |\n"
+    "|---|---|---|---|---|\n\n"
+
+    "## Fluxo de Dados\n"
+    "1. [Ator] → [Componente] → [Ação] → [Resultado]\n"
+    "2. ...\n"
+    "(mínimo 5 passos)\n\n"
+
+    "## ADRs (Architecture Decision Records)\n"
+    "| ID | Decisão | Contexto | Alternativa Rejeitada | Consequências | Mitigação |\n"
+    "|---|---|---|---|---|---|\n"
+    "(mínimo 3 ADRs)\n\n"
+
+    "## Riscos Técnicos\n"
+    "| ID | Risco | Probabilidade | Impacto | Mitigação | Owner |\n"
+    "|---|---|---|---|---|---|\n\n"
+
+    "## Requisitos de Infraestrutura\n"
+    "| Recurso | Mínimo | Recomendado | Justificativa |\n"
+    "|---|---|---|---|\n"
+)
+```
+
+**Mudança:** Reescrever `PLAN_TEMPLATE`:
+
+```python
+# FASE 7: Template Development Plan calibrado para padrão NEXUS
+PLAN_TEMPLATE = (
+    "FORMATO OBRIGATÓRIO DO PLANO DE DESENVOLVIMENTO (PADRÃO NEXUS):\n\n"
+
+    "## Arquitetura Sugerida\n"
+    "- Estilo: [tipo]\n"
+    "- Componentes: [lista com bullets]\n"
+    "- Justificativa: [1 frase referenciando ADRs do System Design]\n\n"
+
+    "## Módulos Core\n"
+    "| Módulo | Responsabilidade | Prioridade | Requisitos (RF-XX) | Estimativa (dias) |\n"
+    "|---|---|---|---|---|\n\n"
+
+    "## Fases de Implementação\n"
+    "| Fase | Duração | Entregas Concretas | Critério de Conclusão | Dependência |\n"
+    "|---|---|---|---|---|\n"
+    "(cada fase só inicia após conclusão da anterior)\n\n"
+
+    "## Dependências Técnicas\n"
+    "| Dependência | Versão | Propósito | Alternativa |\n"
+    "|---|---|---|---|\n\n"
+
+    "## Configurações de Ambiente\n"
+    "| Variável | Obrigatória | Default | Descrição |\n"
+    "|---|---|---|---|\n\n"
+
+    "## Riscos e Mitigações (consolidado)\n"
+    "| ID | Risco | Fonte (PRD/Design/Security) | Impacto | Mitigação | Owner |\n"
+    "|---|---|---|---|---|---|\n\n"
+
+    "## Plano de Testes\n"
+    "| Tipo | Escopo | Ferramenta | Cobertura Mínima |\n"
+    "|---|---|---|---|\n"
+
+    "## Guia de Replicação\n"
+    "1. Pré-requisitos: [linguagens, versões, ferramentas]\n"
+    "2. Instalação: [comandos exatos]\n"
+    "3. Configuração: [variáveis de ambiente]\n"
+    "4. Execução: [comando para rodar]\n"
+    "5. Verificação: [como validar que funciona]\n"
+)
+```
+
+**Mudança:** Reescrever `REVIEW_TEMPLATE`:
+
+```python
+# FASE 7: Template Review calibrado para padrão NEXUS
+REVIEW_TEMPLATE = (
+    "FORMATO OBRIGATÓRIO DA REVISÃO (PADRÃO NEXUS):\n\n"
+
+    "## Score de Qualidade\n"
+    "- **quality_score:** [0-100]\n"
+    "- **verdict:** [APPROVED | NEEDS_CORRECTION | REJECTED]\n\n"
+
+    "## Issues Identificadas\n"
+    "| ID | Severidade | Categoria | Localização | Descrição | Sugestão de Correção |\n"
+    "|---|---|---|---|---|---|\n"
+    "| ISS-01 | HIGH/MED/LOW | SECURITY/CORRECTNESS/COMPLETENESS/CONSISTENCY/FEASIBILITY | Seção X | ... | ... |\n\n"
+
+    "## Verificação de Requisitos\n"
+    "| Requisito ID | Status | Notas |\n"
+    "|---|---|---|\n"
+    "| RF-01 | ✅ Atendido / ❌ Não atendido / ⚠️ Parcial | ... |\n"
+    "(verificar CADA RF e RNF listado no PRD)\n\n"
+
+    "## Verificação de Princípios Arquiteturais\n"
+    "| Princípio | Respeitado? | Evidência |\n"
+    "|---|---|---|\n\n"
+
+    "## Sumário\n"
+    "- [1-2 frases sobre o estado geral do artefato]\n\n"
+
+    "## Recomendação\n"
+    "- [Ação específica e concreta necessária para aprovação]\n"
+)
+```
+
+**Mudança:** Reescrever `SECURITY_REVIEW_TEMPLATE`:
+
+```python
+# FASE 7: Template Security Review calibrado para padrão NEXUS
+SECURITY_REVIEW_TEMPLATE = (
+    "FORMATO OBRIGATÓRIO DA REVISÃO DE SEGURANÇA (PADRÃO NEXUS):\n\n"
+
+    "## Superfície de Ataque\n"
+    "| Componente | Tipo de Exposição | Nível de Risco | Justificativa |\n"
+    "|---|---|---|---|\n\n"
+
+    "## Ameaças Identificadas (STRIDE)\n"
+    "| ID | Categoria STRIDE | Componente | Ameaça | Severidade | Mitigação Concreta |\n"
+    "|---|---|---|---|---|---|\n"
+    "| T-01 | S/T/R/I/D/E | ... | ... | Alta/Média/Baixa | [ação específica, não genérica] |\n"
+    "(mínimo 3 ameaças)\n\n"
+
+    "## Requisitos de Segurança Derivados\n"
+    "| ID | Requisito | Prioridade | Ameaça Mitigada |\n"
+    "|---|---|---|---|\n"
+    "| RS-01 | ... | Must/Should | T-XX |\n\n"
+
+    "## Dados Sensíveis\n"
+    "| Dado | Classificação | Criptografia | Retenção |\n"
+    "|---|---|---|---|\n\n"
+
+    "## Plano de Autenticação/Autorização\n"
+    "- Mecanismo: [ex: JWT, OAuth2, Session]\n"
+    "- Granularidade: [ex: RBAC, ABAC, ACL]\n"
+    "- Armazenamento de credenciais: [ex: bcrypt, argon2]\n"
+)
+```
+
+**Validação:** `python -c "from src.core.prompt_templates import PRD_TEMPLATE; print('OK')"`
+
+---
+
+### STEP 03 — golden_examples.py
+
+**Localização:** `src/core/golden_examples.py`
+
+**Mudança:** Substituir os 4 fragmentos por trechos de qualidade superior extraídos/inspirados no padrão NEXUS:
+
+```python
+# FASE 7: Exemplos calibrados para padrão NEXUS Protocol v1.0
+
+PRD_EXAMPLE_FRAGMENT = (
+    "EXEMPLO DE QUALIDADE ESPERADA (use como referência de formato e densidade):\n\n"
+    "## Problema\n"
+    "| ID | Problema | Impacto | Como o Sistema Resolve |\n"
+    "|---|---|---|---|\n"
+    "| P-01 | Dependência de APIs em nuvem para coding assistants | Latência, custo recorrente, vendor lock-in | Inferência 100% local via Ollama |\n"
+    "| P-02 | Dados proprietários enviados a terceiros | Risco de compliance (LGPD, GDPR) | Soberania total — zero egress de dados |\n"
+    "| P-03 | Coding assistants são reativos, não proativos | Dev precisa micro-gerenciar cada passo | Agentes autônomos com ciclo plan→execute→review |\n"
+    "| P-04 | Falta de revisão automatizada de código gerado | Código de baixa qualidade entra em produção | Agente Revisor dedicado com critérios mensuráveis |\n\n"
+    "## Público-Alvo\n"
+    "| Segmento | Perfil | Prioridade |\n"
+    "|---|---|---|\n"
+    "| Desenvolvedores Individuais | Lucas, dev fullstack, valoriza privacidade, tem RTX 3060 | P0 |\n"
+    "| Equipes Pequenas (2-10) | Startup que não pode enviar código para APIs externas | P1 |\n"
+    "| Empresas Regulamentadas | Org sob LGPD/GDPR que proíbe envio de dados a terceiros | P2 |\n\n"
+    "## Requisitos Funcionais\n"
+    "| ID | Requisito | Critério de Aceite | Prioridade | Complexidade |\n"
+    "|---|---|---|---|---|\n"
+    "| RF-01 | Usuário submete ideia em linguagem natural | Input via CLI aceita texto livre ≥10 chars | Must | Low |\n"
+    "| RF-02 | Sistema decompõe ideia em subtarefas atômicas | Planner retorna DAG JSON com ≥2 tasks | Must | High |\n"
+    "| RF-03 | Código gerado passa em linting automático | ruff check retorna exit 0 | Must | Medium |\n"
+    "| RF-04 | Revisor emite score numérico 0-100 | ReviewVerdict.quality_score é int entre 0 e 100 | Must | Medium |\n"
+    "| RF-05 | Self-healing corrige erros de import | ModuleNotFoundError → pip install automático → re-execução | Should | Medium |\n\n"
+    "---\n"
+    "FIM DO EXEMPLO. Gere o artefato real com base na ideia do usuário.\n\n"
+)
+
+DESIGN_EXAMPLE_FRAGMENT = (
+    "EXEMPLO DE QUALIDADE ESPERADA (use como referência):\n\n"
+    "## ADRs (Architecture Decision Records)\n"
+    "| ID | Decisão | Contexto | Alternativa Rejeitada | Consequências | Mitigação |\n"
+    "|---|---|---|---|---|---|\n"
+    "| ADR-01 | SQLite como banco de dados | MVP com baixo volume, deploy local | PostgreSQL: requer setup separado | Limitação de concorrência | WAL mode + migrar para PG na v2 |\n"
+    "| ADR-02 | FastAPI como framework | Async nativo, tipagem Pydantic, OpenAPI auto | Django: overhead de ORM para API-only | Dependência de Starlette | Documentação forte, comunidade ativa |\n"
+    "| ADR-03 | JSON para persistência | Zero dependências, legível por humanos | SQLite: mais robusto | Não escala para milhares de registros | Volume esperado é dezenas, não milhares |\n\n"
+    "## Riscos Técnicos\n"
+    "| ID | Risco | Probabilidade | Impacto | Mitigação | Owner |\n"
+    "|---|---|---|---|---|---|\n"
+    "| R-01 | SQLite não suporta escritas concorrentes | Média | Alto | WAL mode + connection pooling com mutex | Backend Lead |\n"
+    "| R-02 | Modelos 7B geram código de baixa qualidade | Alta | Alto | Self-healing + retry + fallback para modelo maior | ML Eng |\n"
+    "| R-03 | JWT sem refresh token permite sessões eternas | Baixa | Médio | Implementar refresh endpoint na v1.1 | Security |\n\n"
+    "---\nFIM DO EXEMPLO. Gere o artefato real.\n\n"
+)
+
+REVIEW_EXAMPLE_FRAGMENT = (
+    "EXEMPLO DE QUALIDADE ESPERADA (use como referência):\n\n"
+    "## Score de Qualidade\n"
+    "- **quality_score:** 72\n"
+    "- **verdict:** NEEDS_CORRECTION\n\n"
+    "## Issues Identificadas\n"
+    "| ID | Severidade | Categoria | Localização | Descrição | Sugestão de Correção |\n"
+    "|---|---|---|---|---|---|\n"
+    "| ISS-01 | HIGH | SECURITY | Seção 'Modelo de Dados' | Senha de usuário armazenada sem menção a hashing | Adicionar campo password_hash com bcrypt, remover campo password plaintext |\n"
+    "| ISS-02 | MEDIUM | COMPLETENESS | Seção 'Riscos' | Nenhum risco de infraestrutura identificado | Adicionar riscos de deploy, backup, monitoramento |\n"
+    "| ISS-03 | LOW | CONSISTENCY | Tech Stack vs Módulos | Tech Stack menciona Redis mas nenhum módulo o utiliza | Remover Redis ou adicionar módulo de cache |\n\n"
+    "## Verificação de Requisitos\n"
+    "| Requisito ID | Status | Notas |\n"
+    "|---|---|---|\n"
+    "| RF-01 | ✅ Atendido | Input aceita texto livre |\n"
+    "| RF-02 | ⚠️ Parcial | DAG gerado mas sem validação de ciclos |\n"
+    "| RF-03 | ❌ Não atendido | Nenhum linting configurado |\n\n"
+    "---\nFIM DO EXEMPLO. Analise o artefato real.\n\n"
+)
+
+SECURITY_EXAMPLE_FRAGMENT = (
+    "EXEMPLO DE QUALIDADE ESPERADA (use como referência):\n\n"
+    "## Ameaças Identificadas (STRIDE)\n"
+    "| ID | Categoria STRIDE | Componente | Ameaça | Severidade | Mitigação Concreta |\n"
+    "|---|---|---|---|---|---|\n"
+    "| T-01 | S (Spoofing) | API /auth/login | Brute force de credenciais | Alta | Rate limiting 5 tentativas/min + CAPTCHA após 3 falhas |\n"
+    "| T-02 | I (Info Disclosure) | /users/{id} | IDOR — acesso a dados de outros usuários | Alta | Verificar ownership via middleware de autorização |\n"
+    "| T-03 | T (Tampering) | JWT Token | Token sem assinatura verificada no backend | Alta | Validar assinatura RS256 em cada request autenticado |\n"
+    "| T-04 | D (DoS) | API pública | Flood de requests sem rate limit | Média | Nginx rate limiting + circuit breaker |\n\n"
+    "## Dados Sensíveis\n"
+    "| Dado | Classificação | Criptografia | Retenção |\n"
+    "|---|---|---|---|\n"
+    "| Senha do usuário | PII Crítico | bcrypt (cost 12) | Indefinida |\n"
+    "| Token JWT | Sessão | RS256 | 24h (exp claim) |\n"
+    "| Email | PII | AES-256 em repouso | Até exclusão da conta |\n\n"
+    "---\nFIM DO EXEMPLO. Analise o artefato real.\n\n"
+)
+```
+
+**Nota:** Não existe `PLAN_EXAMPLE_FRAGMENT` referenciado no código — o `plan_generator.py` referencia `PLAN_EXAMPLE_FRAGMENT` mas ele não está definido em `golden_examples.py`. Adicionar:
+
+```python
+# FASE 7: Exemplo de plano (não existia antes)
+PLAN_EXAMPLE_FRAGMENT = (
+    "EXEMPLO DE QUALIDADE ESPERADA (use como referência):\n\n"
+    "## Fases de Implementação\n"
+    "| Fase | Duração | Entregas | Critério de Conclusão | Dependência |\n"
+    "|---|---|---|---|---|\n"
+    "| Fase 0 — Setup | 1 semana | Repo, CI, configs, health check | make health → ✅ | Nenhuma |\n"
+    "| Fase 1 — Core | 2 semanas | Agentes base, provider LLM, filesystem | Testes unitários 80%+ | Fase 0 |\n"
+    "| Fase 2 — Pipeline | 2 semanas | Orquestrador, DAG, retry | Pipeline E2E com mock | Fase 1 |\n\n"
+    "---\nFIM DO EXEMPLO. Gere o artefato real.\n\n"
+)
+```
+
+---
+
+### STEP 04 — sectional_generator.py
+
+**Localização:** `src/core/sectional_generator.py`, constantes no final do arquivo
+
+**Mudança:** Recalibrar `PRD_PASSES` para 5 passes (adicionando Público-Alvo + Princípios + Diferenciais):
+
+```python
+# FASE 7: PRD_PASSES recalibrado para padrão NEXUS (5 passes)
+PRD_PASSES = [
+    SectionPass(
+        pass_id="prd_p1",
+        sections=["## Objetivo", "## Problema"],
+        template=(
+            "## Objetivo\n"
+            "- [1 frase, verbo no infinitivo, máximo 30 palavras]\n\n"
+            "## Problema\n"
+            "| ID | Problema | Impacto | Como o Sistema Resolve |\n"
+            "|---|---|---|---|\n"
+            "| P-01 | ... | ... | ... |\n"
+        ),
+        example=(
+            "## Objetivo\n"
+            "- Permitir gerenciamento de tarefas pessoais com sincronização offline-first\n\n"
+            "## Problema\n"
+            "| ID | Problema | Impacto | Como o Sistema Resolve |\n"
+            "|---|---|---|---|\n"
+            "| P-01 | Apps existentes requerem internet | Perda de dados offline | Sync offline-first com CRDT |\n"
+            "| P-02 | Complexidade excessiva | Abandono em 7 dias | Interface minimalista com 3 ações |\n"
+        ),
+        instruction="Gere APENAS Objetivo e Problema. Mínimo 4 problemas na tabela com coluna 'Como Resolve'.",
+        min_chars=200,
+        max_output_tokens=1500,
+    ),
+    SectionPass(
+        pass_id="prd_p2",
+        sections=["## Público-Alvo", "## Princípios Arquiteturais", "## Diferenciais"],
+        template=(
+            "## Público-Alvo\n"
+            "| Segmento | Perfil (nome + dor) | Prioridade |\n"
+            "|---|---|---|\n\n"
+            "## Princípios Arquiteturais\n"
+            "| Princípio | Descrição Concreta | Implicação Técnica |\n"
+            "|---|---|---|\n\n"
+            "## Diferenciais\n"
+            "| Abordagem Atual | Problema | Como Este Sistema Supera |\n"
+            "|---|---|---|\n"
+        ),
+        example=(
+            "| Dev Indie | Lucas, dev solo, quer validar ideias antes de codar | P0 |\n"
+            "| Startup | Time de 5 sem PM dedicado | P1 |\n"
+        ),
+        instruction="Gere APENAS Público-Alvo (mín 3), Princípios (mín 3) e Diferenciais (mín 3). Todas com tabelas.",
+        min_chars=250,
+        max_output_tokens=1500,
+    ),
+    SectionPass(
+        pass_id="prd_p3",
+        sections=["## Requisitos Funcionais", "## Requisitos Não-Funcionais"],
+        template=(
+            "## Requisitos Funcionais\n"
+            "| ID | Requisito | Critério de Aceite (verificável) | Prioridade (MoSCoW) | Complexidade |\n"
+            "|---|---|---|---|---|\n"
+            "| RF-01 | ... | [teste automatizável] | Must/Should/Could | Low/Med/High |\n\n"
+            "## Requisitos Não-Funcionais\n"
+            "| ID | Categoria | Requisito | Métrica | Target |\n"
+            "|---|---|---|---|---|\n"
+        ),
+        example=(
+            "| RF-01 | CRUD de tarefas | POST/GET/PUT/DELETE retorna status HTTP correto | Must | Low |\n"
+            "| RF-02 | Filtro por status | GET /tasks?status=done retorna subset | Should | Low |\n"
+            "| RNF-01 | Performance | Latência API | p95 | <200ms |\n"
+        ),
+        instruction="Gere APENAS RF (mínimo 8) e RNF (mínimo 5). IDs sequenciais. Critérios de aceite DEVEM ser testes automatizáveis.",
+        min_chars=400,
+        max_output_tokens=1500,
+    ),
+    SectionPass(
+        pass_id="prd_p4",
+        sections=["## Escopo MVP", "## Métricas de Sucesso"],
+        template=(
+            "## Escopo MVP\n"
+            "**Inclui:** [lista referenciando RF-XX]\n"
+            "**NÃO inclui:** [lista com justificativa]\n\n"
+            "## Métricas de Sucesso\n"
+            "| Métrica | Target | Prazo | Como Medir |\n"
+            "|---|---|---|---|\n"
+        ),
+        example=(
+            "**Inclui:**\n- RF-01 a RF-05 — core CRUD + auth\n\n"
+            "**NÃO inclui:**\n- Notificações push (v2) — complexidade alta, não essencial\n"
+        ),
+        instruction="Gere APENAS Escopo e Métricas. Referencie IDs RF-XX no escopo.",
+        min_chars=200,
+        max_output_tokens=1200,
+    ),
+    SectionPass(
+        pass_id="prd_p5",
+        sections=["## Dependências e Riscos", "## Constraints Técnicos"],
+        template=(
+            "## Dependências e Riscos\n"
+            "| ID | Tipo | Descrição | Probabilidade | Impacto | Mitigação |\n"
+            "|---|---|---|---|---|---|\n\n"
+            "## Constraints Técnicos\n"
+            "- Linguagem: [...]\n"
+            "- Framework: [...]\n"
+            "- Banco de dados: [...]\n"
+            "- Infraestrutura: [...]\n"
+            "- Restrições de segurança: [...]\n"
+        ),
+        example=(
+            "| R-01 | Risco | SQLite sem escrita concorrente | Média | Alto | WAL mode |\n"
+            "| R-02 | Dependência | Ollama deve estar rodando | Alta | Crítico | Health check no startup |\n"
+        ),
+        instruction="Gere APENAS Riscos (mínimo 5) e Constraints Técnicos.",
+        min_chars=200,
+        max_output_tokens=1200,
+    ),
+]
+```
+
+**Nota:** `DESIGN_PASSES`, `PLAN_PASSES`, `REVIEW_PASSES`, `SECURITY_PASSES` também devem ter `max_output_tokens` aumentado para 1200-1500 em cada pass. A estrutura de seções pode permanecer a mesma — apenas aumentar os tokens.
+
+---
+
+### STEP 05 — output_validator.py
+
+**Mudança em `REQUIRED_SECTIONS`:**
+
+```python
+# FASE 7: Seções obrigatórias do PRD atualizadas para padrão NEXUS
+"prd": [
+    "## Objetivo",
+    "## Problema",
+    "## Público-Alvo",
+    "## Princípios Arquiteturais",
+    "## Requisitos Funcionais",
+    "## Requisitos Não-Funcionais",
+    "## Escopo MVP",
+    "## Métricas de Sucesso",
+    "## Dependências e Riscos",
+    "## Diferenciais",
+    "## Constraints Técnicos",
+],
+```
+
+**Mudança em `MIN_COMPLETENESS`:**
+
+```python
+# FASE 7: Threshold aumentado para exigir mais seções presentes
+"prd": 0.75,  # era 0.70
+```
+
+**Mudança em `MIN_CHARS`:**
+
+```python
+# FASE 7: PRD NEXUS é mais denso
+"prd": 600,  # era 400
+```
+
+---
+
+### STEP 06 — main.py + planner.py
+
+**main.py — Adicionar `--no-gate`:**
+
+```python
+# FASE 7: No início de main(), antes de prompt_idea()
+import argparse
+
+def main():
+    parser = argparse.ArgumentParser(description="IdeaForge CLI")
+    parser.add_argument("--no-gate", action="store_true",
+                        help="Pular HUMAN_GATE (aprovação automática)")
+    args, _ = parser.parse_known_args()
+
+    selected_model, think_preference = select_model()
+    idea = prompt_idea()
+    if not idea:
+        print("Nenhuma ideia inserida. Encerrando.")
+        sys.exit(0)
+
+    provider = get_provider(selected_model, think_preference)
+    controller = AgentController(provider, think=think_preference)
+
+    # FASE 7: Propagar no_gate para o controller
+    if args.no_gate:
+        controller.agents["human_gate_callback"] = lambda ctx: "APPROVED"
+
+    # ... resto do main() permanece igual
+```
+
+**planner.py — Nenhuma mudança necessária.** O `human_gate_callback` já é chamado via `self.agents["human_gate_callback"]`. Ao substituir o callback no controller, o planner automaticamente usa o novo.
+
+---
+
+### STEP 07 — controller.py
+
+**Mudança em `_generate_final_report`:**
+
+```python
+# FASE 7: Relatório final com sumário executivo e índice
+def _generate_final_report(self, filename: str):
+    """Compila todos os artefatos em um único arquivo Markdown."""
+    artifacts_to_include = [
+        "prd", "prd_review", "system_design",
+        "security_review", "debate_transcript", "development_plan"
+    ]
+
+    with open(filename, "w", encoding="utf-8") as f:
+        # FASE 7: Sumário executivo
+        f.write(f"# Relatório IdeaForge — Padrão NEXUS\n\n")
+        f.write(f"**Ideia:** {self.blackboard.get_variable('initial_idea')}\n\n")
+        f.write(f"**Modelo:** {self.provider.model_name if hasattr(self.provider, 'model_name') else 'N/A'}\n\n")
+
+        # FASE 7: Índice navegável
+        f.write("## Índice\n\n")
+        for art_name in artifacts_to_include:
+            if self.artifact_store.exists(art_name):
+                f.write(f"- [{art_name.upper().replace('_', ' ')}](#{art_name})\n")
+        f.write("\n---\n\n")
+
+        # Artefatos
+        for art_name in artifacts_to_include:
+            artifact = self.artifact_store.read(art_name)
+            if artifact:
+                f.write(f"<a id='{art_name}'></a>\n\n")
+                f.write(f"## {art_name.upper().replace('_', ' ')}\n")
+                f.write(f"**Criado por:** {artifact.created_by} | **Versão:** {artifact.version}\n\n")
+                f.write(f"{artifact.content}\n\n")
+                f.write("---\n\n")
+
+        # Métricas de qualidade
+        f.write("## Métricas de Qualidade (NEXUS Calibration)\n\n")
+        f.write("| Artefato | Density | Completude | Tabelas | Tokens |\n")
+        f.write("|---|---|---|---|---|\n")
+        from src.core.output_validator import OutputValidator
+        validator = OutputValidator()
+        for art_name in artifacts_to_include:
+            artifact = self.artifact_store.read(art_name)
+            if artifact:
+                type_map = {
+                    "prd": "prd", "system_design": "system_design",
+                    "prd_review": "review", "security_review": "security_review",
+                    "development_plan": "plan"
+                }
+                val = validator.validate(artifact.content, type_map.get(art_name, "document"))
+                f.write(
+                    f"| {art_name.upper()} | {val.get('density_score', 0):.2f} | "
+                    f"{int(val.get('completeness_score', 0)*100)}% | "
+                    f"{val.get('table_count', 0)} | {artifact.token_estimate()} |\n"
+                )
+
+        f.write(f"\n---\n*Gerado via IdeaForge CLI — Calibração NEXUS Fase 7*")
+```
+
+---
+
+### STEP 08 — Testes
+
+**Arquivo: `tests/test_output_validator_v2.py`**
+
+Atualizar o teste `test_validate_pass_success` para usar as novas seções:
+
+```python
+# FASE 7: Teste com PRD que inclui novas seções NEXUS
+def test_validate_prd_nexus_sections(self):
+    content = (
+        "## Objetivo\n- Teste\n\n"
+        "## Problema\n| ID | Prob | Imp | Resolve |\n|---|---|---|---|\n| P-01 | X | Y | Z |\n\n"
+        "## Público-Alvo\n| Seg | Perfil | Prio |\n|---|---|---|\n| Dev | Lucas | P0 |\n\n"
+        "## Princípios Arquiteturais\n| Princ | Desc | Impl |\n|---|---|---|\n| Local | Tudo local | Zero cloud |\n\n"
+        "## Requisitos Funcionais\n| ID | Req | Aceite | Prio | Complex |\n|---|---|---|---|---|\n| RF-01 | X | Y | Must | Low |\n\n"
+        "## Requisitos Não-Funcionais\n| ID | Cat | Req | Met | Tgt |\n|---|---|---|---|---|\n| RNF-01 | Perf | Lat | p95 | 200ms |\n\n"
+        "## Escopo MVP\n**Inclui:** RF-01\n**NÃO inclui:** Mobile\n\n"
+        "## Métricas de Sucesso\n| Met | Tgt | Prazo | Medir |\n|---|---|---|---|\n| Users | 100 | 30d | Analytics |\n\n"
+        "## Dependências e Riscos\n| ID | Tipo | Desc | Prob | Imp | Mit |\n|---|---|---|---|---|---|\n| R-01 | Risco | DB | Média | Alto | Backup |\n\n"
+        "## Diferenciais\n| Atual | Problema | Supera |\n|---|---|---|\n| Chat GPT | Sem estrutura | Pipeline cognitivo |\n\n"
+        "## Constraints Técnicos\n- Linguagem: Python\n"
+    )
+    res = self.validator.validate(content, "prd")
+    self.assertTrue(res["valid"])
+    self.assertGreaterEqual(res["completeness_score"], 0.75)
+```
+
+---
+
+### STEP 09 — Teste E2E
+
+```bash
+# Rodar pipeline completo sem human gate
+python src/cli/main.py --no-gate
+
+# Quando pedir modelo, selecionar qwen3-coder:480b-cloud
+# Quando pedir ideia, inserir:
+# "Criar um SaaS de agendamento para clínicas odontológicas com painel administrativo"
+
+# Avaliar output contra checklist:
+# [ ] PRD contém ## Público-Alvo com tabela
+# [ ] PRD contém ## Princípios Arquiteturais com tabela
+# [ ] PRD contém ## Diferenciais com tabela
+# [ ] PRD contém ≥8 RF com critérios verificáveis
+# [ ] PRD contém ≥5 RNF com métricas
+# [ ] PRD contém ≥5 riscos com probabilidade+impacto+mitigação
+# [ ] System Design contém ≥3 ADRs com alternativa rejeitada
+# [ ] Security Review contém ≥3 ameaças STRIDE
+# [ ] Relatório final tem sumário executivo e índice
+# [ ] OutputValidator reporta completeness ≥ 0.75
+```
+
+---
+
+## SEÇÃO 6 — TRACEABILITY MATRIX
+
+| RF/RNF | Componente | Arquivo | Método/Constante | Teste que Valida | Critério Binário |
+|---|---|---|---|---|---|
+| RF-F7-01 | PRD Template | `prompt_templates.py` | `PRD_TEMPLATE` | `test_validate_prd_nexus_sections` | `"## Público-Alvo" in output` |
+| RF-F7-02 | PRD Template | `prompt_templates.py` | `PRD_TEMPLATE` | `test_validate_prd_nexus_sections` | `"## Princípios" in output` |
+| RF-F7-03 | PRD Template | `prompt_templates.py` | `PRD_TEMPLATE` | `test_validate_prd_nexus_sections` | `"## Diferenciais" in output` |
+| RF-F7-04 | SectionalGen | `sectional_generator.py` | `PRD_PASSES[2]` | Teste E2E manual | `count("RF-") >= 8` |
+| RF-F7-05 | Golden Examples | `golden_examples.py` | `PRD_EXAMPLE_FRAGMENT` | Inspeção manual | Critérios contêm verbos de teste |
+| RF-F7-06 | PRD Template | `prompt_templates.py` | `PRD_TEMPLATE` | Teste E2E manual | `count("R-0") >= 3` |
+| RF-F7-07 | Design Template | `prompt_templates.py` | `SYSTEM_DESIGN_TEMPLATE` | Teste E2E manual | `"Alternativa Rejeitada" in output` |
+| RF-F7-08 | Controller | `controller.py` | `_generate_final_report` | Teste E2E manual | `"## Índice" in relatório[:500]` |
+| RF-F7-09 | Main + Planner | `main.py` | `--no-gate` argparse | Teste E2E manual | Pipeline completa sem input |
+| RF-F7-10 | OutputValidator | `output_validator.py` | `REQUIRED_SECTIONS` | `test_validate_prd_nexus_sections` | `completeness_score >= 0.75` |
+| RNF-F7-01 | Testes | `tests/` | Todos | `pytest tests/ -v` | `ALL PASSED` |
+| RNF-F7-02 | Pipeline | Todo o sistema | `run_pipeline` | Log de tempo | `duration < 900s` |
+| RNF-F7-03 | Código | Todos os arquivos alterados | — | `grep "FASE 7" src/` | Todos os arquivos alterados têm comentário |
+
+---
+
+## Garantia de Não-Superficialidade
+
+Esta documentação foi estruturada para eliminar ambiguidade operacional. Se qualquer seção permitir múltiplas interpretações, expandir até que reste apenas uma forma implementável.
+
+Não produzir explicações genéricas. Não produzir texto descritivo sem valor executável. Toda decisão deve ser rastreável, testável e verificável.
+
+---
+
+## DECISION_LOG — Entrada para Fase 7
+
+```
+### Fase 7 — Calibração NEXUS
+F7 | MOD | `PRD_TEMPLATE` | Reescrita para padrão NEXUS (11 seções) | `prompt_templates.py`
+F7 | MOD | `SYSTEM_DESIGN_TEMPLATE` | ADRs com alternativa rejeitada obrigatória | `prompt_templates.py`
+F7 | MOD | `PLAN_TEMPLATE` | Adicionado Guia de Replicação | `prompt_templates.py`
+F7 | MOD | `REVIEW_TEMPLATE` | Verificação de Princípios Arquiteturais | `prompt_templates.py`
+F7 | MOD | `SECURITY_REVIEW_TEMPLATE` | Mitigação Concreta obrigatória | `prompt_templates.py`
+F7 | MOD | `golden_examples.py` | Exemplos substituídos por trechos padrão NEXUS | `golden_examples.py`
+F7 | MOD | `num_predict` | 1200→2500 (direto), 3000→5000 (reasoning) | `ollama_provider.py`
+F7 | MOD | `PRD_PASSES` | 4→5 passes, tokens 800→1500 | `sectional_generator.py`
+F7 | MOD | `REQUIRED_SECTIONS["prd"]` | 7→11 seções obrigatórias | `output_validator.py`
+F7 | ADD | `--no-gate` | Flag para pular HUMAN_GATE | `main.py`
+F7 | MOD | `_generate_final_report` | Sumário executivo + índice navegável | `controller.py`
+F7 | ADD | `PLAN_EXAMPLE_FRAGMENT` | Exemplo que faltava no golden_examples | `golden_examples.py`
+F7 | RULE | NEXUS Density | Templates exigem tabelas com colunas de justificativa/mitigação | `prompt_templates.py`
+```

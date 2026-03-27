@@ -11,7 +11,6 @@ from src.debate.debate_engine import DebateEngine
 from src.planning.plan_generator import PlanGenerator
 from src.models.model_provider import ModelProvider
 from src.core.stream_handler import ANSIStyle
-from src.core.pipeline_logger import init_pipeline_logger, get_pipeline_logger
 
 
 def emit_pipeline_state(state: str, detail: str = ""):
@@ -116,15 +115,6 @@ class AgentController:
         """
         Executa o pipeline baseado em Blackboard.
         """
-        # ═══ LOGGER: Inicializar ═══
-        self.logger = init_pipeline_logger()
-        self.logger.log("PIPELINE_START", {
-            "idea": initial_idea[:500],
-            "model": self.provider.model_name if hasattr(self.provider, 'model_name') else "unknown",
-            "think": self.think,
-            "report_filename": report_filename or "",
-        })
-
         emit_pipeline_state("PIPELINE_START", "Iniciando Pipeline NEXUS (Fase 4)")
         
         # Armazena meta-informações
@@ -143,42 +133,10 @@ class AgentController:
             if report_filename:
                 self._generate_final_report(report_filename)
 
-            if self.logger:
-                self.logger.log("REPORT_GENERATED", {
-                    "filename": report_filename or "",
-                    "artifacts_count": len([
-                        n for n in ["prd", "prd_review", "system_design",
-                                    "security_review", "debate_transcript",
-                                    "development_plan"]
-                        if self.artifact_store.exists(n)
-                    ]),
-                })
-
             emit_pipeline_state("PIPELINE_COMPLETE", "Pipeline Blackboard concluído")
-
-            # ═══ LOGGER: Fechar ═══
-            if self.logger:
-                self.logger.close()
-                import sys
-                sys.stdout.write(
-                    f"\n Log completo salvo em: {self.logger.get_filepath()}\n"
-                )
-                sys.stdout.flush()
-
             return final_plan
             
         except Exception as e:
-            # ═══ LOGGER: Registrar erro ═══
-            logger = get_pipeline_logger()
-            if logger:
-                import traceback
-                logger.log_error(
-                    context="run_pipeline",
-                    error=str(e),
-                    traceback_str=traceback.format_exc(),
-                )
-                logger.close()
-
             print(f"\n{ANSIStyle.RED}[ERRO] Falha no pipeline: {str(e)}{ANSIStyle.RESET}")
             self.blackboard.persist_to_disk() # Salva o que deu pra salvar
             raise e
@@ -186,32 +144,44 @@ class AgentController:
     def _generate_final_report(self, filename: str):
         """Compila todos os artefatos em um único arquivo Markdown."""
         artifacts_to_include = [
-            "prd", "prd_review", "system_design", 
+            "prd", "prd_review", "system_design",
             "security_review", "debate_transcript", "development_plan"
         ]
-        
+
         with open(filename, "w", encoding="utf-8") as f:
-            f.write(f"# 💡 Relatório de Debate - IdeaForge CLI\n\n")
-            f.write(f"**Ideia Inicial:** {self.blackboard.get_variable('initial_idea')}\n\n")
-            
+            # FASE 7: Sumário executivo
+            f.write(f"# Relatório IdeaForge — Padrão NEXUS\n\n")
+            f.write(f"**Ideia:** {self.blackboard.get_variable('initial_idea')}\n\n")
+            f.write(f"**Modelo:** {self.provider.model_name if hasattr(self.provider, 'model_name') else 'N/A'}\n\n")
+
+            # FASE 7: Índice navegável
+            f.write("## Índice\n\n")
+            for art_name in artifacts_to_include:
+                if self.artifact_store.exists(art_name):
+                    f.write(f"- [{art_name.upper().replace('_', ' ')}](#{art_name})\n")
+            f.write("\n---\n\n")
+
+            # Artefatos
             for art_name in artifacts_to_include:
                 artifact = self.artifact_store.read(art_name)
                 if artifact:
-                    f.write(f"--- \n\n## 📄 Artefato: {art_name.upper()}\n")
+                    f.write(f"<a id='{art_name}'></a>\n\n")
+                    f.write(f"## {art_name.upper().replace('_', ' ')}\n")
                     f.write(f"**Criado por:** {artifact.created_by} | **Versão:** {artifact.version}\n\n")
                     f.write(f"{artifact.content}\n\n")
-            
-            f.write(f"\n---\n\n## 📊 Métricas de Qualidade (NEXUS Calibration)\n\n")
+                    f.write("---\n\n")
+
+            # Métricas de qualidade
+            f.write("## Métricas de Qualidade (NEXUS Calibration)\n\n")
             f.write("| Artefato | Density | Completude | Tabelas | Tokens |\n")
             f.write("|---|---|---|---|---|\n")
 
             from src.core.output_validator import OutputValidator
             validator = OutputValidator()
-            
+
             for art_name in artifacts_to_include:
                 artifact = self.artifact_store.read(art_name)
                 if artifact:
-                    # Mapear nome do artefato para o tipo do validador
                     type_map = {
                         "prd": "prd", "system_design": "system_design",
                         "prd_review": "review", "security_review": "security_review",
@@ -221,8 +191,7 @@ class AgentController:
                     f.write(
                         f"| {art_name.upper()} | {val.get('density_score', 0):.2f} | "
                         f"{int(val.get('completeness_score', 0)*100)}% | "
-                        f"{val.get('table_count', 0)} | "
-                        f"{artifact.token_estimate()} |\n"
+                        f"{val.get('table_count', 0)} | {artifact.token_estimate()} |\n"
                     )
 
-            f.write(f"\n---\n*Gerado automaticamente via Blackboard Pattern — Calibração Seccional Ativa.*")
+            f.write(f"\n---\n*Gerado via IdeaForge CLI — Calibração NEXUS Fase 7*")

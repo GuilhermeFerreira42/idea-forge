@@ -1,0 +1,38 @@
+# Implementation Plan — Phase 7: Calibration to NEXUS Standard
+
+This phase focuses on calibrating the IdeaForge CLI to produce high-density artifacts (PRDs, System Designs, etc.) that meet the NEXUS v1.0 standard.
+
+## Proposed Changes
+
+### [Models]
+Update `ollama_provider.py` to increase `num_predict` values, allowing for longer generations required by the new templates.
+
+- [MODIFY] [ollama_provider.py](file:///c:/Users/Usuario/Desktop/idea-forge/src/models/ollama_provider.py)
+
+### [Core Templates & Examples]
+Re-write prompt templates and few-shot examples to enforce the NEXUS standard.
+
+- [MODIFY] [prompt_templates.py](file:///c:/Users/Usuario/Desktop/idea-forge/src/core/prompt_templates.py)
+- [MODIFY] [golden_examples.py](file:///c:/Users/Usuario/Desktop/idea-forge/src/core/golden_examples.py)
+
+### [Core Logic]
+Recalibrate sectional generation passes and update validation requirements to match new NEXUS templates.
+
+- [MODIFY] [sectional_generator.py](file:///c:/Users/Usuario/Desktop/idea-forge/src/core/sectional_generator.py)
+- [MODIFY] [output_validator.py](file:///c:/Users/Usuario/Desktop/idea-forge/src/core/output_validator.py)
+- [MODIFY] [controller.py](file:///c:/Users/Usuario/Desktop/idea-forge/src/core/controller.py)
+- [MODIFY] [planner.py](file:///c:/Users/Usuario/Desktop/idea-forge/src/core/planner.py)
+
+### [CLI]
+Add support for skipping human gates.
+
+- [MODIFY] [main.py](file:///c:/Users/Usuario/Desktop/idea-forge/src/cli/main.py)
+
+## Verification Plan
+
+### Automated Tests
+- `pytest tests/test_output_validator_v2.py` (After updates)
+- `pytest tests/` (Verify all 48 existing tests still pass)
+
+### Manual Verification
+- Run the full pipeline with `--no-gate` and inspect the output and final report quality.

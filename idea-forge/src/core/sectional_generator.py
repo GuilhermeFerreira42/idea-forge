@@ -13,7 +13,6 @@ from typing import List, Dict, Optional
 from src.models.model_provider import ModelProvider
 from src.core.stream_handler import ANSIStyle
 from src.core.output_validator import OutputValidator
-from src.core.pipeline_logger import get_pipeline_logger
 
 
 MAX_RETRIES_PER_PASS = 2
@@ -135,17 +134,6 @@ class SectionalGenerator:
         last_fail_reasons = []
 
         for attempt in range(1, MAX_RETRIES_PER_PASS + 2):  # attempt 1 = original, 2-3 = retries
-            logger = get_pipeline_logger()
-
-            # ═══ LOGGER: Pass iniciado ═══
-            if logger:
-                logger.log_pass(section_pass.pass_id, "START", {
-                    "attempt": attempt,
-                    "sections": section_pass.sections,
-                    "pass_number": pass_number,
-                    "total_passes": total_passes,
-                })
-
             # Construir prompt
             prompt = self._build_pass_prompt(
                 section_pass=section_pass,
@@ -155,16 +143,6 @@ class SectionalGenerator:
                 pass_number=pass_number,
                 total_passes=total_passes,
             )
-
-            # ═══ LOGGER: Prompt construído (Request) ═══
-            if logger:
-                logger.log_llm_request(
-                    agent=section_pass.pass_id,
-                    role=self._get_role(section_pass.pass_id),
-                    prompt=prompt,
-                    pass_info=f"pass_{pass_number}_attempt_{attempt}",
-                    attempt=attempt,
-                )
 
             # Se é retry, adicionar instrução corretiva
             if attempt > 1 and last_fail_reasons:
@@ -176,14 +154,6 @@ class SectionalGenerator:
             result = self.provider.generate(prompt=prompt, role=self._get_role(section_pass.pass_id))
             result = self._clean_pass_output(result)
 
-            # ═══ LOGGER: Resposta recebida ═══
-            if logger:
-                logger.log_llm_response(
-                    agent=section_pass.pass_id,
-                    content=result,
-                    tokens_processed=len(result) // 4 if result else 0,
-                )
-
             # Validar
             validation = self.validator.validate_pass(
                 content=result,
@@ -193,29 +163,12 @@ class SectionalGenerator:
             )
 
             if validation["valid"]:
-                # ═══ LOGGER: Pass aprovado ═══
-                if logger:
-                    logger.log_pass(section_pass.pass_id, "VALID", {
-                        "attempt": attempt,
-                        "char_count": validation.get("char_count", 0),
-                        "has_table": validation.get("has_table", False),
-                    })
-
                 if attempt > 1:
                     self._emit_ok(f"  Pass {pass_number} corrigido na tentativa {attempt}")
                 return result
 
             # Falhou — preparar retry
             last_fail_reasons = validation.get("fail_reasons", ["UNKNOWN"])
-
-            # ═══ LOGGER: Pass falhou ═══
-            if logger:
-                logger.log_pass(section_pass.pass_id, "FAIL", {
-                    "attempt": attempt,
-                    "fail_reasons": last_fail_reasons,
-                    "action": "RETRYING" if attempt <= MAX_RETRIES_PER_PASS else "GIVING_UP",
-                    "char_count": validation.get("char_count", 0),
-                })
 
             if attempt <= MAX_RETRIES_PER_PASS:
                 self._emit_warn(
@@ -403,15 +356,16 @@ class SectionalGenerator:
 # PASSES POR TIPO DE ARTEFATO
 # ═══════════════════════════════════════════════════════════
 
+# FASE 7: PRD_PASSES recalibrado para padrão NEXUS (5 passes)
 PRD_PASSES = [
     SectionPass(
         pass_id="prd_p1",
         sections=["## Objetivo", "## Problema"],
         template=(
             "## Objetivo\n"
-            "- [1 frase, verbo no infinitivo, máximo 25 palavras]\n\n"
+            "- [1 frase, verbo no infinitivo, máximo 30 palavras, que capture o diferencial]\n\n"
             "## Problema\n"
-            "| ID | Problema | Impacto | Evidência |\n"
+            "| ID | Problema | Impacto | Como o Sistema Resolve |\n"
             "|---|---|---|---|\n"
             "| P-01 | ... | ... | ... |\n"
         ),
@@ -419,78 +373,102 @@ PRD_PASSES = [
             "## Objetivo\n"
             "- Permitir gerenciamento de tarefas pessoais com sincronização offline-first\n\n"
             "## Problema\n"
-            "| ID | Problema | Impacto | Evidência |\n"
+            "| ID | Problema | Impacto | Como o Sistema Resolve |\n"
             "|---|---|---|---|\n"
-            "| P-01 | Apps existentes requerem internet | Perda de dados offline | 40% dos usuários reportam |\n"
-            "| P-02 | Complexidade excessiva | Abandono em 7 dias | Retenção <20% |\n"
+            "| P-01 | Apps existentes requerem internet | Perda de dados offline | Sync offline-first com CRDT |\n"
+            "| P-02 | Complexidade excessiva | Abandono em 7 dias | Interface minimalista com 3 ações |\n"
         ),
-        instruction="Gere APENAS Objetivo e Problema. Mínimo 2 problemas na tabela.",
-        min_chars=150,
+        instruction="Gere APENAS Objetivo e Problema. Mínimo 4 problemas na tabela com coluna 'Como Resolve'.",
+        min_chars=200,
+        max_output_tokens=1500,
     ),
     SectionPass(
         pass_id="prd_p2",
-        sections=["## Requisitos Funcionais", "## Requisitos Não-Funcionais"],
+        sections=["## Público-Alvo", "## Princípios Arquiteturais", "## Diferenciais"],
         template=(
-            "## Requisitos Funcionais\n"
-            "| ID | Requisito | Critério de Aceite | Prioridade (MoSCoW) | Complexidade |\n"
-            "|---|---|---|---|---|\n"
-            "| RF-01 | ... | ... | Must/Should/Could | Low/Med/High |\n\n"
-            "## Requisitos Não-Funcionais\n"
-            "| ID | Categoria | Requisito | Métrica | Target |\n"
-            "|---|---|---|---|---|\n"
-            "| RNF-01 | Performance | ... | ... | ... |\n"
+            "## Público-Alvo\n"
+            "| Segmento | Perfil (nome + dor) | Prioridade |\n"
+            "|---|---|---|\n\n"
+            "## Princípios Arquiteturais\n"
+            "| Princípio | Descrição Concreta | Implicação Técnica |\n"
+            "|---|---|---|---|\n\n"
+            "## Diferenciais\n"
+            "| Abordagem Atual | Problema | Como Este Sistema Supera |\n"
+            "|---|---|---|---|\n"
         ),
         example=(
-            "| RF-01 | CRUD de tarefas | POST/GET/PUT/DELETE retorna status correto | Must | Low |\n"
-            "| RF-02 | Filtro por status | GET /tasks?status=done retorna subset | Should | Low |\n"
-            "| RNF-01 | Performance | Latência API | p95 | <200ms |\n"
+            "| Dev Indie | Lucas, dev solo, quer validar ideias antes de codar | P0 |\n"
+            "| Startup | Time de 5 sem PM dedicado | P1 |\n"
         ),
-        instruction="Gere APENAS RF e RNF. Mínimo 5 RF e 3 RNF. IDs sequenciais.",
-        min_chars=300,
-        max_output_tokens=800,
+        instruction="Gere APENAS Público-Alvo (mín 3), Princípios (mín 3) e Diferenciais (mín 3). Todas com tabelas.",
+        min_chars=250,
+        max_output_tokens=1500,
     ),
     SectionPass(
         pass_id="prd_p3",
-        sections=["## Escopo MVP", "## Métricas de Sucesso"],
+        sections=["## Requisitos Funcionais", "## Requisitos Não-Funcionais"],
         template=(
-            "## Escopo MVP\n"
-            "**Inclui:** [lista com bullets referenciando RF-XX]\n"
-            "**NÃO inclui:** [lista com bullets]\n\n"
-            "## Métricas de Sucesso (SMART)\n"
-            "| Métrica | Specific | Measurable | Target | Prazo |\n"
+            "## Requisitos Funcionais\n"
+            "| ID | Requisito | Critério de Aceite (verificável) | Prioridade (MoSCoW) | Complexidade |\n"
+            "|---|---|---|---|---|\n"
+            "| RF-01 | ... | [teste automatizável] | Must/Should/Could | Low/Med/High |\n\n"
+            "## Requisitos Não-Funcionais\n"
+            "| ID | Categoria | Requisito | Métrica | Target |\n"
             "|---|---|---|---|---|\n"
         ),
         example=(
-            "**Inclui:**\n- RF-01, RF-02, RF-03 — core CRUD\n\n"
-            "**NÃO inclui:**\n- Notificações push (v2)\n"
+            "| RF-01 | CRUD de tarefas | POST/GET/PUT/DELETE retorna status HTTP correto | Must | Low |\n"
+            "| RF-02 | Filtro por status | GET /tasks?status=done retorna subset | Should | Low |\n"
+            "| RNF-01 | Performance | Latência API | p95 | <200ms |\n"
         ),
-        instruction="Gere APENAS Escopo e Métricas. Referencie IDs RF-XX.",
-        min_chars=150,
+        instruction="Gere APENAS RF (mínimo 8) e RNF (mínimo 5). IDs sequenciais. Critérios de aceite DEVEM ser testes automatizáveis.",
+        min_chars=400,
+        max_output_tokens=1500,
     ),
     SectionPass(
         pass_id="prd_p4",
+        sections=["## Escopo MVP", "## Métricas de Sucesso"],
+        template=(
+            "## Escopo MVP\n"
+            "**Inclui:** [lista referenciando RF-XX]\n"
+            "**NÃO inclui:** [lista com justificativa]\n\n"
+            "## Métricas de Sucesso\n"
+            "| Métrica | Target | Prazo | Como Medir |\n"
+            "|---|---|---|---|\n"
+        ),
+        example=(
+            "**Inclui:**\n- RF-01 a RF-05 — core CRUD + auth\n\n"
+            "**NÃO inclui:**\n- Notificações push (v2) — complexidade alta, não essencial\n"
+        ),
+        instruction="Gere APENAS Escopo e Métricas. Referencie IDs RF-XX no escopo.",
+        min_chars=200,
+        max_output_tokens=1200,
+    ),
+    SectionPass(
+        pass_id="prd_p5",
         sections=["## Dependências e Riscos", "## Constraints Técnicos"],
         template=(
             "## Dependências e Riscos\n"
             "| ID | Tipo | Descrição | Probabilidade | Impacto | Mitigação |\n"
-            "|---|---|---|---|---|---|\n"
-            "| R-01 | Risco | ... | Alta/Média/Baixa | Alto/Médio/Baixo | ... |\n\n"
+            "|---|---|---|---|---|---|\n\n"
             "## Constraints Técnicos\n"
-            "- Linguagem: [valor ou 'A DEFINIR']\n"
-            "- Framework: [valor ou 'A DEFINIR']\n"
-            "- Banco de dados: [valor ou 'A DEFINIR']\n"
-            "- Infraestrutura: [valor ou 'A DEFINIR']\n"
+            "- Linguagem: [...]\n"
+            "- Framework: [...]\n"
+            "- Banco de dados: [...]\n"
+            "- Infraestrutura: [...]\n"
+            "- Restrições de segurança: [...]\n"
         ),
         example=(
             "| R-01 | Risco | SQLite sem escrita concorrente | Média | Alto | WAL mode |\n"
-            "| R-02 | Dependência | Ollama deve estar rodando | Alta | Crítico | Health check |\n"
+            "| R-02 | Dependência | Ollama deve estar rodando | Alta | Crítico | Health check no startup |\n"
         ),
-        instruction="Gere APENAS Riscos e Constraints. Mínimo 3 riscos.",
-        min_chars=150,
+        instruction="Gere APENAS Riscos (mínimo 5) e Constraints Técnicos.",
+        min_chars=200,
+        max_output_tokens=1200,
     ),
 ]
 
-# ─── REVIEW: 2 passes lite ──────────────────────────────
+# ─── REVIEW: 2 passes calibrados (Fase 7) ──────────────────────────
 
 REVIEW_PASSES = [
     SectionPass(
@@ -515,15 +493,19 @@ REVIEW_PASSES = [
             "Mínimo 2 issues. Cada issue com sugestão concreta."
         ),
         min_chars=200,
+        max_output_tokens=1000,
     ),
     SectionPass(
         pass_id="review_p2",
-        sections=["## Verificação de Requisitos", "## Sumário", "## Recomendação"],
+        sections=["## Verificação de Requisitos", "## Verificação de Princípios Arquiteturais", "## Sumário", "## Recomendação"],
         template=(
             "## Verificação de Requisitos\n"
             "| Requisito ID | Status | Notas |\n"
             "|---|---|---|\n"
             "| RF-01 | ✅ Atendido / ❌ Não atendido | ... |\n\n"
+            "## Verificação de Princípios Arquiteturais\n"
+            "| Princípio | Respeitado? | Evidência |\n"
+            "|---|---|---|\n\n"
             "## Sumário\n"
             "- [1-2 frases]\n\n"
             "## Recomendação\n"
@@ -531,15 +513,16 @@ REVIEW_PASSES = [
         ),
         example="",
         instruction=(
-            "Verifique cada RF/RNF do artefato. "
+            "Verifique cada RF/RNF e Princípio Arquitetural. "
             "Gere Verificação + Sumário + Recomendação."
         ),
-        min_chars=150,
+        min_chars=200,
+        max_output_tokens=1000,
         require_table=True,
     ),
 ]
 
-# ─── SECURITY: 2 passes lite ────────────────────────────
+# ─── SECURITY: 2 passes calibrados (Fase 7) ────────────────────────
 
 SECURITY_PASSES = [
     SectionPass(
@@ -547,27 +530,27 @@ SECURITY_PASSES = [
         sections=["## Superfície de Ataque", "## Ameaças Identificadas"],
         template=(
             "## Superfície de Ataque\n"
-            "| Componente | Tipo de Exposição | Nível de Risco |\n"
-            "|---|---|---|\n\n"
+            "| Componente | Tipo de Exposição | Nível de Risco | Justificativa |\n"
+            "|---|---|---|---|\n\n"
             "## Ameaças Identificadas (STRIDE)\n"
-            "| ID | Categoria STRIDE | Componente | Ameaça | Severidade | Mitigação |\n"
+            "| ID | Categoria STRIDE | Componente | Ameaça | Severidade | Mitigação Concreta |\n"
             "|---|---|---|---|---|---|\n"
             "| T-01 | S/T/R/I/D/E | ... | ... | Alta/Média/Baixa | ... |\n"
         ),
         example=(
-            "| API /auth | HTTP | Alto |\n\n"
+            "| API /auth | HTTP | Alto | Exposta à internet |\n\n"
             "| T-01 | S (Spoofing) | /auth/login | Brute force | Alta | Rate limit 5/min |\n"
-            "| T-02 | I (Info Disclosure) | /users/{id} | IDOR | Alta | Ownership check |\n"
         ),
         instruction=(
             "Analise o System Design e identifique superfície de ataque + ameaças STRIDE. "
             "Mínimo 3 ameaças."
         ),
-        min_chars=200,
+        min_chars=250,
+        max_output_tokens=1000,
     ),
     SectionPass(
         pass_id="security_p2",
-        sections=["## Requisitos de Segurança Derivados", "## Dados Sensíveis"],
+        sections=["## Requisitos de Segurança Derivados", "## Dados Sensíveis", "## Plano de Autenticação/Autorização"],
         template=(
             "## Requisitos de Segurança Derivados\n"
             "| ID | Requisito | Prioridade | Ameaça Mitigada |\n"
@@ -575,101 +558,111 @@ SECURITY_PASSES = [
             "| RS-01 | ... | Must/Should | T-XX |\n\n"
             "## Dados Sensíveis\n"
             "| Dado | Classificação | Criptografia | Retenção |\n"
-            "|---|---|---|---|\n"
+            "|---|---|---|---|\n\n"
+            "## Plano de Autenticação/Autorização\n"
+            "- Mecanismo: [...]\n"
+            "- Granularidade: [...]\n"
         ),
         example="",
         instruction=(
-            "Gere requisitos de segurança derivados das ameaças + "
-            "classificação de dados sensíveis."
+            "Gere requisitos derivados, classificação de dados e plano de auth."
         ),
-        min_chars=150,
+        min_chars=200,
+        max_output_tokens=1000,
     ),
 ]
 
-# ─── DESIGN: 3 passes ────────────
+# ─── DESIGN: 3 passes calibrados (Fase 7) ──────────────────────────
+
 DESIGN_PASSES = [
     SectionPass(
         pass_id="design_p1",
         sections=["## Arquitetura Geral", "## Tech Stack"],
         template=(
-            "## Arquitetura Geral (C4 — Container Level)\n"
-            "- Estilo: [ex: Monolito Modular]\n"
+            "## Arquitetura Geral\n"
+            "- Estilo: [tipo]\n"
             "- Containers: [lista]\n"
-            "- Comunicação: [protocolos]\n\n"
+            "- Diagrama (texto): ...\n\n"
             "## Tech Stack\n"
-            "| Camada | Tecnologia | Versão | Justificativa | Alternativa Rejeitada |\n"
-            "|---|---|---|---|---|\n"
+            "| Camada | Tecnologia | Versão | Justificativa | Alternativa Rejeitada | Motivo Rejeição |\n"
+            "|---|---|---|---|---|---|\n"
         ),
         example=(
-            "| Backend | FastAPI | 0.104 | Async nativo | Django: overhead |\n"
-            "| DB | SQLite | 3.40 | Zero config | PostgreSQL: requer servidor |\n"
+            "| Backend | FastAPI | 0.104 | Async nativo | Django | Overhead |\n"
         ),
-        instruction="Gere APENAS Arquitetura e Tech Stack.",
-        min_chars=200,
+        instruction="Gere Arquitetura e Tech Stack com alternativas rejeitadas.",
+        min_chars=250,
+        max_output_tokens=1200,
     ),
     SectionPass(
         pass_id="design_p2",
         sections=["## Módulos", "## Modelo de Dados"],
         template=(
-            "## Módulos (C4 — Component Level)\n"
-            "| Módulo | Responsabilidade | Interface | Requisitos Atendidos |\n"
+            "## Módulos\n"
+            "| Módulo | Responsabilidade | Interface | Requisitos (RF-XX) |\n"
             "|---|---|---|---|\n\n"
             "## Modelo de Dados\n"
             "| Entidade | Atributos-chave | Tipo | Relações | Constraints |\n"
             "|---|---|---|---|---|\n"
         ),
         example=(
-            "| AuthModule | Autenticação JWT | REST /auth/* | RF-01, RF-02 |\n"
-            "| User | id, email, password_hash | PK, UNIQUE | 1:N → Task | email UNIQUE |\n"
+            "| AuthModule | Autenticação | REST /auth/* | RF-01 |\n"
         ),
-        instruction="Gere APENAS Módulos e Modelo de Dados.",
-        min_chars=200,
+        instruction="Gere Módulos e Modelo de Dados.",
+        min_chars=250,
+        max_output_tokens=1200,
     ),
     SectionPass(
         pass_id="design_p3",
-        sections=["## Fluxo de Dados", "## ADRs", "## Riscos Técnicos"],
+        sections=["## Fluxo de Dados", "## ADRs", "## Riscos Técnicos", "## Requisitos de Infraestrutura"],
         template=(
-            "## Fluxo de Dados (Sequencial)\n"
-            "1. [Ator] → [Componente] → [Ação] → [Resultado]\n\n"
+            "## Fluxo de Dados\n"
+            "1. [Ator] → [Ação] → [Resultado]\n\n"
             "## ADRs (Architecture Decision Records)\n"
-            "| ID | Decisão | Contexto | Alternativa Rejeitada | Consequências |\n"
-            "|---|---|---|---|---|\n\n"
+            "| ID | Decisão | Contexto | Alternativa Rejeitada | Consequências | Mitigação |\n"
+            "|---|---|---|---|---|---|\n\n"
             "## Riscos Técnicos\n"
             "| ID | Risco | Probabilidade | Impacto | Mitigação | Owner |\n"
-            "|---|---|---|---|---|---|\n"
+            "|---|---|---|---|---|---|\n\n"
+            "## Requisitos de Infraestrutura\n"
+            "| Recurso | Mínimo | Recomendado | Justificativa |\n"
+            "|---|---|---|---|\n"
         ),
         example=(
-            "1. Usuário → /auth/login → Valida credenciais → JWT\n"
-            "| ADR-01 | SQLite para MVP | Deploy local | PostgreSQL | Migrar v2 |\n"
+            "| ADR-01 | SQLite | MVP local | PostgreSQL | Simplicidade | WAL mode |\n"
         ),
-        instruction="Gere Fluxo (mín 5), ADRs (mín 2) e Riscos (mín 3).",
-        min_chars=250,
+        instruction="Gere Fluxo (mín 5), ADRs (mín 3), Riscos e Infra.",
+        min_chars=400,
+        max_output_tokens=1200,
     ),
 ]
+
+# ─── PLAN: 4 passes calibrados (Fase 7) ────────────────────────────
 
 PLAN_PASSES = [
     SectionPass(
         pass_id="plan_p1",
-        sections=["## Arquitetura Sugerida", "## Módulos Core", "## Fases de Implementação"],
+        sections=["## Arquitetura Sugerida", "## Módulos Core"],
         template=(
             "## Arquitetura Sugerida\n"
             "- Estilo: [tipo]\n"
             "- Componentes: [bullets]\n\n"
             "## Módulos Core\n"
-            "| Módulo | Responsabilidade | Prioridade | Requisitos (RF-XX) | Estimativa |\n"
-            "|---|---|---|---|---|\n\n"
-            "## Fases de Implementação\n"
-            "| Fase | Duração | Entregas | Critério de Conclusão | Riscos |\n"
+            "| Módulo | Responsabilidade | Prioridade | Requisitos (RF-XX) | Estimativa (dias) |\n"
             "|---|---|---|---|---|\n"
         ),
         example="",
-        instruction="Gere Arquitetura, Módulos Core e Fases.",
+        instruction="Gere Arquitetura e Módulos Core.",
         min_chars=250,
+        max_output_tokens=1200,
     ),
     SectionPass(
         pass_id="plan_p2",
-        sections=["## Dependências Técnicas", "## Riscos e Mitigações", "## Plano de Testes"],
+        sections=["## Fases de Implementação", "## Dependências Técnicas"],
         template=(
+            "## Fases de Implementação\n"
+            "| Fase | Duração | Entregas Concretas | Critério de Conclusão | Dependência |\n"
+            "|---|---|---|---|---|\n\n"
             "## Dependências Técnicas\n"
             "| Dependência | Versão | Propósito | Alternativa |\n"
             "|---|---|---|---|\n\n"

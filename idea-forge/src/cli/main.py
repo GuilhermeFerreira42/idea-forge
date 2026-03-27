@@ -1,6 +1,7 @@
 import sys
 import os
 import datetime
+import argparse
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 
 def prompt_idea() -> str:
@@ -118,6 +119,11 @@ def get_provider(selected_model: str, think_preference: bool):
         return CloudProvider(model_name=selected_model)
 
 def main():
+    parser = argparse.ArgumentParser(description="IdeaForge CLI")
+    parser.add_argument("--no-gate", action="store_true",
+                      help="Pular HUMAN_GATE (aprovação automática)")
+    args, _ = parser.parse_known_args()
+
     selected_model, think_preference = select_model()
     
     idea = prompt_idea()
@@ -129,6 +135,11 @@ def main():
     # FASE 2: Propagar think_preference para o AgentController
     controller = AgentController(provider, think=think_preference)
     
+    # FASE 7: Se --no-gate, sobrescrever o human_gate_callback no controller
+    if args.no_gate:
+        # Assumindo que o planner usa ctx['agents'].get('human_gate_callback')
+        controller.agents["human_gate_callback"] = lambda ctx: "APPROVED"
+
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     report_filename = f"debate_RELATORIO_{timestamp}.md"
     

@@ -6,10 +6,34 @@ class TestOutputValidatorV2(unittest.TestCase):
         self.validator = OutputValidator()
 
     def test_validate_pass_success(self):
-        content = "## Objetivo\n- Teste\n\n## Problema\n| ID | Prob |\n|---|---|\n| 1 | P1 |"
+        content = (
+            "## Objetivo\n- Teste de objetivo longo o suficiente para passar no validador seccional\n\n"
+            "## Problema\n| ID | Prob | Imp | Sol |\n|---|---|---|---|\n| 1 | P1 | H | S1 |"
+        )
         sections = ["## Objetivo", "## Problema"]
         res = self.validator.validate_pass(content, sections, require_table=True, min_chars=50)
         self.assertTrue(res["valid"])
+
+    def test_validate_prd_nexus_sections(self):
+        content = (
+            "## Objetivo\n- Teste de objetivo extremamente longo para garantir que passe no threshold de caracteres do NEXUS.\n\n"
+            "## Problema\n| ID | Prob | Imp | Resolve |\n|---|---|---|---|\n| P-01 | X | Y | Z |\n\n"
+            "## Público-Alvo\n| Seg | Perfil | Prio |\n|---|---|---|\n| Dev | Lucas | P0 |\n\n"
+            "## Princípios Arquiteturais\n| Princ | Desc | Impl |\n|---|---|---|\n| Local | Tudo local | Zero cloud |\n\n"
+            "## Requisitos Funcionais\n| ID | Req | Aceite | Prio | Complex |\n|---|---|---|---|---|\n| RF-01 | X | Y | Must | Low |\n\n"
+            "## Requisitos Não-Funcionais\n| ID | Cat | Req | Met | Tgt |\n|---|---|---|---|---|\n| RNF-01 | Perf | Lat | p95 | 200ms |\n\n"
+            "## Escopo MVP\n**Inclui:** RF-01\n**NÃO inclui:** Mobile\n\n"
+            "## Métricas de Sucesso\n| Met | Tgt | Prazo | Medir |\n|---|---|---|---|\n| Users | 100 | 30d | Analytics |\n\n"
+            "## Dependências e Riscos\n| ID | Tipo | Desc | Prob | Imp | Mit |\n|---|---|---|---|---|---|\n| R-01 | Risco | DB | Média | Alto | Backup |\n\n"
+            "## Diferenciais\n| Atual | Problema | Supera |\n|---|---|---|\n| Chat GPT | Sem estrutura | Pipeline cognitivo |\n\n"
+            "## Constraints Técnicos\n- Linguagem: Python\n"
+            "Este texto adicional serve para garantir que o conteúdo total tenha mais de 600 caracteres, "
+            "que é o requisito mínimo para o PRD no padrão NEXUS Calibração Fase 7. "
+            "A densidade e a completude são essenciais para a aprovação final do artefato gerado pelo IdeaForge."
+        )
+        res = self.validator.validate(content, "prd")
+        self.assertTrue(res["valid"], f"Falha na validação: {res.get('fail_reasons')}")
+        self.assertGreaterEqual(res["completeness_score"], 0.75)
 
     def test_validate_pass_missing_section(self):
         content = "## Objetivo\n- Teste"

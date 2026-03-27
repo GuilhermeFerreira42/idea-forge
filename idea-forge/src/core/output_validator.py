@@ -18,11 +18,15 @@ class OutputValidator:
         "prd": [
             "## Objetivo",
             "## Problema",
+            "## Público-Alvo",
+            "## Princípios Arquiteturais",
             "## Requisitos Funcionais",
             "## Requisitos Não-Funcionais",
             "## Escopo MVP",
             "## Métricas de Sucesso",
             "## Dependências e Riscos",
+            "## Diferenciais",
+            "## Constraints Técnicos",
         ],
         "system_design": [
             "## Arquitetura Geral",
@@ -55,8 +59,9 @@ class OutputValidator:
     }
 
     # FASE 5.1: Thresholds mínimos por tipo de artefato
+    # FASE 7: PRD NEXUS é mais denso (600 chars)
     MIN_CHARS = {
-        "prd": 400,
+        "prd": 600,
         "system_design": 400,
         "review": 200,
         "security_review": 200,
@@ -64,8 +69,9 @@ class OutputValidator:
     }
 
     # FASE 5.1: Completude mínima para aprovar (0.0 - 1.0)
+    # FASE 7: Threshold aumentado para exigir mais seções presentes
     MIN_COMPLETENESS = {
-        "prd": 0.70,
+        "prd": 0.75,
         "system_design": 0.70,
         "review": 0.60,
         "security_review": 0.50,

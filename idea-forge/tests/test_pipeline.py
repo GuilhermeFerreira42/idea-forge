@@ -5,11 +5,11 @@ from src.core.controller import AgentController
 
 class PipelineMockProvider(MockProvider):
     def generate(self, prompt: str, context: list = None, role: str = "user", **kwargs) -> str:
-        if role == "planner":
-            return "# Final Plan\nArchitecture: Microservices"
+        if role == "plan":
+            return "## Arquitetura Sugerida\nmock denso"
         return super().generate(prompt, context, role)
 
-@patch('src.cli.main.select_model', return_value="llama3")
+@patch('src.cli.main.select_model', return_value=("llama3", False))
 @patch('src.cli.main.ask_approval', return_value=True)
 def test_pipeline_end_to_end(mock_approval, mock_select_model):
     """
@@ -28,5 +28,5 @@ def test_pipeline_end_to_end(mock_approval, mock_select_model):
         # We need to test the controller directly to avoid sys.exit issues from main.py's CLI prompts
         plan = controller.run_pipeline("A new social network")
     
-    assert "# Final Plan" in plan
-    assert "Architecture" in plan
+    assert "## Arquitetura Sugerida" in plan
+    assert "mock denso" in plan
