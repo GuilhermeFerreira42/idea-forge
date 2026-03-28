@@ -153,6 +153,23 @@ def main():
     try:
         final_plan = controller.run_pipeline(idea, report_filename)
         
+        # ═══ FASE 8.0a: Salvar PRD Final em arquivo separado ═══
+        prd_final_content = controller.get_artifact_content("prd_final")
+        if prd_final_content and len(prd_final_content.strip()) > 200:
+            prd_final_filename = f"PRD_FINAL_{timestamp}.md"
+            try:
+                with open(prd_final_filename, "w", encoding="utf-8") as f:
+                    f.write(f"# PRD FINAL — Padrão NEXUS\n\n")
+                    f.write(f"**Ideia:** {idea[:200]}\n\n")
+                    f.write(f"**Modelo:** {selected_model}\n\n")
+                    f.write(f"**Gerado em:** {datetime.datetime.now().strftime('%d/%m/%Y %H:%M:%S')}\n\n")
+                    f.write("---\n\n")
+                    f.write(prd_final_content)
+                print(f"\n✅ PRD Final salvo em: {prd_final_filename}")
+            except OSError as e:
+                print(f"\n⚠️ Não foi possível salvar PRD Final em arquivo: {e}")
+        # ═══ FIM DA MUDANÇA 8.0a ═══
+
         print("\n" + "=" * 50)
         print("  🏆 PLANO DE DESENVOLVIMENTO FINALIZADO  ")
         print("=" * 50 + "\n")

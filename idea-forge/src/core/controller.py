@@ -41,6 +41,7 @@ class AgentController:
     """
     
     def __init__(self, provider: ModelProvider, think: bool = False):
+        import datetime
         self.provider = provider
         self.think = think
         direct_mode = not think
@@ -48,6 +49,16 @@ class AgentController:
         # Inicializa infraestrutura Blackboard
         self.blackboard = Blackboard()
         self.artifact_store = ArtifactStore(self.blackboard)
+        
+        # ═══ FASE 8.0b: Inicializar PipelineLogger (fail-safe) ═══
+        self._run_id = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        self.logger = None
+        try:
+            from src.core.pipeline_logger import PipelineLogger
+            self.logger = PipelineLogger(run_id=self._run_id)
+        except Exception:
+            pass # Logger falhou — pipeline opera normalmente
+        # ═══ FIM FASE 8.0b ═══
         
         # Inicializa Agentes Especialistas
         self.agents = {
@@ -79,7 +90,8 @@ class AgentController:
             artifact_store=self.artifact_store,
             agents=self.agents,
             provider=provider,
-            think=think
+            think=think,
+            logger=self.logger  # FASE 8.0b
         )
         self.planner.load_default_dag()
 
@@ -123,6 +135,9 @@ class AgentController:
         
         # Executa o Planner
         try:
+            if self.logger:
+                self.logger.log("PIPELINE", "PIPELINE_START", data={"idea": initial_idea[:100]})
+
             final_plan = self.planner.execute_pipeline(initial_idea)
             
             # Persistência final
@@ -132,6 +147,10 @@ class AgentController:
             # Geração do relatório físico (.md) se solicitado
             if report_filename:
                 self._generate_final_report(report_filename)
+
+            if self.logger:
+                self.logger.log("PIPELINE", "PIPELINE_END", data={"status": "SUCCESS"})
+                self.logger.finalize(self.blackboard.snapshot())
 
             emit_pipeline_state("PIPELINE_COMPLETE", "Pipeline Blackboard concluído")
             
@@ -145,6 +164,14 @@ class AgentController:
             print(f"\n{ANSIStyle.RED}[ERRO] Falha no pipeline: {str(e)}{ANSIStyle.RESET}")
             self.blackboard.persist_to_disk() # Salva o que deu pra salvar
             raise e
+
+    def get_artifact_content(self, name: str) -> str:
+        """
+        FASE 8.0a: Retorna conteúdo textual de um artefato pelo nome.
+        Retorna versão mais recente. Nunca lança exceção.
+        """
+        art = self.artifact_store.read(name)
+        return art.content if art else ""
 
     def _generate_final_report(self, filename: str):
         """Compila todos os artefatos em um único arquivo Markdown."""
@@ -198,7 +225,7 @@ class AgentController:
                 artifact = self.artifact_store.read(art_name)
                 if artifact:
                     type_map = {
-                        "prd": "prd", "prd_final": "prd",
+                        "prd": "prd", "prd_final": "prd_final",  # FASE 8.0a
                         "system_design": "system_design",
                         "prd_review": "review", "security_review": "security_review",
                         "development_plan": "plan"

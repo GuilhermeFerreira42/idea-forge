@@ -32,12 +32,14 @@ class Planner:
                  artifact_store: ArtifactStore,
                  agents: Dict[str, Any],
                  provider: Any = None,
-                 think: bool = False) -> None:
+                 think: bool = False,
+                 logger: Any = None) -> None:
         self.blackboard = blackboard
         self.artifact_store = artifact_store
         self.agents = agents
         self.provider = provider
         self.think = think
+        self.logger = logger  # FASE 8.0b
         self.dag: List[TaskDefinition] = []
 
     def load_default_dag(self) -> None:
@@ -153,6 +155,10 @@ class Planner:
         """Executa uma task individual com Budgeting e Post-processing (Fase 3.1)."""
         self.blackboard.set_task_status(task.task_id, TaskStatus.RUNNING)
         
+        # FASE 8.0b: Log start
+        if self.logger:
+            self.logger.log(task.task_id, "TASK_START", agent=task.agent_name)
+
         # FASE 7.1: Aumentar budget de contexto para artefatos NEXUS densos
         TASK_CONFIGS = {
             "generate_prd": {"hint": "transform", "max_tokens": 1000},
@@ -220,6 +226,15 @@ class Planner:
             artifact_type_tag = self._get_artifact_tag_for_validator(task)
             validation = validator.validate(clean_result, artifact_type_tag)
 
+            # FASE 8.0b: Log validation
+            if self.logger:
+                self.logger.log_validation(
+                    task_id=task.task_id,
+                    artifact_type=artifact_type_tag,
+                    validation_result=validation,
+                    content_preview=clean_result[:200]
+                )
+
             if not validation.get("valid", True):
                 fail_reasons = validation.get("fail_reasons", [])
                 import sys
@@ -274,8 +289,16 @@ class Planner:
             )
             self.blackboard.set_task_status(task.task_id, TaskStatus.COMPLETED)
             
+            # FASE 8.0b: Log success and save individual artifact
+            if self.logger:
+                self.logger.log(task.task_id, "TASK_END", agent=task.agent_name, data={"status": "COMPLETED"})
+                self.logger.save_artifact(task.output_artifact, clean_result, created_by=task.agent_name)
+
         except Exception as e:
             self.blackboard.set_task_status(task.task_id, TaskStatus.FAILED)
+            # FASE 8.0b: Log error
+            if self.logger:
+                self.logger.log(task.task_id, "ERROR", agent=task.agent_name, data={"error": str(e)})
             raise e
 
     def _post_process_output(self, text: str) -> str:
@@ -343,6 +366,6 @@ class Planner:
             "prd_review": "review",
             "security_review": "security_review",
             "development_plan": "plan",
-            "prd_final": "prd",  # FASE 7.1: Valida como PRD
+            "prd_final": "prd_final",  # FASE 8.0a: Valida como prd_final
         }
         return mapping.get(task.output_artifact, "document")

@@ -1,0 +1,49 @@
+# Walkthrough — Phase 8.0: Estabilização e Observabilidade
+
+A Phase 8.0 foi concluída com sucesso, trazendo maior robustez na entrega do produto final e visibilidade completa de cada etapa da execução.
+
+## Alterações Principais
+
+### 1. PRD Final Isolado (Sub-fase 8.0a)
+O artefato mais importante do pipeline agora é tratado com prioridade:
+- **Validação Rigorosa**: O `prd_final` agora é validado contra 16 seções obrigatórias do padrão NEXUS e exige no mínimo 800 caracteres.
+- **Arquivo Independente**: Além do relatório completo, o sistema agora gera um arquivo específico `PRD_FINAL_{timestamp}.md` na raiz para acesso rápido.
+
+### 2. Observabilidade Estruturada (Sub-fase 8.0b)
+Implementação do `PipelineLogger`, que centraliza a persistência de eventos:
+- **Formato JSONL**: Logs estruturados em `.forge/logs/{run_id}/pipeline.jsonl` para análise automatizada.
+- **Sumário Executivo**: Um arquivo `pipeline_summary.md` legível por humanos com a timeline da execução e erros encontrados.
+- **Artefatos Individuais**: Cada artefato gerado é salvo individualmente em `.forge/logs/{run_id}/artifacts/`.
+
+## Demonstração de Resultados
+
+### Estrutura de Logs
+A estrutura de diretórios agora inclui:
+```text
+.forge/
+└── logs/
+    └── 20260328_110712/
+        ├── artifacts/
+        │   ├── prd.md
+        │   ├── prd_review.md
+        │   └── prd_final.md
+        ├── pipeline.jsonl
+        └── pipeline_summary.md
+```
+
+### Validação NEXUS 16-Seções
+O `OutputValidator` agora garante que o PRD Final contenha todas as seções obrigatórias:
+> [!TIP]
+> Esta mudança garante que o produto consolidado não perca profundidade técnica em relação aos rascunhos iniciais.
+
+
+## Verificação Realizada
+
+1.  **Testes Automatizados**: 100% dos 50 testes (incluindo 3 novos para a Fase 8.0) passaram.
+    - `test_validate_prd_final_dedicated_type` (Passou)
+    - `test_prd_final_not_validated_as_prd` (Passou)
+    - `test_prd_final_validator_mapping` (Passou)
+2.  **Script de Verificação E2E**: O script `verify_8_0.py` confirmou a criação correta de todos os arquivos e diretórios de log usando um provedor mockado.
+
+> [!IMPORTANT]
+> O sistema permanece **fail-safe**. Caso o disco esteja cheio ou ocorra erro de I/O nos logs, o pipeline **não será interrompido**, garantindo que a geração do PRD continue sendo a prioridade zero.

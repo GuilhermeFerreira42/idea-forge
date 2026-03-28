@@ -56,6 +56,24 @@ class OutputValidator:
             "## Fases de Implementação",
             "## Riscos e Mitigações",
         ],
+        "prd_final": [
+            "## Visão do Produto",
+            "## Problema e Solução",
+            "## Público-Alvo",
+            "## Princípios Arquiteturais",
+            "## Diferenciais",
+            "## Requisitos Funcionais",
+            "## Requisitos Não-Funcionais",
+            "## Arquitetura e Tech Stack",
+            "## ADRs",
+            "## Análise de Segurança",
+            "## Escopo MVP",
+            "## Riscos Consolidados",
+            "## Métricas de Sucesso",
+            "## Plano de Implementação",
+            "## Decisões do Debate",
+            "## Constraints Técnicos",
+        ],
     }
 
     # FASE 5.1: Thresholds mínimos por tipo de artefato
@@ -66,6 +84,7 @@ class OutputValidator:
         "review": 200,
         "security_review": 200,
         "plan": 300,
+        "prd_final": 800,
     }
 
     # FASE 5.1: Completude mínima para aprovar (0.0 - 1.0)
@@ -76,6 +95,7 @@ class OutputValidator:
         "review": 0.60,
         "security_review": 0.50,
         "plan": 0.70,
+        "prd_final": 0.70,
     }
 
     def validate(self, content: str, artifact_type: str) -> Dict:

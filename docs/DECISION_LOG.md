@@ -55,3 +55,11 @@ F7.1 | ADD | `consolidate_prd()` | Novo método para geração do PRD Final cons
 F7.1 | ADD | `TASK_07` | Consolidação final como oitava tarefa do pipeline | `planner.py`
 F7.1 | MOD | `AgentController` | Retorno de `prd_final` e relatório com PRD no topo | `controller.py`
 F7.1 | RULE | Single-Call Consolidation | Forçar síntese em chamada única para máxima coerência final | `product_manager_agent.py`
+
+### Fase 8 — Estabilização e Observabilidade
+F8 | ADD | `PipelineLogger` | Rastreamento estruturado em JSONL e arquivamento individual | `pipeline_logger.py`
+F8 | MOD | `AgentController` | Integração de fail-safe logging e run-id por execução | `controller.py`
+F8 | MOD | `OutputValidator` | Schema `prd_final` com 16 seções NEXUS e 800 chars min | `output_validator.py`
+F8 | ADD | `get_artifact_content` | Interface limpa para recuperação de texto de artefatos | `controller.py`
+F8 | ADD | Isolated PRD File | Geração de `PRD_FINAL_*.md` na raiz para acesso rápido | `main.py`
+F8 | RULE | Non-Blocking IO | Garantir que o pipeline não pare por erros persistindo logs | `pipeline_logger.py`

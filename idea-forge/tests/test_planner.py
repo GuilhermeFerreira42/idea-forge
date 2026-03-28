@@ -133,6 +133,17 @@ def test_planner_pipeline_flow():
     assert store.exists("prd_review")
     assert store.exists("approval")
 
+def test_prd_final_validator_mapping():
+    """FASE 8.0a: Verifica que prd_final é mapeado para tipo prd_final, não prd."""
+    bb = Blackboard()
+    store = ArtifactStore(bb, persist_dir=".tmp_planner")
+    planner = Planner(bb, store, agents={})
+    planner.load_default_dag()
+    
+    task_07 = [t for t in planner.dag if t.task_id == "TASK_07"][0]
+    tag = planner._get_artifact_tag_for_validator(task_07)
+    assert tag == "prd_final", f"Esperado 'prd_final', obtido '{tag}'"
+
 if __name__ == "__main__":
     import pytest
     sys.exit(pytest.main([__file__, "-v", "--tb=short"]))
