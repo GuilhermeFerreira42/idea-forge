@@ -73,6 +73,10 @@ class OutputValidator:
             "## Plano de Implementação",
             "## Decisões do Debate",
             "## Constraints Técnicos",
+            "## Matriz de Rastreabilidade",       # FASE 9.0
+            "## Limitações Conhecidas",           # FASE 9.0
+            "## Guia de Replicação Resumido",     # FASE 9.0
+            "## Cláusula de Integridade",         # FASE 9.0
         ],
     }
 
@@ -84,7 +88,7 @@ class OutputValidator:
         "review": 200,
         "security_review": 200,
         "plan": 300,
-        "prd_final": 800,
+        "prd_final": 1000,  # FASE 9.0: Expandido de 800 para 1000 (4 seções a mais)
     }
 
     # FASE 5.1: Completude mínima para aprovar (0.0 - 1.0)

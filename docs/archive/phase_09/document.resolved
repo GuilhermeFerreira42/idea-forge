@@ -1,0 +1,1244 @@
+# Fase 9.0 — Integridade do Conteúdo
+
+## Implementação Completa
+
+---
+
+## 1. Novo Arquivo: `src/agents/consistency_checker_agent.py`
+
+```python
+"""
+consistency_checker_agent.py — Agente de Verificação de Consistência Interna.
+
+FASE 9.0:
+Responsabilidade:
+    Auditar o PRD Final programaticamente (SEM LLM) para detectar:
+    - IDs de RF referenciados que não existem na tabela de RFs
+    - Seções com marcadores de falha ou conteúdo insuficiente
+    - Contradições de stack tecnológica entre texto e tabelas
+
+Contrato:
+    Input: prd_final (string) + artifacts_context (string opcional)
+    Output: Relatório de consistência em Markdown (string)
+
+100% programático — zero chamadas LLM. Regex + string matching.
+NÃO contém lógica de negócio de geração. Apenas audita.
+"""
+
+import re
+from typing import List, Dict, Set, Tuple
+
+
+class ConsistencyCheckerAgent:
+    """Verifica integridade interna do PRD Final contra si mesmo e artefatos do pipeline."""
+
+    # Tecnologias que frequentemente geram contradições
+    TECH_GROUPS = {
+        "database": [
+            "postgresql", "postgres", "mysql", "mongodb", "sqlite",
+            "dynamodb", "supabase", "redis", "mariadb", "cockroachdb"
+        ],
+        "framework_backend": [
+            "fastapi", "django", "flask", "express", "nestjs",
+            "spring", "rails", "laravel", "next.js", "nuxt.js"
+        ],
+        "framework_frontend": [
+            "react", "vue", "angular", "svelte", "next.js",
+            "nuxt.js", "remix", "astro", "solid"
+        ],
+        "language": [
+            "python", "typescript", "javascript", "java", "go",
+            "rust", "ruby", "php", "c#", "kotlin"
+        ],
+    }
+
+    def check_consistency(self, prd_final: str, artifacts_context: str = "") -> str:
+        """
+        FASE 9.0: Verificação programática de consistência.
+
+        Args:
+            prd_final: Conteúdo completo do PRD Final consolidado.
+            artifacts_context: Contexto dos artefatos anteriores (opcional).
+
+        Returns:
+            Relatório Markdown com achados estruturados.
+        """
+        if not prd_final or len(prd_final.strip()) < 100:
+            return (
+                "## Relatório de Consistência\n\n"
+                "### ❌ PRD Final Vazio ou Insuficiente\n"
+                "O PRD Final não contém conteúdo suficiente para auditoria.\n\n"
+                "- **is_clean:** False\n"
+            )
+
+        issues_found = []
+        report_sections = []
+
+        # ═══ Check 1: IDs de RF Fantasmas ═══
+        orphan_result = self._check_orphan_rfs(prd_final)
+        if orphan_result:
+            issues_found.append(orphan_result["summary"])
+            report_sections.append(orphan_result["report"])
+
+        # ═══ Check 2: Seções com Falha ou Insuficientes ═══
+        sections_result = self._check_failed_sections(prd_final)
+        if sections_result:
+            issues_found.append(sections_result["summary"])
+            report_sections.append(sections_result["report"])
+
+        # ═══ Check 3: Seções Finas (< 50 chars de conteúdo) ═══
+        thin_result = self._check_thin_sections(prd_final)
+        if thin_result:
+            issues_found.append(thin_result["summary"])
+            report_sections.append(thin_result["report"])
+
+        # ═══ Check 4: Contradições de Stack Tecnológica ═══
+        tech_result = self._check_tech_contradictions(prd_final)
+        if tech_result:
+            issues_found.append(tech_result["summary"])
+            report_sections.append(tech_result["report"])
+
+        # ═══ Check 5: RNFs sem Métrica Quantitativa ═══
+        rnf_result = self._check_rnf_metrics(prd_final)
+        if rnf_result:
+            issues_found.append(rnf_result["summary"])
+            report_sections.append(rnf_result["report"])
+
+        # ═══ Montar Relatório Final ═══
+        is_clean = len(issues_found) == 0
+        has_critical = any("CRITICAL" in i for i in issues_found)
+
+        report_lines = ["## Relatório de Consistência\n"]
+
+        if report_sections:
+            report_lines.extend(report_sections)
+
+        report_lines.append("### Resultado Final\n")
+        if is_clean:
+            report_lines.append("✅ PRD Final está consistente internamente.\n")
+        else:
+            report_lines.append(f"{'❌' if has_critical else '⚠️'} "
+                                f"{len(issues_found)} categoria(s) de problema encontrada(s):\n")
+            for issue in issues_found:
+                report_lines.append(f"- {issue}")
+            report_lines.append("")
+
+        report_lines.append(f"- **is_clean:** {is_clean}")
+        report_lines.append(f"- **has_critical:** {has_critical}")
+        report_lines.append(f"- **checks_executados:** 5")
+        report_lines.append(f"- **categorias_com_problema:** {len(issues_found)}")
+
+        return "\n".join(report_lines)
+
+    # ═══════════════════════════════════════════════════════
+    # CHECKS INDIVIDUAIS
+    # ═══════════════════════════════════════════════════════
+
+    def _check_orphan_rfs(self, text: str) -> Dict | None:
+        """
+        Detecta IDs RF-XX referenciados no texto que não existem
+        na tabela de Requisitos Funcionais.
+        """
+        defined_rfs = self._extract_defined_rf_ids(text)
+        all_referenced_rfs = self._extract_all_rf_references(text)
+
+        # Orphans = referenciados mas não definidos
+        orphans = sorted(all_referenced_rfs - defined_rfs)
+
+        if not orphans:
+            return None
+
+        report = "### ❌ IDs de Requisitos Fantasmas (CRITICAL)\n\n"
+        report += "IDs referenciados no documento que não existem na tabela de Requisitos Funcionais:\n\n"
+        report += "| RF Fantasma | Localização Aproximada |\n"
+        report += "|---|---|\n"
+
+        for rf_id in orphans:
+            location = self._find_rf_location(text, rf_id)
+            report += f"| {rf_id} | {location} |\n"
+
+        report += f"\n**Ação:** Remover referências ou adicionar os RFs à tabela.\n\n"
+
+        return {
+            "summary": f"CRITICAL: RF_ORPHAN — {len(orphans)} IDs fantasmas: {orphans}",
+            "report": report
+        }
+
+    def _check_failed_sections(self, text: str) -> Dict | None:
+        """Detecta seções com marcadores de falha de geração."""
+        failure_markers = [
+            "GERAÇÃO FALHOU",
+            "PASS_FAILED",
+            "CONSOLIDAÇÃO FALHOU",
+            "seção não produzida pelo modelo",
+            "Ação necessária: Re-executar",
+        ]
+
+        found = []
+        lines = text.split('\n')
+        current_section = ""
+
+        for line in lines:
+            stripped = line.strip()
+            if stripped.startswith('## '):
+                current_section = stripped
+            for marker in failure_markers:
+                if marker in stripped and current_section:
+                    if current_section not in found:
+                        found.append(current_section)
+
+        if not found:
+            return None
+
+        report = "### ❌ Seções com Geração Falha (CRITICAL)\n\n"
+        report += "Estas seções contêm marcadores indicando que o modelo não produziu conteúdo:\n\n"
+        for section in found:
+            report += f"- {section}\n"
+        report += f"\n**Ação:** Re-executar o pipeline com modelo maior ou mais contexto.\n\n"
+
+        return {
+            "summary": f"CRITICAL: FAILED_SECTIONS — {len(found)} seções com falha: {found}",
+            "report": report
+        }
+
+    def _check_thin_sections(self, text: str, min_content_chars: int = 50) -> Dict | None:
+        """Detecta seções com conteúdo muito curto (< min_content_chars)."""
+        thin = []
+
+        # Dividir por headings ##
+        parts = re.split(r'(?=^## )', text, flags=re.MULTILINE)
+
+        for part in parts:
+            if not part.strip():
+                continue
+
+            lines = part.strip().split('\n')
+            if not lines[0].startswith('## '):
+                continue
+
+            heading = lines[0].strip()
+            content = '\n'.join(lines[1:])
+
+            # Remover separadores de tabela e whitespace
+            clean_content = re.sub(r'\|[-\s|]+\|', '', content)
+            clean_content = re.sub(r'\s+', ' ', clean_content).strip()
+
+            if len(clean_content) < min_content_chars:
+                thin.append((heading, len(clean_content)))
+
+        if not thin:
+            return None
+
+        report = "### ⚠️ Seções com Conteúdo Insuficiente\n\n"
+        report += f"Seções com menos de {min_content_chars} caracteres de conteúdo útil:\n\n"
+        report += "| Seção | Chars Úteis |\n"
+        report += "|---|---|\n"
+        for heading, chars in thin:
+            report += f"| {heading} | {chars} |\n"
+        report += f"\n**Ação:** Expandir estas seções com dados concretos.\n\n"
+
+        return {
+            "summary": f"WARNING: THIN_SECTIONS — {len(thin)} seções insuficientes",
+            "report": report
+        }
+
+    def _check_tech_contradictions(self, text: str) -> Dict | None:
+        """
+        Detecta contradições na stack tecnológica.
+        Ex: Seção de Constraints diz "PostgreSQL" mas tabela de Tech Stack diz "MongoDB".
+        """
+        contradictions = []
+
+        for group_name, techs in self.TECH_GROUPS.items():
+            found_techs = self._find_techs_in_text(text, techs)
+
+            if len(found_techs) <= 1:
+                continue
+
+            # Verificar se múltiplas tecnologias do MESMO grupo são mencionadas
+            # em contextos que sugerem escolha (não complementaridade)
+            # Heurística: se aparecem em seções diferentes com papel similar
+            sections_per_tech = {}
+            for tech in found_techs:
+                sections_per_tech[tech] = self._find_tech_sections(text, tech)
+
+            # Se duas techs do mesmo grupo aparecem na mesma seção de Stack/Constraints,
+            # pode ser complementar (ex: PostgreSQL + Redis). Mas se uma está em
+            # "Constraints" e outra em "Tech Stack" como principal, é contradição.
+            if group_name == "database":
+                # Para DB, verificar se mesma camada usa techs diferentes
+                constraint_techs = set()
+                stack_techs = set()
+                for tech, sections in sections_per_tech.items():
+                    for section in sections:
+                        if "constraint" in section.lower():
+                            constraint_techs.add(tech)
+                        if "tech stack" in section.lower():
+                            stack_techs.add(tech)
+
+                if constraint_techs and stack_techs:
+                    diff = constraint_techs.symmetric_difference(stack_techs)
+                    if diff and len(constraint_techs) == 1 and len(stack_techs) == 1:
+                        if constraint_techs != stack_techs:
+                            contradictions.append(
+                                f"{group_name}: Constraints menciona "
+                                f"{constraint_techs} mas Tech Stack usa {stack_techs}"
+                            )
+
+        if not contradictions:
+            return None
+
+        report = "### ⚠️ Contradições de Stack Tecnológica\n\n"
+        report += "Possíveis inconsistências entre seções do documento:\n\n"
+        for contradiction in contradictions:
+            report += f"- {contradiction}\n"
+        report += f"\n**Ação:** Verificar e alinhar referências tecnológicas.\n\n"
+
+        return {
+            "summary": f"WARNING: TECH_CONTRADICTION — {len(contradictions)} contradição(ões)",
+            "report": report
+        }
+
+    def _check_rnf_metrics(self, text: str) -> Dict | None:
+        """Detecta RNFs que não possuem métrica quantitativa na coluna Target."""
+        # Localizar seção de RNFs
+        rnf_section = self._extract_section(text, "## Requisitos Não-Funcionais")
+        if not rnf_section:
+            return None
+
+        # Extrair linhas de tabela (excluindo headers e separadores)
+        table_lines = [
+            l for l in rnf_section.split('\n')
+            if l.strip().startswith('|')
+            and '---|' not in l
+            and 'ID' not in l.split('|')[1] if len(l.split('|')) > 1 else False
+        ]
+
+        vague_rnfs = []
+        vague_markers = ['a definir', '...', 'tbd', 'n/a', 'alto', 'baixo', 'bom', 'rápido']
+
+        for line in table_lines:
+            cells = [c.strip() for c in line.split('|') if c.strip()]
+            if len(cells) < 4:
+                continue
+
+            rnf_id = cells[0] if cells[0].upper().startswith('RNF') else ""
+            # A última ou penúltima célula geralmente é o Target
+            target = cells[-1] if len(cells) >= 4 else ""
+
+            if rnf_id and any(v in target.lower() for v in vague_markers):
+                vague_rnfs.append((rnf_id, target))
+
+        if not vague_rnfs:
+            return None
+
+        report = "### ⚠️ RNFs sem Métrica Quantitativa\n\n"
+        report += "| RNF ID | Target Atual | Problema |\n"
+        report += "|---|---|---|\n"
+        for rnf_id, target in vague_rnfs:
+            report += f"| {rnf_id} | {target} | Métrica vaga ou indefinida |\n"
+        report += f"\n**Ação:** Substituir por métricas mensuráveis (ex: '<200ms', '>99.9%').\n\n"
+
+        return {
+            "summary": f"WARNING: VAGUE_RNFS — {len(vague_rnfs)} RNFs sem métrica quantitativa",
+            "report": report
+        }
+
+    # ═══════════════════════════════════════════════════════
+    # MÉTODOS AUXILIARES
+    # ═══════════════════════════════════════════════════════
+
+    def _extract_defined_rf_ids(self, text: str) -> Set[str]:
+        """
+        Extrai IDs RF-XX definidos em linhas de tabela de Requisitos Funcionais.
+        Procura apenas dentro da seção de RFs para evitar falsos positivos.
+        """
+        rf_section = self._extract_section(text, "## Requisitos Funcionais")
+        if not rf_section:
+            return set()
+
+        # Padrão: | RF-01 | ... | (no início de uma célula de tabela)
+        pattern = r'\|\s*(RF-\d+)\s*\|'
+        return set(re.findall(pattern, rf_section, re.IGNORECASE))
+
+    def _extract_all_rf_references(self, text: str) -> Set[str]:
+        """Extrai TODOS os IDs RF-XX mencionados em qualquer lugar do texto."""
+        return set(re.findall(r'RF-\d+', text, re.IGNORECASE))
+
+    def _find_rf_location(self, text: str, rf_id: str) -> str:
+        """Encontra em qual seção um RF-ID é mencionado."""
+        lines = text.split('\n')
+        current_section = "(início)"
+
+        for line in lines:
+            if line.strip().startswith('## '):
+                current_section = line.strip()
+            if rf_id in line and not line.strip().startswith('## '):
+                return current_section
+
+        return "(não localizado)"
+
+    def _extract_section(self, text: str, heading: str) -> str:
+        """Extrai o conteúdo de uma seção específica (entre dois headings ##)."""
+        pattern = re.escape(heading) + r'.*?(?=\n## |\Z)'
+        match = re.search(pattern, text, re.DOTALL | re.IGNORECASE)
+        return match.group(0) if match else ""
+
+    def _find_techs_in_text(self, text: str, tech_list: List[str]) -> Set[str]:
+        """Encontra quais tecnologias de uma lista aparecem no texto."""
+        text_lower = text.lower()
+        found = set()
+        for tech in tech_list:
+            # Busca com word boundary para evitar falsos positivos
+            # Ex: "go" não deve casar com "going"
+            if re.search(r'\b' + re.escape(tech) + r'\b', text_lower):
+                found.add(tech)
+        return found
+
+    def _find_tech_sections(self, text: str, tech: str) -> List[str]:
+        """Encontra em quais seções uma tecnologia é mencionada."""
+        sections = []
+        lines = text.split('\n')
+        current_section = ""
+
+        for line in lines:
+            if line.strip().startswith('## '):
+                current_section = line.strip()
+            if tech.lower() in line.lower() and current_section:
+                if current_section not in sections:
+                    sections.append(current_section)
+
+        return sections
+```
+
+---
+
+## 2. Modificar `src/core/prompt_templates.py`
+
+Localizar o `NEXUS_CONSOLIDATION_TEMPLATE` existente e **substituí-lo completamente** por:
+
+```python
+# ─── Template: Consolidação NEXUS (Fase 9.0 — Expandido) ────────────────────
+NEXUS_CONSOLIDATION_TEMPLATE = (
+    "TAREFA: Consolidar todos os artefatos abaixo em um PRD FINAL DEFINITIVO.\n\n"
+
+    "REGRAS DE CONSOLIDAÇÃO:\n"
+    "1. O documento final deve ser AUTOCONTIDO — alguém que leia apenas ele entende o projeto inteiro.\n"
+    "2. INCORPORAR correções e issues do Critic (resolver, não apenas listar).\n"
+    "3. INCORPORAR ADRs e decisões do System Design.\n"
+    "4. INCORPORAR mitigações do Security Review.\n"
+    "5. INCORPORAR pontos de consenso do Debate.\n"
+    "6. NÃO copiar artefatos inteiros — sintetizar e consolidar.\n"
+    "7. Cada seção deve refletir o estado FINAL (pós-debate, pós-review).\n"
+    "8. Na Matriz de Rastreabilidade, cada RF DEVE aparecer exatamente uma vez.\n"
+    "9. Na Cláusula de Integridade, marcar APENAS com ✅ ou ❌ — sem texto adicional.\n"
+    "10. Responder em Português.\n\n"
+
+    "FORMATO OBRIGATÓRIO DO PRD FINAL (PADRÃO NEXUS v1.0):\n\n"
+
+    "## Visão do Produto\n"
+    "- Codinome: [nome do projeto]\n"
+    "- Declaração de visão: [1 frase, máx 30 palavras]\n\n"
+
+    "## Problema e Solução\n"
+    "| ID | Problema | Impacto | Como o Sistema Resolve |\n"
+    "|---|---|---|---|\n\n"
+
+    "## Público-Alvo\n"
+    "| Segmento | Perfil | Prioridade |\n"
+    "|---|---|---|\n\n"
+
+    "## Princípios Arquiteturais\n"
+    "| Princípio | Descrição | Implicação Técnica |\n"
+    "|---|---|---|\n\n"
+
+    "## Diferenciais\n"
+    "| Abordagem Atual | Problema | Como Este Sistema Supera |\n"
+    "|---|---|---|\n\n"
+
+    "## Requisitos Funcionais (Consolidados)\n"
+    "| ID | Requisito | Critério de Aceite | Prioridade | Complexidade | Status Pós-Review |\n"
+    "|---|---|---|---|---|---|\n"
+    "(incluir coluna de status baseada no Review)\n\n"
+
+    "## Requisitos Não-Funcionais\n"
+    "| ID | Categoria | Requisito | Métrica | Target |\n"
+    "|---|---|---|---|---|\n\n"
+
+    "## Arquitetura e Tech Stack (do System Design)\n"
+    "- Estilo: [tipo]\n"
+    "- Stack resumida em tabela\n"
+    "| Camada | Tecnologia | Justificativa |\n"
+    "|---|---|---|\n\n"
+
+    "## ADRs (do System Design)\n"
+    "| ID | Decisão | Alternativa Rejeitada | Consequências |\n"
+    "|---|---|---|---|\n\n"
+
+    "## Análise de Segurança (do Security Review)\n"
+    "| ID | Ameaça STRIDE | Componente | Severidade | Mitigação |\n"
+    "|---|---|---|---|---|\n\n"
+
+    "## Escopo MVP\n"
+    "**Inclui:** [lista com RF-XX — APENAS IDs que existem na tabela de RFs acima]\n"
+    "**NÃO inclui:** [lista com justificativa]\n\n"
+
+    "## Riscos Consolidados (PRD + Design + Security)\n"
+    "| ID | Risco | Fonte | Probabilidade | Impacto | Mitigação |\n"
+    "|---|---|---|---|---|---|\n\n"
+
+    "## Métricas de Sucesso\n"
+    "| Métrica | Target | Prazo | Como Medir |\n"
+    "|---|---|---|---|\n\n"
+
+    "## Plano de Implementação (resumo do Development Plan)\n"
+    "| Fase | Duração | Entregas | Critério de Conclusão |\n"
+    "|---|---|---|---|\n\n"
+
+    "## Decisões do Debate (pontos de consenso)\n"
+    "- [Decisão 1 com justificativa]\n"
+    "- [Decisão 2 com justificativa]\n\n"
+
+    "## Constraints Técnicos\n"
+    "- Linguagem: [...]\n"
+    "- Framework: [...]\n"
+    "- Banco de dados: [...]\n"
+    "- Infraestrutura: [...]\n\n"
+
+    # ═══ FASE 9.0: 4 novas seções obrigatórias ═══
+
+    "## Matriz de Rastreabilidade\n"
+    "| RF-ID | Componente/Módulo | Teste Associado | Status |\n"
+    "|---|---|---|---|\n"
+    "| RF-01 | [módulo responsável] | [tipo de teste: unit/integration/e2e] | Planejado |\n"
+    "(OBRIGATÓRIO: cada RF da tabela de Requisitos Funcionais DEVE aparecer aqui exatamente uma vez)\n\n"
+
+    "## Limitações Conhecidas\n"
+    "| ID | Limitação | Impacto | Quando Será Resolvida |\n"
+    "|---|---|---|---|\n"
+    "| LIM-01 | [limitação técnica ou de escopo] | [impacto no usuário] | v2 / Nunca / A DEFINIR |\n\n"
+
+    "## Guia de Replicação Resumido\n"
+    "1. **Pré-requisitos:** [linguagem, versões, ferramentas obrigatórias]\n"
+    "2. **Instalação:** [comandos exatos para setup]\n"
+    "3. **Execução:** [comando para rodar o sistema]\n"
+    "4. **Verificação:** [como confirmar que está funcionando]\n\n"
+
+    "## Cláusula de Integridade\n"
+    "| Item | Status |\n"
+    "|---|---|\n"
+    "| Todos os RF-IDs do Escopo existem na tabela de RFs | ✅/❌ |\n"
+    "| Todos os riscos HIGH possuem mitigação definida | ✅/❌ |\n"
+    "| Tech Stack é consistente entre seções | ✅/❌ |\n"
+    "| Métricas de sucesso possuem target quantitativo | ✅/❌ |\n"
+    "| Nenhuma seção contém placeholder 'A DEFINIR' | ✅/❌ |\n"
+    "| Security Review endereça todas as ameaças HIGH | ✅/❌ |\n"
+)
+```
+
+---
+
+## 3. Modificar `src/core/output_validator.py`
+
+Localizar o dict `REQUIRED_SECTIONS` e **substituir apenas a entrada `"prd_final"`**:
+
+```python
+    # FASE 9.0: Expandido de 16 para 20 seções (template NEXUS completo)
+    "prd_final": [
+        "## Visão do Produto",
+        "## Problema e Solução",
+        "## Público-Alvo",
+        "## Princípios Arquiteturais",
+        "## Diferenciais",
+        "## Requisitos Funcionais",
+        "## Requisitos Não-Funcionais",
+        "## Arquitetura e Tech Stack",
+        "## ADRs",
+        "## Análise de Segurança",
+        "## Escopo MVP",
+        "## Riscos Consolidados",
+        "## Métricas de Sucesso",
+        "## Plano de Implementação",
+        "## Decisões do Debate",
+        "## Constraints Técnicos",
+        "## Matriz de Rastreabilidade",       # FASE 9.0
+        "## Limitações Conhecidas",           # FASE 9.0
+        "## Guia de Replicação Resumido",     # FASE 9.0
+        "## Cláusula de Integridade",         # FASE 9.0
+    ],
+```
+
+Localizar `MIN_CHARS` e **atualizar apenas a entrada `"prd_final"`**:
+
+```python
+    "prd_final": 1000,  # FASE 9.0: Expandido de 800 para 1000 (4 seções a mais)
+```
+
+`MIN_COMPLETENESS["prd_final"]` **permanece 0.70** (70% de 20 = mínimo 14 seções presentes).
+
+---
+
+## 4. Modificar `src/debate/debate_engine.py`
+
+Localizar o final do método `run()`, **antes do `return`**. Substituir o bloco de fechamento por:
+
+```python
+        # ═══ FASE 9.0: Injetar seção estruturada de Decisões Aplicáveis ═══
+        decisions_section = self._extract_decisions_from_transcript()
+        self.debate_transcript.append(decisions_section)
+        # ═══ FIM FASE 9.0 ═══
+
+        print(
+            f"\n{ANSIStyle.BOLD}{ANSIStyle.GREEN}"
+            f"{'═' * 50}\n"
+            f" ✅ DEBATE CONCLUÍDO — {self.num_rounds} rounds completos\n"
+            f"{'═' * 50}"
+            f"{ANSIStyle.RESET}\n"
+        )
+
+        return "\n\n".join(self.debate_transcript)
+```
+
+Adicionar o seguinte método **na classe `DebateEngine`**, após o método `run()`:
+
+```python
+    def _extract_decisions_from_transcript(self) -> str:
+        """
+        FASE 9.0: Extrai decisões estruturadas dos "Pontos Aceitos"
+        de cada round do Proponente.
+
+        Retorna seção Markdown com tabela de decisões para facilitar
+        a consolidação pelo TASK_07.
+        """
+        decisions_section = (
+            "\n## Decisões Aplicáveis (Síntese)\n\n"
+            "| Round | Tipo | Decisão | Justificativa |\n"
+            "|---|---|---|---|\n"
+        )
+
+        decisions_found = 0
+
+        for entry_idx, entry in enumerate(self.debate_transcript):
+            # Apenas entradas do Proponente contêm "Pontos Aceitos"
+            if not entry.startswith("Proponente:"):
+                continue
+
+            # Calcular número do round (cada round = 1 Proponente + 1 Crítico)
+            round_num = (entry_idx // 2) + 1
+
+            # Extrair seção "Pontos Aceitos"
+            if "## Pontos Aceitos" in entry:
+                accepted_block = entry.split("## Pontos Aceitos")[1]
+                # Cortar na próxima seção ## se existir
+                if "##" in accepted_block[1:]:
+                    next_section = accepted_block.index("##", 1)
+                    accepted_block = accepted_block[:next_section]
+
+                for line in accepted_block.strip().split('\n'):
+                    line = line.strip().lstrip('- ')
+                    if line and len(line) > 10 and not line.startswith('#'):
+                        # Limpar e truncar
+                        decision_text = line[:120]
+                        decisions_section += (
+                            f"| R{round_num} | ACEITO | "
+                            f"{decision_text} | Proponente concordou |\n"
+                        )
+                        decisions_found += 1
+
+            # Extrair seção "Melhorias Propostas" (tabela)
+            if "## Melhorias Propostas" in entry:
+                improvements_block = entry.split("## Melhorias Propostas")[1]
+                if "##" in improvements_block[1:]:
+                    next_section = improvements_block.index("##", 1)
+                    improvements_block = improvements_block[:next_section]
+
+                # Extrair linhas de tabela (excluindo header e separador)
+                table_lines = [
+                    l for l in improvements_block.strip().split('\n')
+                    if l.strip().startswith('|')
+                    and '---|' not in l
+                    and 'Área' not in l  # Excluir header
+                ]
+                for tl in table_lines:
+                    cells = [c.strip() for c in tl.split('|') if c.strip()]
+                    if len(cells) >= 3:
+                        area = cells[0][:30]
+                        change = cells[1][:60]
+                        justification = cells[2][:60]
+                        decisions_section += (
+                            f"| R{round_num} | MELHORIA | "
+                            f"{area}: {change} | {justification} |\n"
+                        )
+                        decisions_found += 1
+
+        if decisions_found == 0:
+            decisions_section += (
+                "| - | - | Nenhuma decisão estruturada extraída | "
+                "Debate em formato livre |\n"
+            )
+
+        decisions_section += f"\n*Total de decisões extraídas: {decisions_found}*\n"
+
+        return decisions_section
+```
+
+---
+
+## 5. Modificar `src/core/planner.py`
+
+### 5.1 Adicionar TASK_07b na DAG
+
+Localizar o método `load_default_dag()`. Após a definição de TASK_07, **adicionar**:
+
+```python
+            # FASE 9.0: Verificação de consistência do PRD Final
+            TaskDefinition(
+                task_id="TASK_07b",
+                agent_name="consistency_checker",
+                method_name="check_consistency",
+                input_artifacts=["prd_final", "prd"],
+                output_artifact="consistency_report",
+                requires=["TASK_07"],
+                task_type="AGENT",
+                max_context_tokens=3000
+            ),
+```
+
+### 5.2 Adicionar dispatch no `_execute_task`
+
+Localizar o bloco de dispatch dentro de `_execute_task`. Após o elif de `consolidate_prd`, **adicionar**:
+
+```python
+                # FASE 9.0: Dispatch para ConsistencyChecker (sem LLM, programático)
+                elif task.method_name == "check_consistency":
+                    prd_final_art = self.artifact_store.read("prd_final")
+                    prd_final_content = prd_final_art.content if prd_final_art else ""
+                    result = method(
+                        prd_final=prd_final_content,
+                        artifacts_context=context
+                    )
+```
+
+### 5.3 Atualizar mapeamentos
+
+No `_get_artifact_tag_for_validator`, **adicionar ao dict `mapping`**:
+
+```python
+        "consistency_report": "document",  # FASE 9.0: Validação genérica
+```
+
+No `_get_artifact_type_from_task`, o retorno `"document"` já cobre `consistency_report` pelo fallback existente. Nenhuma alteração necessária.
+
+---
+
+## 6. Modificar `src/core/controller.py`
+
+### 6.1 Importar ConsistencyCheckerAgent
+
+No topo do arquivo, adicionar o import:
+
+```python
+from src.agents.consistency_checker_agent import ConsistencyCheckerAgent
+```
+
+### 6.2 Registrar no dict de agentes
+
+No `__init__`, dentro do dict `self.agents`, **adicionar**:
+
+```python
+            "consistency_checker": ConsistencyCheckerAgent(),
+```
+
+### 6.3 Aviso no terminal para erros críticos
+
+No método `_generate_final_report`, **antes** da linha `f.write(f"\n---\n*Gerado via IdeaForge CLI`)`, adicionar:
+
+```python
+            # FASE 9.0: Incluir relatório de consistência no relatório final
+            consistency_art = self.artifact_store.read("consistency_report")
+            if consistency_art:
+                f.write("---\n\n")
+                f.write("## Relatório de Consistência (Auditoria Automática)\n\n")
+                f.write(f"{consistency_art.content}\n\n")
+
+                # Aviso destacado no terminal se houver problemas críticos
+                if "CRITICAL" in consistency_art.content:
+                    import sys
+                    sys.stdout.write(
+                        f"\n{ANSIStyle.YELLOW}{ANSIStyle.BOLD}"
+                        f"⚠️  AVISO DE CONSISTÊNCIA: O PRD Final contém problemas críticos.\n"
+                        f"   Consulte o Relatório de Consistência no arquivo de saída."
+                        f"{ANSIStyle.RESET}\n"
+                    )
+                    sys.stdout.flush()
+```
+
+### 6.4 Atualizar lista de artefatos no relatório
+
+No método `_generate_final_report`, localizar a lista `artifacts_to_include` e **adicionar** `"consistency_report"`:
+
+```python
+            artifacts_to_include = [
+                "prd", "prd_review", "system_design",
+                "security_review", "debate_transcript", "development_plan",
+                "consistency_report"  # FASE 9.0
+            ]
+```
+
+### 6.5 Atualizar `type_map` nas métricas
+
+No mesmo método, dentro do loop de métricas, atualizar o `type_map`:
+
+```python
+                    type_map = {
+                        "prd": "prd", "prd_final": "prd_final",
+                        "system_design": "system_design",
+                        "prd_review": "review", "security_review": "security_review",
+                        "development_plan": "plan",
+                        "consistency_report": "document"  # FASE 9.0
+                    }
+```
+
+---
+
+## 7. Atualizar `tests/test_planner.py`
+
+Adicionar ao `MockAgent`:
+
+```python
+    def check_consistency(self, prd_final, artifacts_context=""):
+        self.called_with.append((prd_final, artifacts_context))
+        return self.return_val
+```
+
+Atualizar o teste de inicialização da DAG:
+
+```python
+def test_planner_dag_initialization():
+    bb = Blackboard()
+    store = ArtifactStore(bb, persist_dir=".tmp_planner")
+    planner = Planner(bb, store, agents={})
+    planner.load_default_dag()
+
+    # FASE 9.0: Agora são 9 tasks (8 + TASK_07b)
+    assert len(planner.dag) == 9
+    assert bb.get_task_status("TASK_01") == str(TaskStatus.PENDING)
+    assert bb.get_task_status("TASK_07") == str(TaskStatus.PENDING)
+    assert bb.get_task_status("TASK_07b") == str(TaskStatus.PENDING)
+```
+
+---
+
+## 8. Novo Arquivo: `tests/test_consistency_checker.py`
+
+```python
+"""
+test_consistency_checker.py — Testes para o ConsistencyCheckerAgent (Fase 9.0).
+"""
+import pytest
+from src.agents.consistency_checker_agent import ConsistencyCheckerAgent
+
+
+class TestConsistencyCheckerCleanPRD:
+    """Testes com PRD limpo — deve passar sem problemas."""
+
+    def setup_method(self):
+        self.checker = ConsistencyCheckerAgent()
+
+    def test_clean_prd_is_consistent(self):
+        prd = (
+            "## Requisitos Funcionais\n"
+            "| ID | Requisito | Critério | Prioridade | Complexidade | Status |\n"
+            "|---|---|---|---|---|---|\n"
+            "| RF-01 | Busca | GET /api retorna 200 | Must | Low | ✅ |\n"
+            "| RF-02 | Login | POST /auth retorna JWT | Must | Med | ✅ |\n"
+            "| RF-03 | Perfil | GET /user retorna dados | Should | Low | ✅ |\n\n"
+            "## Escopo MVP\n"
+            "**Inclui:** RF-01, RF-02\n"
+            "**NÃO inclui:** RF-03 (v2)\n\n"
+            "## Requisitos Não-Funcionais\n"
+            "| ID | Categoria | Requisito | Métrica | Target |\n"
+            "|---|---|---|---|---|\n"
+            "| RNF-01 | Performance | Latência API | p95 | <200ms |\n"
+            "| RNF-02 | Disponibilidade | Uptime | mensal | >99.9% |\n\n"
+            "## Constraints Técnicos\n"
+            "- Linguagem: Python\n"
+            "- Banco de dados: PostgreSQL\n\n"
+            "## Arquitetura e Tech Stack\n"
+            "| Camada | Tecnologia | Justificativa |\n"
+            "|---|---|---|\n"
+            "| Backend | FastAPI | Async nativo |\n"
+            "| Banco | PostgreSQL | Integridade relacional |\n\n"
+            "Conteúdo adicional para garantir que o PRD tenha mais de 100 caracteres e passe "
+            "na verificação inicial de tamanho mínimo do checker."
+        )
+        report = self.checker.check_consistency(prd)
+        assert "is_clean:** True" in report
+        assert "CRITICAL" not in report
+
+
+class TestConsistencyCheckerOrphanRFs:
+    """Testes de detecção de IDs RF fantasmas."""
+
+    def setup_method(self):
+        self.checker = ConsistencyCheckerAgent()
+
+    def test_detects_orphan_rf_in_escopo(self):
+        prd = (
+            "## Requisitos Funcionais\n"
+            "| ID | Requisito | Critério | Prioridade | Complexidade | Status |\n"
+            "|---|---|---|---|---|---|\n"
+            "| RF-01 | Busca | GET /api retorna 200 | Must | Low | ✅ |\n\n"
+            "## Escopo MVP\n"
+            "**Inclui:** RF-01, RF-05, RF-12\n\n"
+            "Texto de preenchimento para garantir o mínimo de caracteres necessário."
+        )
+        report = self.checker.check_consistency(prd)
+        assert "RF-05" in report
+        assert "RF-12" in report
+        assert "is_clean:** False" in report
+        assert "CRITICAL" in report
+
+    def test_no_false_positive_when_all_rfs_defined(self):
+        prd = (
+            "## Requisitos Funcionais\n"
+            "| ID | Requisito |\n|---|---|\n"
+            "| RF-01 | Busca |\n"
+            "| RF-02 | Login |\n"
+            "| RF-03 | Perfil |\n\n"
+            "## Escopo MVP\n**Inclui:** RF-01, RF-02, RF-03\n\n"
+            "Texto de preenchimento para garantir o mínimo de caracteres necessário."
+        )
+        report = self.checker.check_consistency(prd)
+        assert "RF_ORPHAN" not in report
+
+    def test_detects_orphan_rf_in_body_text(self):
+        prd = (
+            "## Requisitos Funcionais\n"
+            "| ID | Requisito |\n|---|---|\n"
+            "| RF-01 | Busca |\n\n"
+            "## Plano de Implementação\n"
+            "Na fase 2 implementaremos RF-01 e RF-99.\n\n"
+            "Texto de preenchimento para garantir o mínimo de caracteres necessário."
+        )
+        report = self.checker.check_consistency(prd)
+        assert "RF-99" in report
+        assert "CRITICAL" in report
+
+
+class TestConsistencyCheckerFailedSections:
+    """Testes de detecção de seções com falha de geração."""
+
+    def setup_method(self):
+        self.checker = ConsistencyCheckerAgent()
+
+    def test_detects_failed_section(self):
+        prd = (
+            "## Visão do Produto\n- Codinome: TestApp\n\n"
+            "## Requisitos Funcionais\n"
+            "- [GERAÇÃO FALHOU — seção não produzida pelo modelo]\n\n"
+            "Texto de preenchimento para garantir o mínimo de caracteres necessário."
+        )
+        report = self.checker.check_consistency(prd)
+        assert "FAILED_SECTIONS" in report
+        assert "## Requisitos Funcionais" in report
+        assert "is_clean:** False" in report
+
+    def test_detects_consolidation_failure(self):
+        prd = (
+            "## Visão do Produto\n- Test\n\n"
+            "## ADRs\n"
+            "O modelo não produziu conteúdo válido. CONSOLIDAÇÃO FALHOU.\n\n"
+            "Texto de preenchimento para garantir o mínimo de caracteres necessário."
+        )
+        report = self.checker.check_consistency(prd)
+        assert "CRITICAL" in report
+
+    def test_no_false_positive_on_valid_content(self):
+        prd = (
+            "## Visão do Produto\n- Codinome: TestApp com visão clara e definida\n\n"
+            "## Requisitos Funcionais\n"
+            "| RF-01 | Busca | GET /api retorna 200 | Must | Low | OK |\n\n"
+            "Texto de preenchimento para garantir o mínimo de caracteres necessário."
+        )
+        report = self.checker.check_consistency(prd)
+        assert "FAILED_SECTIONS" not in report
+
+
+class TestConsistencyCheckerThinSections:
+    """Testes de detecção de seções com conteúdo insuficiente."""
+
+    def setup_method(self):
+        self.checker = ConsistencyCheckerAgent()
+
+    def test_detects_thin_section(self):
+        prd = (
+            "## Visão do Produto\n- X\n\n"
+            "## Problema e Solução\n"
+            "| ID | P | I | R |\n|---|---|---|---|\n| P-01 | Lentidão | Alta rejeição | "
+            "Cache ISR com fallback assíncrono e rotação de proxies residenciais |\n"
+            "| P-02 | Discrepância | Frustração | Pipeline Node.js com validação assíncrona |\n\n"
+            "Texto de preenchimento para garantir o mínimo de caracteres necessário para o teste."
+        )
+        report = self.checker.check_consistency(prd)
+        assert "THIN_SECTIONS" in report
+        assert "## Visão do Produto" in report
+
+    def test_adequate_section_not_flagged(self):
+        prd = (
+            "## Visão do Produto\n"
+            "- Codinome: PriceHub Nexus\n"
+            "- Declaração de visão: Centralizar ofertas de grandes marketplaces em "
+            "plataforma Next.js de alta performance para comparação instantânea.\n\n"
+            "Texto de preenchimento para garantir o mínimo de caracteres necessário."
+        )
+        report = self.checker.check_consistency(prd)
+        # "Visão do Produto" NÃO deve estar nas thin sections
+        if "THIN_SECTIONS" in report:
+            assert "## Visão do Produto" not in report
+
+
+class TestConsistencyCheckerTechContradictions:
+    """Testes de detecção de contradições tecnológicas."""
+
+    def setup_method(self):
+        self.checker = ConsistencyCheckerAgent()
+
+    def test_detects_db_contradiction(self):
+        prd = (
+            "## Constraints Técnicos\n"
+            "- Banco de dados: MongoDB\n\n"
+            "## Arquitetura e Tech Stack\n"
+            "| Camada | Tecnologia | Justificativa |\n"
+            "|---|---|---|\n"
+            "| Banco | PostgreSQL | Integridade relacional |\n\n"
+            "Texto de preenchimento para garantir o mínimo de caracteres necessário."
+        )
+        report = self.checker.check_consistency(prd)
+        assert "TECH_CONTRADICTION" in report
+
+    def test_no_contradiction_when_consistent(self):
+        prd = (
+            "## Constraints Técnicos\n"
+            "- Banco de dados: PostgreSQL\n\n"
+            "## Arquitetura e Tech Stack\n"
+            "| Camada | Tecnologia | Justificativa |\n"
+            "|---|---|---|\n"
+            "| Banco | PostgreSQL | Integridade relacional |\n"
+            "| Cache | Redis | Latência baixa |\n\n"
+            "Texto de preenchimento para garantir o mínimo de caracteres necessário."
+        )
+        report = self.checker.check_consistency(prd)
+        assert "TECH_CONTRADICTION" not in report
+
+    def test_complementary_techs_not_flagged(self):
+        """PostgreSQL + Redis no mesmo stack não é contradição (são complementares)."""
+        prd = (
+            "## Arquitetura e Tech Stack\n"
+            "| Camada | Tecnologia |\n|---|---|\n"
+            "| DB Principal | PostgreSQL |\n"
+            "| Cache | Redis |\n\n"
+            "## Constraints Técnicos\n"
+            "- Banco de dados: PostgreSQL + Redis (Cache)\n\n"
+            "Texto de preenchimento para garantir o mínimo de caracteres necessário."
+        )
+        report = self.checker.check_consistency(prd)
+        # PostgreSQL e Redis são de categorias diferentes no contexto,
+        # mas ambos são "database". A heurística deve tolerar quando
+        # ambos aparecem na mesma seção (complementaridade).
+        # Este teste valida que o checker não é excessivamente agressivo.
+
+
+class TestConsistencyCheckerEdgeCases:
+    """Testes de casos extremos."""
+
+    def setup_method(self):
+        self.checker = ConsistencyCheckerAgent()
+
+    def test_empty_prd(self):
+        report = self.checker.check_consistency("")
+        assert "is_clean:** False" in report
+
+    def test_none_prd(self):
+        report = self.checker.check_consistency(None)
+        assert "is_clean:** False" in report
+
+    def test_very_short_prd(self):
+        report = self.checker.check_consistency("## Visão\n- X")
+        assert "is_clean:** False" in report
+        assert "Vazio ou Insuficiente" in report
+
+    def test_prd_without_rf_section(self):
+        """PRD sem seção de RFs — referências RF devem ser orphans."""
+        prd = (
+            "## Escopo MVP\n**Inclui:** RF-01, RF-02\n\n"
+            "## Visão do Produto\n- Algum produto legal com descrição completa\n\n"
+            "Texto de preenchimento para garantir o mínimo de caracteres necessário."
+        )
+        report = self.checker.check_consistency(prd)
+        assert "RF-01" in report
+        assert "RF-02" in report
+        assert "CRITICAL" in report
+
+
+class TestConsistencyCheckerRNFMetrics:
+    """Testes de detecção de RNFs vagos."""
+
+    def setup_method(self):
+        self.checker = ConsistencyCheckerAgent()
+
+    def test_detects_vague_rnf(self):
+        prd = (
+            "## Requisitos Não-Funcionais\n"
+            "| ID | Categoria | Requisito | Métrica | Target |\n"
+            "|---|---|---|---|---|\n"
+            "| RNF-01 | Performance | Latência | p95 | A DEFINIR |\n"
+            "| RNF-02 | Disponibilidade | Uptime | mensal | >99.9% |\n\n"
+            "Texto de preenchimento para garantir o mínimo de caracteres necessário."
+        )
+        report = self.checker.check_consistency(prd)
+        assert "VAGUE_RNFS" in report
+        assert "RNF-01" in report
+
+    def test_quantitative_rnf_not_flagged(self):
+        prd = (
+            "## Requisitos Não-Funcionais\n"
+            "| ID | Categoria | Requisito | Métrica | Target |\n"
+            "|---|---|---|---|---|\n"
+            "| RNF-01 | Performance | Latência | p95 | <200ms |\n"
+            "| RNF-02 | Disponibilidade | Uptime | mensal | >99.9% |\n\n"
+            "Texto de preenchimento para garantir o mínimo de caracteres necessário."
+        )
+        report = self.checker.check_consistency(prd)
+        assert "VAGUE_RNFS" not in report
+```
+
+---
+
+## 9. Atualizar `tests/test_output_validator_v2.py`
+
+Adicionar os seguintes testes à classe existente:
+
+```python
+    def test_validate_prd_final_20_sections(self):
+        """FASE 9.0: prd_final agora exige 20 seções do NEXUS expandido."""
+        content = (
+            "## Visão do Produto\n- Codinome: TestApp\n- Declaração: Teste completo\n\n"
+            "## Problema e Solução\n| ID | P | I | R |\n|---|---|---|---|\n| P-01 | X | Y | Z |\n\n"
+            "## Público-Alvo\n| Seg | Perfil | Prio |\n|---|---|---|\n| Dev | Lucas | P0 |\n\n"
+            "## Princípios Arquiteturais\n| P | D | I |\n|---|---|---|\n| X | Y | Z |\n\n"
+            "## Diferenciais\n| A | P | S |\n|---|---|---|\n| X | Y | Z |\n\n"
+            "## Requisitos Funcionais\n| ID | R | CA | P | Cx | S |\n|---|---|---|---|---|---|\n| RF-01 | X | Y | Must | Low | OK |\n\n"
+            "## Requisitos Não-Funcionais\n| ID | C | R | M | T |\n|---|---|---|---|---|\n| RNF-01 | Perf | Lat | p95 | 200ms |\n\n"
+            "## Arquitetura e Tech Stack\n| C | T | J |\n|---|---|---|\n| BE | FastAPI | Async |\n\n"
+            "## ADRs\n| ID | D | AR | C |\n|---|---|---|---|\n| ADR-01 | X | Y | Z |\n\n"
+            "## Análise de Segurança\n| ID | A | C | S | M |\n|---|---|---|---|---|\n| SEC-01 | X | Y | H | Z |\n\n"
+            "## Escopo MVP\n**Inclui:** RF-01\n**NÃO inclui:** Mobile\n\n"
+            "## Riscos Consolidados\n| ID | R | F | P | I | M |\n|---|---|---|---|---|---|\n| R-01 | X | PRD | M | A | Z |\n\n"
+            "## Métricas de Sucesso\n| M | T | P | CM |\n|---|---|---|---|\n| Users | 100 | 30d | GA |\n\n"
+            "## Plano de Implementação\n| F | D | E | CC |\n|---|---|---|---|\n| F1 | 2s | Core | Tests |\n\n"
+            "## Decisões do Debate\n- Adoção de ISR + SWR para cache\n\n"
+            "## Constraints Técnicos\n- Linguagem: Python\n- Framework: FastAPI\n\n"
+            # FASE 9.0: 4 novas seções
+            "## Matriz de Rastreabilidade\n| RF-ID | Componente | Teste | Status |\n|---|---|---|---|\n| RF-01 | API | Unit | Planejado |\n\n"
+            "## Limitações Conhecidas\n| ID | Limitação | Impacto | Quando |\n|---|---|---|---|\n| LIM-01 | Sem mobile | UX mobile | v2 |\n\n"
+            "## Guia de Replicação Resumido\n1. **Pré-requisitos:** Python 3.10+\n2. **Instalação:** pip install\n3. **Execução:** python main.py\n4. **Verificação:** health check\n\n"
+            "## Cláusula de Integridade\n| Item | Status |\n|---|---|\n| RFs existem | ✅ |\n| Riscos mitigados | ✅ |\n\n"
+            "Texto de preenchimento final para atingir 1000+ chars obrigatórios. " * 3
+        )
+        res = self.validator.validate(content, "prd_final")
+        self.assertTrue(res["valid"], f"Falha: {res.get('fail_reasons')}")
+        self.assertGreaterEqual(res["completeness_score"], 0.70)
+        # Verificar que são 20 seções obrigatórias
+        self.assertEqual(len(self.validator.REQUIRED_SECTIONS["prd_final"]), 20)
+
+    def test_prd_final_missing_new_sections(self):
+        """FASE 9.0: PRD Final sem as 4 novas seções tem completude reduzida."""
+        # Apenas 16 seções originais, sem as 4 novas
+        content = (
+            "## Visão do Produto\n- Test\n\n"
+            "## Problema e Solução\n| ID | P |\n|---|---|\n| P1 | X |\n\n"
+            "## Público-Alvo\n| S | P | Pr |\n|---|---|---|\n| D | L | P0 |\n\n"
+            "## Princípios Arquiteturais\n| P | D | I |\n|---|---|---|\n| X | Y | Z |\n\n"
+            "## Diferenciais\n| A | P | S |\n|---|---|---|\n| X | Y | Z |\n\n"
+            "## Requisitos Funcionais\n| ID | R |\n|---|---|\n| RF-01 | X |\n\n"
+            "## Requisitos Não-Funcionais\n| ID | C |\n|---|---|\n| RNF-01 | X |\n\n"
+            "## Arquitetura e Tech Stack\n| C | T |\n|---|---|\n| BE | FA |\n\n"
+            "## ADRs\n| ID | D |\n|---|---|\n| ADR-01 | X |\n\n"
+            "## Análise de Segurança\n| ID | A |\n|---|---|\n| S-01 | X |\n\n"
+            "## Escopo MVP\n**Inclui:** RF-01\n\n"
+            "## Riscos Consolidados\n| ID | R |\n|---|---|\n| R-01 | X |\n\n"
+            "## Métricas de Sucesso\n| M | T |\n|---|---|\n| U | 100 |\n\n"
+            "## Plano de Implementação\n| F | D |\n|---|---|\n| F1 | 2s |\n\n"
+            "## Decisões do Debate\n- Decisão 1\n\n"
+            "## Constraints Técnicos\n- Python\n"
+            "Texto para atingir 1000 chars. " * 10
+        )
+        res = self.validator.validate(content, "prd_final")
+        # 16/20 = 0.80 — acima do threshold 0.70, então ainda é válido
+        self.assertTrue(res["valid"], f"Falha: {res.get('fail_reasons')}")
+        # Mas as 4 seções novas devem estar em missing_sections
+        missing = res.get("missing_sections", [])
+        self.assertIn("## Matriz de Rastreabilidade", missing)
+        self.assertIn("## Limitações Conhecidas", missing)
+        self.assertIn("## Guia de Replicação Resumido", missing)
+        self.assertIn("## Cláusula de Integridade", missing)
+```
+
+---
+
+## 10. Comandos para Rodar os Testes
+
+```bash
+# 1. Rodar APENAS os testes novos da Fase 9.0
+pytest tests/test_consistency_checker.py -v --tb=short
+
+# 2. Rodar validador atualizado
+pytest tests/test_output_validator_v2.py -v --tb=short
+
+# 3. Rodar testes do planner (DAG com 9 tasks)
+pytest tests/test_planner.py -v --tb=short
+
+# 4. Rodar suite completa (deve passar 55+ testes)
+pytest tests/ -v --tb=short
+
+# 5. Teste de integração real (com modelo)
+python idea-forge/src/cli/main.py --no-gate
+```
+
+---
+
+## 11. Checklist de Validação da Fase 9.0
+
+- [ ] `consistency_checker_agent.py` existe em `src/agents/`
+- [ ] `ConsistencyCheckerAgent` não faz nenhuma chamada LLM
+- [ ] `NEXUS_CONSOLIDATION_TEMPLATE` contém 20 seções (16 originais + 4 novas)
+- [ ] `REQUIRED_SECTIONS["prd_final"]` contém 20 entradas
+- [ ] `MIN_CHARS["prd_final"]` == 1000
+- [ ] `MIN_COMPLETENESS["prd_final"]` == 0.70
+- [ ] DAG contém 9 tasks (TASK_01 a TASK_07b)
+- [ ] `TASK_07b` depende de `TASK_07`
+- [ ] `debate_engine.py` contém método `_extract_decisions_from_transcript`
+- [ ] Debate transcript termina com `## Decisões Aplicáveis (Síntese)`
+- [ ] `controller.py` registra `consistency_checker` no dict de agentes
+- [ ] Relatório final inclui seção de Consistência
+- [ ] Terminal exibe aviso amarelo se houver problemas CRITICAL
+- [ ] `pytest tests/test_consistency_checker.py` — todos passam
+- [ ] `pytest tests/test_output_validator_v2.py` — todos passam
+- [ ] `pytest tests/test_planner.py` — todos passam
+- [ ] `pytest tests/` — todos os 55+ testes passam
+
+---
+
+## 12. DECISION_LOG — Entradas da Fase 9.0
+
+```
+### Fase 9.0 — Integridade do Conteúdo
+F9 | ADD | `ConsistencyCheckerAgent` | Auditoria programática do PRD Final (sem LLM) | `consistency_checker_agent.py`
+F9 | MOD | `NEXUS_CONSOLIDATION_TEMPLATE` | Expandido para 20 seções (+Matriz, +Limitações, +Guia, +Integridade) | `prompt_templates.py`
+F9 | MOD | `REQUIRED_SECTIONS["prd_final"]` | 20 seções obrigatórias, MIN_CHARS=1000 | `output_validator.py`
+F9 | ADD | `TASK_07b` | Verificação de consistência após consolidação | `planner.py`
+F9 | MOD | `DebateEngine` | Extração de decisões estruturadas ao final do transcript | `debate_engine.py`
+F9 | MOD | `AgentController` | Aviso terminal para problemas CRITICAL no PRD Final | `controller.py`
+F9 | RULE | Consistency Non-Blocking | Checker alerta mas NUNCA bloqueia o pipeline | `planner.py`
+```

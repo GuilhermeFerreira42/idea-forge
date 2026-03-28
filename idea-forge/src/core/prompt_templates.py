@@ -251,10 +251,10 @@ DEBATE_RESPONSE_TEMPLATE = (
     "- Responda em Português\n"
 )
 
-# ─── Template: Consolidação NEXUS (Fase 7.1) ────────────────────────
+# ─── Template: Consolidação NEXUS (Fase 9.0 — Expandido) ────────────────────
 NEXUS_CONSOLIDATION_TEMPLATE = (
     "TAREFA: Consolidar todos os artefatos abaixo em um PRD FINAL DEFINITIVO.\n\n"
-    
+
     "REGRAS DE CONSOLIDAÇÃO:\n"
     "1. O documento final deve ser AUTOCONTIDO — alguém que leia apenas ele entende o projeto inteiro.\n"
     "2. INCORPORAR correções e issues do Critic (resolver, não apenas listar).\n"
@@ -263,7 +263,9 @@ NEXUS_CONSOLIDATION_TEMPLATE = (
     "5. INCORPORAR pontos de consenso do Debate.\n"
     "6. NÃO copiar artefatos inteiros — sintetizar e consolidar.\n"
     "7. Cada seção deve refletir o estado FINAL (pós-debate, pós-review).\n"
-    "8. Responder em Português.\n\n"
+    "8. Na Matriz de Rastreabilidade, cada RF DEVE aparecer exatamente uma vez.\n"
+    "9. Na Cláusula de Integridade, marcar APENAS com ✅ ou ❌ — sem texto adicional.\n"
+    "10. Responder em Português.\n\n"
 
     "FORMATO OBRIGATÓRIO DO PRD FINAL (PADRÃO NEXUS v1.0):\n\n"
 
@@ -311,7 +313,7 @@ NEXUS_CONSOLIDATION_TEMPLATE = (
     "|---|---|---|---|---|\n\n"
 
     "## Escopo MVP\n"
-    "**Inclui:** [lista com RF-XX]\n"
+    "**Inclui:** [lista com RF-XX — APENAS IDs que existem na tabela de RFs acima]\n"
     "**NÃO inclui:** [lista com justificativa]\n\n"
 
     "## Riscos Consolidados (PRD + Design + Security)\n"
@@ -334,5 +336,32 @@ NEXUS_CONSOLIDATION_TEMPLATE = (
     "- Linguagem: [...]\n"
     "- Framework: [...]\n"
     "- Banco de dados: [...]\n"
-    "- Infraestrutura: [...]\n"
+    "- Infraestrutura: [...]\n\n"
+
+    "## Matriz de Rastreabilidade\n"
+    "| RF-ID | Componente/Módulo | Teste Associado | Status |\n"
+    "|---|---|---|---|\n"
+    "| RF-01 | [módulo responsável] | [tipo de teste: unit/integration/e2e] | Planejado |\n"
+    "(OBRIGATÓRIO: cada RF da tabela de Requisitos Funcionais DEVE aparecer aqui exatamente uma vez)\n\n"
+
+    "## Limitações Conhecidas\n"
+    "| ID | Limitação | Impacto | Quando Será Resolvida |\n"
+    "|---|---|---|---|\n"
+    "| LIM-01 | [limitação técnica ou de escopo] | [impacto no usuário] | v2 / Nunca / A DEFINIR |\n\n"
+
+    "## Guia de Replicação Resumido\n"
+    "1. **Pré-requisitos:** [linguagem, versões, ferramentas obrigatórias]\n"
+    "2. **Instalação:** [comandos exatos para setup]\n"
+    "3. **Execução:** [comando para rodar o sistema]\n"
+    "4. **Verificação:** [como confirmar que está funcionando]\n\n"
+
+    "## Cláusula de Integridade\n"
+    "| Item | Status |\n"
+    "|---|---|\n"
+    "| Todos os RF-IDs do Escopo existem na tabela de RFs | ✅/❌ |\n"
+    "| Todos os riscos HIGH possuem mitigação definida | ✅/❌ |\n"
+    "| Tech Stack é consistente entre seções | ✅/❌ |\n"
+    "| Métricas de sucesso possuem target quantitativo | ✅/❌ |\n"
+    "| Nenhuma seção contém placeholder 'A DEFINIR' | ✅/❌ |\n"
+    "| Security Review endereça todas as ameaças HIGH | ✅/❌ |\n"
 )

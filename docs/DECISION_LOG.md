@@ -62,4 +62,11 @@ F8 | MOD | `AgentController` | Integração de fail-safe logging e run-id por ex
 F8 | MOD | `OutputValidator` | Schema `prd_final` com 16 seções NEXUS e 800 chars min | `output_validator.py`
 F8 | ADD | `get_artifact_content` | Interface limpa para recuperação de texto de artefatos | `controller.py`
 F8 | ADD | Isolated PRD File | Geração de `PRD_FINAL_*.md` na raiz para acesso rápido | `main.py`
-F8 | RULE | Non-Blocking IO | Garantir que o pipeline não pare por erros persistindo logs | `pipeline_logger.py`
+
+### Fase 9 — Integridade do Conteúdo
+F9 | ADD | `ConsistencyCheckerAgent` | Auditoria programática (zero-LLM) do PRD Final | `consistency_checker_agent.py`
+F9 | MOD | `NEXUS_CONSOLIDATION_TEMPLATE` | Expansão para 20 seções (v1.2) com Rastreabilidade e Cláusulas | `prompt_templates.py`
+F9 | MOD | `OutputValidator` | Thresholds aumentados (1000 chars) e novas seções obrigatórias | `output_validator.py`
+F9 | MOD | `DebateEngine` | Extração automática de decisões estruturadas para o relatório | `debate_engine.py`
+F9 | ADD | `TASK_07b` | Nova task de auditoria na DAG para garantir integridade final | `planner.py`
+F9 | RULE | Programmatic Guardrails | Priorizar verificações determinísticas sobre novas chamadas LLM | `consistency_checker_agent.py`

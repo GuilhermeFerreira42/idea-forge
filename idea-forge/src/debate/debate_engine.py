@@ -90,11 +90,100 @@ class DebateEngine:
                     f.write(f"\n## ⚡ Agente: CRÍTICO (Round {r})\n")
                     f.write(crit_response + "\n\n---\n")
 
+        # ═══ FASE 9.0: Injetar seção estruturada de Decisões Aplicáveis ═══
+        decisions_section = self._extract_decisions_from_transcript()
+        self.debate_transcript.append(decisions_section)
+        # ═══ FIM FASE 9.0 ═══
+
         print(
             f"\n{ANSIStyle.BOLD}{ANSIStyle.GREEN}"
             f"{'═' * 50}\n"
-            f"  ✅ DEBATE CONCLUÍDO — {self.num_rounds} rounds completos\n"
+            f" ✅ DEBATE CONCLUÍDO — {self.num_rounds} rounds completos\n"
             f"{'═' * 50}"
             f"{ANSIStyle.RESET}\n"
         )
+
         return "\n\n".join(self.debate_transcript)
+
+    def _extract_decisions_from_transcript(self) -> str:
+        """
+        FASE 9.0: Extrai decisões estruturadas dos "Pontos Aceitos"
+        de cada round do Proponente.
+
+        Retorna seção Markdown com tabela de decisões para facilitar
+        a consolidação pelo TASK_07.
+        """
+        decisions_section = (
+            "\n## Decisões Aplicáveis (Síntese)\n\n"
+            "| Round | Tipo | Decisão | Justificativa |\n"
+            "|---|---|---|---|\n"
+        )
+
+        decisions_found = 0
+
+        for entry_idx, entry in enumerate(self.debate_transcript):
+            # Apenas entradas do Proponente contêm "Pontos Aceitos"
+            if not entry.startswith("Proponente:"):
+                continue
+
+            # Calcular número do round (cada round = 1 Proponente + 1 Crítico)
+            round_num = (entry_idx // 2) + 1
+
+            # Extrair seção "Pontos Aceitos"
+            if "## Pontos Aceitos" in entry:
+                parts = entry.split("## Pontos Aceitos")
+                if len(parts) > 1:
+                    accepted_block = parts[1]
+                    # Cortar na próxima seção ## se existir
+                    if "##" in accepted_block[1:]:
+                        next_section = accepted_block.index("##", 1)
+                        accepted_block = accepted_block[:next_section]
+
+                    for line in accepted_block.strip().split('\n'):
+                        line = line.strip().lstrip('- ')
+                        if line and len(line) > 10 and not line.startswith('#'):
+                            # Limpar e truncar
+                            decision_text = line[:120]
+                            decisions_section += (
+                                f"| R{round_num} | ACEITO | "
+                                f"{decision_text} | Proponente concordou |\n"
+                            )
+                            decisions_found += 1
+
+            # Extrair seção "Melhorias Propostas" (tabela)
+            if "## Melhorias Propostas" in entry:
+                parts = entry.split("## Melhorias Propostas")
+                if len(parts) > 1:
+                    improvements_block = parts[1]
+                    if "##" in improvements_block[1:]:
+                        next_section = improvements_block.index("##", 1)
+                        improvements_block = improvements_block[:next_section]
+
+                    # Extrair linhas de tabela (excluindo header e separador)
+                    table_lines = [
+                        l for l in improvements_block.strip().split('\n')
+                        if l.strip().startswith('|')
+                        and '---|' not in l
+                        and 'Área' not in l  # Excluir header
+                    ]
+                    for tl in table_lines:
+                        cells = [c.strip() for c in tl.split('|') if c.strip()]
+                        if len(cells) >= 3:
+                            area = cells[0][:30]
+                            change = cells[1][:60]
+                            justification = cells[2][:60]
+                            decisions_section += (
+                                f"| R{round_num} | MELHORIA | "
+                                f"{area}: {change} | {justification} |\n"
+                            )
+                            decisions_found += 1
+
+        if decisions_found == 0:
+            decisions_section += (
+                "| - | - | Nenhuma decisão estruturada extraída | "
+                "Debate em formato livre |\n"
+            )
+
+        decisions_section += f"\n*Total de decisões extraídas: {decisions_found}*\n"
+
+        return decisions_section

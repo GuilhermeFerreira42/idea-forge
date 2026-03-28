@@ -91,9 +91,13 @@ class TestOutputValidatorV2(unittest.TestCase):
             "## Riscos Consolidados\n| ID | R | F | P | I | M |\n|---|---|---|---|---|---|\n| R-01 | X | PRD | M | A | Backup |\n\n"
             "## Métricas de Sucesso\n| M | T | P | CM |\n|---|---|---|---|\n| Users | 100 | 30d | GA |\n\n"
             "## Plano de Implementação\n| F | D | E | CC |\n|---|---|---|---|\n| F1 | 2s | Core | Tests |\n\n"
+            "## Matriz de Rastreabilidade\n| RF | Módulo | Teste |\n|---|---|---|\n| RF-01 | Auth | test_login |\n\n"
+            "## Limitações Conhecidas\n- Sem suporte offline.\n\n"
+            "## Guia de Replicação Resumido\n1. npm install\n2. npm start\n\n"
+            "## Cláusula de Integridade\n- Documento revisado e auditado.\n\n"
             "## Decisões do Debate\n- Adoção de ISR + SWR\n\n"
             "## Constraints Técnicos\n- Linguagem: Python\n- Framework: FastAPI\n"
-            "Texto adicional para garantir 800+ caracteres no PRD Final consolidado. " * 3
+            "Texto adicional para garantir 1000+ caracteres no PRD Final consolidado no padrão NEXUS v1.2 Fase 9.0. " * 5
         )
         res = self.validator.validate(content, "prd_final")
         self.assertTrue(res["valid"], f"Falha: {res.get('fail_reasons')}")

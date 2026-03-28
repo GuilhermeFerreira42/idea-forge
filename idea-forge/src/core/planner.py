@@ -116,7 +116,18 @@ class Planner:
                 requires=["TASK_06"],
                 task_type="AGENT",
                 max_context_tokens=3000
-            )
+            ),
+            # FASE 9.0: Verificação de consistência do PRD Final
+            TaskDefinition(
+                task_id="TASK_07b",
+                agent_name="consistency_checker",
+                method_name="check_consistency",
+                input_artifacts=["prd_final", "prd"],
+                output_artifact="consistency_report",
+                requires=["TASK_07"],
+                task_type="AGENT",
+                max_context_tokens=3000
+            ),
         ]
         for task in self.dag:
             self.blackboard.set_task_status(task.task_id, TaskStatus.PENDING)
@@ -205,6 +216,14 @@ class Planner:
                     result = method(
                         artifacts_context=context,
                         original_idea=original_idea
+                    )
+                # FASE 9.0: Dispatch para ConsistencyChecker (sem LLM, programático)
+                elif task.method_name == "check_consistency":
+                    prd_final_art = self.artifact_store.read("prd_final")
+                    prd_final_content = prd_final_art.content if prd_final_art else ""
+                    result = method(
+                        prd_final=prd_final_content,
+                        artifacts_context=context
                     )
                 # FASE 3.1: Passagem explícita de contexto
                 elif method and (len(task.input_artifacts) > 1 or context):
@@ -367,5 +386,6 @@ class Planner:
             "security_review": "security_review",
             "development_plan": "plan",
             "prd_final": "prd_final",  # FASE 8.0a: Valida como prd_final
+            "consistency_report": "document",  # FASE 9.0: Validação genérica
         }
         return mapping.get(task.output_artifact, "document")

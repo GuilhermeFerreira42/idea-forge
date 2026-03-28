@@ -10,6 +10,7 @@ from src.agents.security_reviewer_agent import SecurityReviewerAgent
 from src.debate.debate_engine import DebateEngine
 from src.planning.plan_generator import PlanGenerator
 from src.models.model_provider import ModelProvider
+from src.agents.consistency_checker_agent import ConsistencyCheckerAgent
 from src.core.stream_handler import ANSIStyle
 
 
@@ -72,7 +73,8 @@ class AgentController:
                 critic=CriticAgent(provider, direct_mode=direct_mode),
                 rounds=3
             ),
-            "plan_generator": PlanGenerator(provider, direct_mode=direct_mode)
+            "plan_generator": PlanGenerator(provider, direct_mode=direct_mode),
+            "consistency_checker": ConsistencyCheckerAgent(),
         }
         
         # Atributos diretos para compatibilidade com a Fase 2 (necessário para testes legados)
@@ -193,7 +195,8 @@ class AgentController:
             # Índice dos artefatos de apoio
             artifacts_to_include = [
                 "prd", "prd_review", "system_design",
-                "security_review", "debate_transcript", "development_plan"
+                "security_review", "debate_transcript", "development_plan",
+                "consistency_report"  # FASE 9.0
             ]
             
             f.write("## Artefatos de Apoio (Processo de Elaboração)\n\n")
@@ -212,6 +215,24 @@ class AgentController:
                     f.write(f"{artifact.content}\n\n")
                     f.write("---\n\n")
 
+            # FASE 9.0: Incluir relatório de consistência no relatório final
+            consistency_art = self.artifact_store.read("consistency_report")
+            if consistency_art:
+                f.write("---\n\n")
+                f.write("## Relatório de Consistência (Auditoria Automática)\n\n")
+                f.write(f"{consistency_art.content}\n\n")
+
+                # Aviso destacado no terminal se houver problemas críticos
+                if "CRITICAL" in consistency_art.content:
+                    import sys
+                    sys.stdout.write(
+                        f"\n{ANSIStyle.YELLOW}{ANSIStyle.BOLD}"
+                        f"⚠️  AVISO DE CONSISTÊNCIA: O PRD Final contém problemas críticos.\n"
+                        f"   Consulte o Relatório de Consistência no arquivo de saída."
+                        f"{ANSIStyle.RESET}\n"
+                    )
+                    sys.stdout.flush()
+
             # Métricas de qualidade
             f.write("## Métricas de Qualidade (NEXUS Calibration)\n\n")
             f.write("| Artefato | Density | Completude | Tabelas | Tokens |\n")
@@ -228,7 +249,8 @@ class AgentController:
                         "prd": "prd", "prd_final": "prd_final",  # FASE 8.0a
                         "system_design": "system_design",
                         "prd_review": "review", "security_review": "security_review",
-                        "development_plan": "plan"
+                        "development_plan": "plan",
+                        "consistency_report": "document"  # FASE 9.0
                     }
                     val = validator.validate(artifact.content, type_map.get(art_name, "document"))
                     f.write(

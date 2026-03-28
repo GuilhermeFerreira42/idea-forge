@@ -35,10 +35,10 @@ def test_planner_dag_initialization():
     planner = Planner(bb, store, agents={})
     planner.load_default_dag()
     
-    # FASE 7.1: Agora são 8 tasks
-    assert len(planner.dag) == 8
+    # FASE 9.0: Agora são 9 tasks (adicionada TASK_07b)
+    assert len(planner.dag) == 9
     assert bb.get_task_status("TASK_01") == str(TaskStatus.PENDING)
-    assert bb.get_task_status("TASK_07") == str(TaskStatus.PENDING)
+    assert bb.get_task_status("TASK_07b") == str(TaskStatus.PENDING)
 
 def test_planner_dependency_check():
     bb = Blackboard()

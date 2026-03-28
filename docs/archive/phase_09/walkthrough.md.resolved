@@ -1,0 +1,36 @@
+# Walkthrough: Fase 9.0 — Integridade do Conteúdo
+
+Implementamos com sucesso a **Fase 9.0**, elevando o padrão de maturidade do IdeaForge CLI através de auditoria programática rigorosa e expansão do protocolo de documentação NEXUS.
+
+## Mudanças Principais
+
+### 1. ConsistencyCheckerAgent
+Criamos um agente 100% programático (zero chamadas LLM) que audita o PRD Final em busca de erros comuns que escapam aos modelos de linguagem:
+- **RF IDs Órfãos:** Detecta menções a requisitos funcionais (RF-XX) que não existem na tabela principal.
+- **Marcadores de Falha:** Identifica seções onde o modelo falhou em gerar conteúdo (ex: "GERAÇÃO FALHOU").
+- **Seções Insuficientes:** Alerta sobre seções com pouco conteúdo útil.
+- **RNFs de Qualidade:** Verifica se os requisitos não-funcionais possuem métricas quantitativas.
+
+### 2. Expansão NEXUS v1.2
+O template de consolidação foi expandido com mais 4 seções obrigatórias:
+- **Matriz de Rastreabilidade:** Mapeia cada RF para seu módulo e teste correspondente.
+- **Limitações Conhecidas:** Documenta o que o sistema NÃO faz ou restrições atuais.
+- **Guia de Replicação Resumido:** Instruções rápidas para setup.
+- **Cláusula de Integridade:** Checklist final de conformidade.
+
+### 3. Debate Engine Inteligente
+Aprimoramos o `DebateEngine` para extrair automaticamente uma tabela de decisões estruturadas a partir das falas dos agentes, facilitando a consolidação final das melhorias propostas.
+
+### 4. Integração no Pipeline
+- Adicionada `TASK_07b` na DAG do Planner.
+- O Controller agora emite um aviso visual no terminal se a auditoria detectar problemas **CRITICAL**.
+
+## Verificação Realizada
+
+- **Testes de Unidade:** Validamos a lógica de detecção de órfãos e marcadores de falha em `tests/test_phase_9_consistency.py`.
+- **Pipeline Integration:** Confirmamos que o `Controller` registra e executa o novo agente corretamente.
+- **Prompt Validation:** Verificamos que o `OutputValidator` agora exige as seções expandidas do NEXUS v1.2.
+
+---
+**Status da Fase:** ✅ Concluída e Integrada.
+**Nova Capacidade:** O sistema agora garante a consistência interna da documentação sem depender de novas chamadas de LLM, economizando tokens e aumentando a confiabilidade.
