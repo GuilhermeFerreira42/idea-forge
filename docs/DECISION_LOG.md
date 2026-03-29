@@ -76,3 +76,10 @@ F10 | ADD | `DebateStateTracker` | Rastreamento programático de issues (OPEN/AC
 F10 | MOD | `DebateEngine` | Integração do tracker para injeção de contexto estruturado nos agentes | `debate_engine.py`
 F10 | MOD | Agentes (Critic/Proponent) | Expansão de limites de truncamento e novas regras de não-repetição (9-10) | `critic_agent.py`, `proponent_agent.py`
 F10 | RULE | State-Driven Debate | Priorizar o tratamento de issues pendentes sobre novas críticas em rodadas avançadas | `debate_engine.py`
+
+### Fase 9.1 — PRD Final Completo (Geração Seccional)
+F9.1 | MOD | `SectionalGenerator` | 5 passes NEXUS v1.2 para consolidar 20 seções | `sectional_generator.py`
+F9.1 | MOD | `ProductManagerAgent` | Orquestração seccional para `consolidate_prd` | `product_manager_agent.py`
+F9.1 | MOD | `OutputValidator` | Threshold de completude aumentado de 0.70 para 0.90 | `output_validator.py`
+F9.1 | ADD | `ConsistencyCheckerAgent`| Check 6 (Completeness) programático para audit de seções | `consistency_checker_agent.py`
+F9.1 | RULE | Fractional Consolidation | Fragmentar geração final em blocos para evitar truncamento de tokens | `sectional_generator.py`

@@ -1,0 +1,43 @@
+# Walkthrough — Fase 9.1: PRD Final Completo (Geração Seccional)
+
+Nesta fase, resolvemos o problema de truncamento de tokens na consolidação do PRD Final, migrando para uma estratégia de **Geração Seccional em 5 passes**. Também elevamos o padrão de qualidade exigindo 90% de completude das 20 seções NEXUS.
+
+## Mudanças Realizadas
+
+### Core & Agentes
+- **[SectionalGenerator](file:///c:/Users/Usuario/Desktop/idea-forge/idea-forge/src/core/sectional_generator.py)**: Adicionados `NEXUS_FINAL_PASSES` com templates específicos para cada agrupamento de seções.
+- **[ProductManagerAgent](file:///c:/Users/Usuario/Desktop/idea-forge/idea-forge/src/agents/product_manager_agent.py)**: Refatorado o método `consolidate_prd` para orquestrar a geração em passes, com fallback resiliente para chamada única.
+
+### Validação & Auditoria
+- **[OutputValidator](file:///c:/Users/Usuario/Desktop/idea-forge/idea-forge/src/core/output_validator.py)**: `MIN_COMPLETENESS["prd_final"]` subiu de 0.70 para **0.90**.
+- **[ConsistencyCheckerAgent](file:///c:/Users/Usuario/Desktop/idea-forge/idea-forge/src/agents/consistency_checker_agent.py)**: Adicionado o **Check 6 (Completes Check)** que valida programaticamente se as 20 seções obrigatórias estão presentes.
+
+---
+
+## Verificação de Testes
+
+A suíte completa de testes foi executada, validando tanto a lógica seccional quanto os novos thresholds de auditoria.
+
+### Resultados do Pytest
+```bash
+pytest tests/ -v
+# ...
+tests/test_phase_9_1.py::TestNexusFinalPasses::test_all_20_sections_covered PASSED
+tests/test_output_validator_v2.py::test_prd_final_threshold_90_accepts_18_of_20 PASSED
+tests/test_phase_9_consistency.py::TestPhase9::test_02_clean_prd PASSED
+# ...
+========================= 175 passed in 12.45s =========================
+```
+
+---
+
+## Estrutura de Passes (NEXUS v1.2)
+
+1.  **Pass 1**: Visão, Problema, Público, Princípios, Diferenciais.
+2.  **Pass 2**: Requisitos Funcionais e Não-Funcionais.
+3.  **Pass 3**: Arquitetura, ADRs, Segurança, Escopo MVP.
+4.  **Pass 4**: Riscos, Métricas, Plano de Implementação, Decisões do Debate, Constraints.
+5.  **Pass 5**: Rastreabilidade, Limitações, Guia de Replicação, Cláusula de Integridade.
+
+> [!IMPORTANT]
+> A geração seccional garante que cada bloco de seções tenha até 1500 tokens de saída dedicada, eliminando o risco de o LLM cortar o documento no meio por limite de contexto.

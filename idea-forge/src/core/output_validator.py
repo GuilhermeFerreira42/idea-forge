@@ -99,7 +99,7 @@ class OutputValidator:
         "review": 0.60,
         "security_review": 0.50,
         "plan": 0.70,
-        "prd_final": 0.70,
+        "prd_final": 0.90,  # FASE 9.1: Era 0.70 — agora exige 90% (máx 2 seções ausentes de 20)
     }
 
     def validate(self, content: str, artifact_type: str) -> Dict:

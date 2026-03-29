@@ -1,0 +1,908 @@
+# Blueprint Técnico — Fase 9.1: PRD Final Completo via Geração Seccional
+
+**Versão:** 1.0
+**Baseline:** Fase 10.0 (97 testes passando)
+**Problema:** TASK_07 gera `prd_final` com 10/20 seções (50% completude) por truncamento de tokens em chamada única
+
+---
+
+## 1. Sumário da Fase
+
+### Objetivo
+
+Garantir que toda execução do pipeline produza um `prd_final` com ≥18 das 20 seções obrigatórias do NEXUS Protocol, eliminando o truncamento por limite de tokens.
+
+### Problema Resolvido
+
+O método `consolidate_prd()` usa chamada única ao LLM com `num_predict: 2500`. O template NEXUS expandido (20 seções) exige ~7.000 tokens de output. O modelo para no meio — sempre nas mesmas 10 seções finais.
+
+### Arquivos Modificados
+
+| Arquivo | Tipo | Descrição |
+|---|---|---|
+| `src/core/sectional_generator.py` | MOD | Adicionar `NEXUS_FINAL_PASSES` (5 passes) + reconhecer `"prd_final"` em `_get_default_passes` |
+| `src/agents/product_manager_agent.py` | MOD | Refatorar `consolidate_prd()` para usar `SectionalGenerator` |
+| `src/core/output_validator.py` | MOD | `MIN_COMPLETENESS["prd_final"]` de `0.70` para `0.90` |
+| `src/agents/consistency_checker_agent.py` | MOD | Adicionar check 6: validação de completude de seções via `OutputValidator` |
+| `tests/test_output_validator_v2.py` | MOD | Adicionar teste para threshold 0.90 |
+| `tests/test_phase_9_1.py` | ADD | Testes da geração seccional do PRD Final |
+
+### Invariantes que NÃO mudam
+
+- DAG permanece com 9 tasks (TASK_01 a TASK_07b) — nenhuma task adicionada
+- Assinatura de `consolidate_prd(self, artifacts_context: str, original_idea: str = "") -> str` inalterada
+- `SectionalGenerator`, `Blackboard`, `ArtifactStore`, `PipelineLogger`, `DebateStateTracker` — zero alterações
+- `_get_role()` no `SectionalGenerator` já retorna `"product_manager"` para IDs que começam com `"final"` via fallback `"user"` — será ajustado
+
+---
+
+## 2. Especificação dos `NEXUS_FINAL_PASSES`
+
+### Estratégia de Truncamento de Contexto
+
+O `artifacts_context` passado ao `SectionalGenerator` via `user_input` será truncado a 600 chars (o padrão do `_build_pass_prompt`). Para a consolidação, o contexto mais importante é a ideia original + resumo dos artefatos. O `context` adicional (passado via parâmetro `context`) será truncado a 400 chars por pass. A prioridade de truncamento no `ArtifactStore.get_context_for_agent` já está implementada — artefatos são carregados na ordem da lista `input_artifacts`, e os que excedem o budget são truncados automaticamente.
+
+### Diretiva de Consolidação por Pass
+
+Todo pass recebe a seguinte instrução base no `_build_pass_prompt`:
+
+```
+PROJETO:\n{artifacts_context[:600]}
+```
+
+E no campo `context`:
+
+```
+CONTEXTO ADICIONAL:\n{context[:400]}
+```
+
+Cada `instruction` de pass inclui: `"NÃO copie artefatos — sintetize e consolide com dados reais do contexto."`
+
+---
+
+### Pass 1: `final_p1` — Visão, Problema, Público, Princípios, Diferenciais
+
+```python
+SectionPass(
+    pass_id="final_p1",
+    sections=[
+        "## Visão do Produto",
+        "## Problema e Solução",
+        "## Público-Alvo",
+        "## Princípios Arquiteturais",
+        "## Diferenciais",
+    ],
+    template=(
+        "## Visão do Produto\n"
+        "- **Codinome:** [nome do projeto]\n"
+        "- **Declaração de visão:** [1 frase, máx 30 palavras]\n\n"
+        "## Problema e Solução\n"
+        "| ID | Problema | Impacto | Como o Sistema Resolve |\n"
+        "|---|---|---|---|\n"
+        "| P-01 | ... | ... | ... |\n\n"
+        "## Público-Alvo\n"
+        "| Segmento | Perfil | Prioridade |\n"
+        "|---|---|---|\n\n"
+        "## Princípios Arquiteturais\n"
+        "| Princípio | Descrição | Implicação Técnica |\n"
+        "|---|---|---|\n\n"
+        "## Diferenciais\n"
+        "| Abordagem Atual | Problema | Como Este Sistema Supera |\n"
+        "|---|---|---|\n"
+    ),
+    example=(
+        "- **Codinome:** PriceHunter Nexus\n"
+        "- **Declaração de visão:** Agregar ofertas de marketplaces com performance ISR.\n\n"
+        "| P-01 | APIs heterogêneas | Dados inconsistentes | Pipeline ETL unificado |\n"
+    ),
+    instruction=(
+        "Sintetize visão, problemas, público, princípios e diferenciais a partir dos artefatos. "
+        "NÃO copie artefatos — sintetize e consolide com dados reais do contexto. "
+        "Mínimo 4 problemas, 3 personas, 3 princípios, 3 diferenciais."
+    ),
+    min_chars=400,
+    max_output_tokens=1500,
+),
+```
+
+### Pass 2: `final_p2` — Requisitos Funcionais e Não-Funcionais
+
+```python
+SectionPass(
+    pass_id="final_p2",
+    sections=[
+        "## Requisitos Funcionais",
+        "## Requisitos Não-Funcionais",
+    ],
+    template=(
+        "## Requisitos Funcionais (Consolidados)\n"
+        "| ID | Requisito | Critério de Aceite | Prioridade | Complexidade | Status Pós-Review |\n"
+        "|---|---|---|---|---|---|\n"
+        "| RF-01 | ... | [teste automatizável] | Must | Low | ✅ Aprovado |\n\n"
+        "## Requisitos Não-Funcionais\n"
+        "| ID | Categoria | Requisito | Métrica | Target |\n"
+        "|---|---|---|---|---|\n"
+        "| RNF-01 | Performance | ... | p95 | <200ms |\n"
+    ),
+    example=(
+        "| RF-01 | Busca Full-Text | GET /api/search retorna 200 + JSON array | Must | Med | ✅ Aprovado |\n"
+        "| RNF-01 | Performance | LCP | p95 | <2.5s |\n"
+    ),
+    instruction=(
+        "Consolide os requisitos funcionais do PRD original com status do Review. "
+        "NÃO copie artefatos — sintetize e consolide. "
+        "Mínimo 6 RFs e 4 RNFs. IDs sequenciais. Inclua coluna Status Pós-Review."
+    ),
+    min_chars=500,
+    max_output_tokens=1500,
+),
+```
+
+### Pass 3: `final_p3` — Arquitetura, ADRs, Segurança, Escopo
+
+```python
+SectionPass(
+    pass_id="final_p3",
+    sections=[
+        "## Arquitetura e Tech Stack",
+        "## ADRs",
+        "## Análise de Segurança",
+        "## Escopo MVP",
+    ],
+    template=(
+        "## Arquitetura e Tech Stack (do System Design)\n"
+        "- **Estilo:** [tipo]\n"
+        "- **Stack resumida em tabela**\n"
+        "| Camada | Tecnologia | Justificativa |\n"
+        "|---|---|---|\n\n"
+        "## ADRs (do System Design)\n"
+        "| ID | Decisão | Alternativa Rejeitada | Consequências |\n"
+        "|---|---|---|---|\n\n"
+        "## Análise de Segurança (do Security Review)\n"
+        "| ID | Ameaça STRIDE | Componente | Severidade | Mitigação |\n"
+        "|---|---|---|---|---|\n\n"
+        "## Escopo MVP\n"
+        "**Inclui:** [lista com RF-XX — APENAS IDs existentes na tabela de RFs]\n"
+        "**NÃO inclui:** [lista com justificativa]\n"
+    ),
+    example=(
+        "| Backend | FastAPI | Async nativo e tipagem Pydantic |\n"
+        "| ADR-01 | SQLite | PostgreSQL | Simplicidade para MVP |\n"
+        "| SEC-01 | Spoofing | API Auth | Alta | Rate limiting + JWT |\n"
+    ),
+    instruction=(
+        "Sintetize arquitetura, ADRs, segurança e escopo dos artefatos do pipeline. "
+        "NÃO copie artefatos — sintetize e consolide. "
+        "Mínimo 3 camadas na stack, 3 ADRs, 3 ameaças STRIDE. "
+        "No Escopo MVP, referencie APENAS RF-IDs que existam na tabela de RFs."
+    ),
+    min_chars=400,
+    max_output_tokens=1500,
+),
+```
+
+### Pass 4: `final_p4` — Riscos, Métricas, Plano, Decisões, Constraints
+
+```python
+SectionPass(
+    pass_id="final_p4",
+    sections=[
+        "## Riscos Consolidados",
+        "## Métricas de Sucesso",
+        "## Plano de Implementação",
+        "## Decisões do Debate",
+        "## Constraints Técnicos",
+    ],
+    template=(
+        "## Riscos Consolidados (PRD + Design + Security)\n"
+        "| ID | Risco | Fonte | Probabilidade | Impacto | Mitigação |\n"
+        "|---|---|---|---|---|---|\n\n"
+        "## Métricas de Sucesso\n"
+        "| Métrica | Target | Prazo | Como Medir |\n"
+        "|---|---|---|---|\n\n"
+        "## Plano de Implementação (resumo do Development Plan)\n"
+        "| Fase | Duração | Entregas | Critério de Conclusão |\n"
+        "|---|---|---|---|\n\n"
+        "## Decisões do Debate (pontos de consenso)\n"
+        "- [Decisão 1 com justificativa]\n"
+        "- [Decisão 2 com justificativa]\n\n"
+        "## Constraints Técnicos\n"
+        "- Linguagem: [...]\n"
+        "- Framework: [...]\n"
+        "- Banco de dados: [...]\n"
+        "- Infraestrutura: [...]\n"
+    ),
+    example=(
+        "| R-01 | Bloqueio de IP | Externo | Alta | Crítico | Rotação de proxies |\n"
+        "| LCP | <2.5s | Contínuo | PageSpeed Insights |\n"
+        "| Fase 1 | 4 semanas | Core + Auth | Testes 80%+ |\n"
+    ),
+    instruction=(
+        "Consolide riscos, métricas, plano e decisões do debate. "
+        "NÃO copie artefatos — sintetize e consolide. "
+        "Mínimo 4 riscos, 4 métricas, 3 fases. "
+        "Decisões do Debate: extraia dos pontos de consenso do transcript."
+    ),
+    min_chars=400,
+    max_output_tokens=1500,
+),
+```
+
+### Pass 5: `final_p5` — Rastreabilidade, Limitações, Guia, Integridade
+
+```python
+SectionPass(
+    pass_id="final_p5",
+    sections=[
+        "## Matriz de Rastreabilidade",
+        "## Limitações Conhecidas",
+        "## Guia de Replicação Resumido",
+        "## Cláusula de Integridade",
+    ],
+    template=(
+        "## Matriz de Rastreabilidade\n"
+        "| RF-ID | Componente/Módulo | Teste Associado | Status |\n"
+        "|---|---|---|---|\n"
+        "| RF-01 | [módulo] | [unit/integration/e2e] | Planejado |\n\n"
+        "## Limitações Conhecidas\n"
+        "| ID | Limitação | Impacto | Quando Será Resolvida |\n"
+        "|---|---|---|---|\n"
+        "| LIM-01 | [limitação] | [impacto] | v2 / Nunca / A DEFINIR |\n\n"
+        "## Guia de Replicação Resumido\n"
+        "1. **Pré-requisitos:** [linguagem, versões, ferramentas]\n"
+        "2. **Instalação:** [comandos exatos]\n"
+        "3. **Execução:** [comando para rodar]\n"
+        "4. **Verificação:** [como confirmar funcionamento]\n\n"
+        "## Cláusula de Integridade\n"
+        "| Item | Status |\n"
+        "|---|---|\n"
+        "| Todos os RF-IDs do Escopo existem na tabela de RFs | ✅/❌ |\n"
+        "| Todos os riscos HIGH possuem mitigação definida | ✅/❌ |\n"
+        "| Tech Stack é consistente entre seções | ✅/❌ |\n"
+        "| Métricas de sucesso possuem target quantitativo | ✅/❌ |\n"
+        "| Nenhuma seção contém placeholder 'A DEFINIR' | ✅/❌ |\n"
+        "| Security Review endereça todas as ameaças HIGH | ✅/❌ |\n"
+    ),
+    example=(
+        "| RF-01 | SearchModule | Unit (Jest) | Planejado |\n"
+        "| LIM-01 | Sem app mobile | UX limitada | v2 |\n"
+    ),
+    instruction=(
+        "Gere rastreabilidade (cada RF da tabela anterior DEVE aparecer), limitações, guia e cláusula. "
+        "NÃO copie artefatos — sintetize e consolide. "
+        "Na Cláusula de Integridade, marque APENAS ✅ ou ❌ baseado no conteúdo real gerado."
+    ),
+    min_chars=300,
+    max_output_tokens=1500,
+),
+```
+
+---
+
+## 3. Código — `src/core/sectional_generator.py`
+
+### 3.1 Adicionar `NEXUS_FINAL_PASSES` (após `PLAN_PASSES`)
+
+Inserir o bloco completo após a definição de `PLAN_PASSES`:
+
+```python
+# ─── NEXUS FINAL: 5 passes para PRD Final consolidado (Fase 9.1) ─────────
+NEXUS_FINAL_PASSES = [
+    SectionPass(
+        pass_id="final_p1",
+        sections=["## Visão do Produto", "## Problema e Solução", "## Público-Alvo",
+                  "## Princípios Arquiteturais", "## Diferenciais"],
+        template=(
+            "## Visão do Produto\n"
+            "- **Codinome:** [nome do projeto]\n"
+            "- **Declaração de visão:** [1 frase, máx 30 palavras]\n\n"
+            "## Problema e Solução\n"
+            "| ID | Problema | Impacto | Como o Sistema Resolve |\n"
+            "|---|---|---|---|\n"
+            "| P-01 | ... | ... | ... |\n\n"
+            "## Público-Alvo\n"
+            "| Segmento | Perfil | Prioridade |\n"
+            "|---|---|---|\n\n"
+            "## Princípios Arquiteturais\n"
+            "| Princípio | Descrição | Implicação Técnica |\n"
+            "|---|---|---|\n\n"
+            "## Diferenciais\n"
+            "| Abordagem Atual | Problema | Como Este Sistema Supera |\n"
+            "|---|---|---|\n"
+        ),
+        example=(
+            "- **Codinome:** PriceHunter Nexus\n"
+            "- **Declaração de visão:** Agregar ofertas de marketplaces com ISR.\n\n"
+            "| P-01 | APIs heterogêneas | Dados inconsistentes | Pipeline ETL unificado |\n"
+        ),
+        instruction=(
+            "Sintetize visão, problemas, público, princípios e diferenciais dos artefatos. "
+            "NÃO copie artefatos — sintetize e consolide com dados reais do contexto. "
+            "Mínimo 4 problemas, 3 personas, 3 princípios, 3 diferenciais."
+        ),
+        min_chars=400,
+        max_output_tokens=1500,
+    ),
+    SectionPass(
+        pass_id="final_p2",
+        sections=["## Requisitos Funcionais", "## Requisitos Não-Funcionais"],
+        template=(
+            "## Requisitos Funcionais (Consolidados)\n"
+            "| ID | Requisito | Critério de Aceite | Prioridade | Complexidade | Status Pós-Review |\n"
+            "|---|---|---|---|---|---|\n"
+            "| RF-01 | ... | [teste automatizável] | Must | Low | ✅ Aprovado |\n\n"
+            "## Requisitos Não-Funcionais\n"
+            "| ID | Categoria | Requisito | Métrica | Target |\n"
+            "|---|---|---|---|---|\n"
+            "| RNF-01 | Performance | ... | p95 | <200ms |\n"
+        ),
+        example=(
+            "| RF-01 | Busca Full-Text | GET /api/search retorna 200 | Must | Med | ✅ |\n"
+            "| RNF-01 | Performance | LCP | p95 | <2.5s |\n"
+        ),
+        instruction=(
+            "Consolide requisitos do PRD original com status do Review. "
+            "NÃO copie artefatos — sintetize e consolide. "
+            "Mínimo 6 RFs e 4 RNFs. IDs sequenciais. Inclua coluna Status Pós-Review."
+        ),
+        min_chars=500,
+        max_output_tokens=1500,
+    ),
+    SectionPass(
+        pass_id="final_p3",
+        sections=["## Arquitetura e Tech Stack", "## ADRs", "## Análise de Segurança", "## Escopo MVP"],
+        template=(
+            "## Arquitetura e Tech Stack (do System Design)\n"
+            "- **Estilo:** [tipo]\n"
+            "- **Stack resumida em tabela**\n"
+            "| Camada | Tecnologia | Justificativa |\n"
+            "|---|---|---|\n\n"
+            "## ADRs (do System Design)\n"
+            "| ID | Decisão | Alternativa Rejeitada | Consequências |\n"
+            "|---|---|---|---|\n\n"
+            "## Análise de Segurança (do Security Review)\n"
+            "| ID | Ameaça STRIDE | Componente | Severidade | Mitigação |\n"
+            "|---|---|---|---|---|\n\n"
+            "## Escopo MVP\n"
+            "**Inclui:** [lista com RF-XX — APENAS IDs existentes na tabela de RFs]\n"
+            "**NÃO inclui:** [lista com justificativa]\n"
+        ),
+        example=(
+            "| Backend | FastAPI | Async nativo |\n"
+            "| ADR-01 | SQLite | PostgreSQL | Simplicidade |\n"
+            "| SEC-01 | Spoofing | API Auth | Alta | Rate limiting |\n"
+        ),
+        instruction=(
+            "Sintetize arquitetura, ADRs, segurança e escopo dos artefatos. "
+            "NÃO copie artefatos — sintetize e consolide. "
+            "Mínimo 3 camadas, 3 ADRs, 3 ameaças. "
+            "Escopo: referencie APENAS RF-IDs existentes na tabela de RFs."
+        ),
+        min_chars=400,
+        max_output_tokens=1500,
+    ),
+    SectionPass(
+        pass_id="final_p4",
+        sections=["## Riscos Consolidados", "## Métricas de Sucesso",
+                  "## Plano de Implementação", "## Decisões do Debate", "## Constraints Técnicos"],
+        template=(
+            "## Riscos Consolidados (PRD + Design + Security)\n"
+            "| ID | Risco | Fonte | Probabilidade | Impacto | Mitigação |\n"
+            "|---|---|---|---|---|---|\n\n"
+            "## Métricas de Sucesso\n"
+            "| Métrica | Target | Prazo | Como Medir |\n"
+            "|---|---|---|---|\n\n"
+            "## Plano de Implementação (resumo do Development Plan)\n"
+            "| Fase | Duração | Entregas | Critério de Conclusão |\n"
+            "|---|---|---|---|\n\n"
+            "## Decisões do Debate (pontos de consenso)\n"
+            "- [Decisão 1 com justificativa]\n"
+            "- [Decisão 2 com justificativa]\n\n"
+            "## Constraints Técnicos\n"
+            "- Linguagem: [...]\n"
+            "- Framework: [...]\n"
+            "- Banco de dados: [...]\n"
+            "- Infraestrutura: [...]\n"
+        ),
+        example=(
+            "| R-01 | Bloqueio de IP | Externo | Alta | Crítico | Proxies rotativos |\n"
+            "| LCP | <2.5s | Contínuo | PageSpeed |\n"
+            "| Fase 1 | 4 semanas | Core + Auth | Tests 80%+ |\n"
+        ),
+        instruction=(
+            "Consolide riscos, métricas, plano e decisões do debate. "
+            "NÃO copie artefatos — sintetize e consolide. "
+            "Mínimo 4 riscos, 4 métricas, 3 fases. "
+            "Decisões: extraia dos pontos de consenso do transcript."
+        ),
+        min_chars=400,
+        max_output_tokens=1500,
+    ),
+    SectionPass(
+        pass_id="final_p5",
+        sections=["## Matriz de Rastreabilidade", "## Limitações Conhecidas",
+                  "## Guia de Replicação Resumido", "## Cláusula de Integridade"],
+        template=(
+            "## Matriz de Rastreabilidade\n"
+            "| RF-ID | Componente/Módulo | Teste Associado | Status |\n"
+            "|---|---|---|---|\n"
+            "| RF-01 | [módulo] | [unit/integration/e2e] | Planejado |\n\n"
+            "## Limitações Conhecidas\n"
+            "| ID | Limitação | Impacto | Quando Será Resolvida |\n"
+            "|---|---|---|---|\n"
+            "| LIM-01 | [limitação] | [impacto] | v2 / Nunca |\n\n"
+            "## Guia de Replicação Resumido\n"
+            "1. **Pré-requisitos:** [linguagem, versões, ferramentas]\n"
+            "2. **Instalação:** [comandos exatos]\n"
+            "3. **Execução:** [comando para rodar]\n"
+            "4. **Verificação:** [como confirmar funcionamento]\n\n"
+            "## Cláusula de Integridade\n"
+            "| Item | Status |\n"
+            "|---|---|\n"
+            "| Todos os RF-IDs do Escopo existem na tabela de RFs | ✅/❌ |\n"
+            "| Todos os riscos HIGH possuem mitigação definida | ✅/❌ |\n"
+            "| Tech Stack é consistente entre seções | ✅/❌ |\n"
+            "| Métricas de sucesso possuem target quantitativo | ✅/❌ |\n"
+            "| Nenhuma seção contém placeholder 'A DEFINIR' | ✅/❌ |\n"
+            "| Security Review endereça todas as ameaças HIGH | ✅/❌ |\n"
+        ),
+        example=(
+            "| RF-01 | SearchModule | Unit (Jest) | Planejado |\n"
+            "| LIM-01 | Sem app mobile | UX limitada | v2 |\n"
+        ),
+        instruction=(
+            "Gere rastreabilidade (cada RF da tabela anterior DEVE aparecer), limitações, guia e cláusula. "
+            "NÃO copie artefatos — sintetize e consolide. "
+            "Na Cláusula, marque APENAS ✅ ou ❌ baseado no conteúdo real gerado."
+        ),
+        min_chars=300,
+        max_output_tokens=1500,
+    ),
+]
+```
+
+### 3.2 Atualizar `_get_default_passes`
+
+Localizar o método `_get_default_passes` e adicionar o case para `"prd_final"`:
+
+```python
+    def _get_default_passes(self, artifact_type: str) -> List[SectionPass]:
+        if artifact_type == "prd":
+            return PRD_PASSES
+        elif artifact_type == "system_design":
+            return DESIGN_PASSES
+        elif artifact_type == "plan":
+            return PLAN_PASSES
+        elif artifact_type == "review":
+            return REVIEW_PASSES
+        elif artifact_type == "security_review":
+            return SECURITY_PASSES
+        elif artifact_type == "prd_final":          # FASE 9.1
+            return NEXUS_FINAL_PASSES
+        return []
+```
+
+### 3.3 Atualizar `_get_role`
+
+Localizar o método `_get_role` e adicionar o case para `"final"`:
+
+```python
+    def _get_role(self, pass_id: str) -> str:
+        """Determina o role do modelo baseado no ID do pass."""
+        if pass_id.startswith("prd"): return "product_manager"
+        if pass_id.startswith("final"): return "product_manager"  # FASE 9.1
+        if pass_id.startswith("design"): return "architect"
+        if pass_id.startswith("review"): return "critic"
+        if pass_id.startswith("security"): return "security_reviewer"
+        if pass_id.startswith("plan"): return "planner"
+        return "user"
+```
+
+---
+
+## 4. Código — `src/agents/product_manager_agent.py`
+
+### Substituição completa do método `consolidate_prd`
+
+Localizar o método `consolidate_prd` e substituir integralmente:
+
+```python
+    def consolidate_prd(self, artifacts_context: str, original_idea: str = "") -> str:
+        """
+        FASE 9.1: Consolida todos os artefatos do pipeline em um PRD final
+        no padrão NEXUS Protocol v1.0.
+        
+        Refatorado de chamada única para geração seccional (5 passes)
+        via SectionalGenerator, eliminando truncamento por limite de tokens.
+        
+        Fallback: chamada única se >50% dos passes falharem.
+        """
+        generator = SectionalGenerator(
+            provider=self.provider,
+            direct_mode=self.direct_mode
+        )
+        
+        # Montar input combinado: ideia original + contexto dos artefatos
+        combined_input = ""
+        if original_idea:
+            combined_input += f"IDEIA ORIGINAL DO USUÁRIO:\n{original_idea[:500]}\n\n"
+        combined_input += (
+            f"ARTEFATOS DO PIPELINE (sintetize, NÃO copie):\n"
+            f"{artifacts_context}"
+        )
+        
+        result = generator.generate_sectional(
+            artifact_type="prd_final",
+            user_input=combined_input,
+            context=""
+        )
+        
+        if result and len(result) > 500:
+            return result
+        
+        # Fallback: chamada única (comportamento anterior da Fase 7.1)
+        return self._consolidate_single_pass(artifacts_context, original_idea)
+    
+    def _consolidate_single_pass(self, artifacts_context: str, original_idea: str) -> str:
+        """Fallback de consolidação em chamada única (Fase 7.1 original)."""
+        from src.core.prompt_templates import NEXUS_CONSOLIDATION_TEMPLATE
+        
+        prompt = (
+            f"System: Você é o Agente PRODUCT MANAGER do sistema IdeaForge.\n"
+            f"Sua tarefa é consolidar os artefatos de um projeto em um PRD FINAL definitivo.\n"
+            f"Responda em Português. Use APENAS tabelas e bullets.\n\n"
+            f"{NEXUS_CONSOLIDATION_TEMPLATE}\n\n"
+        )
+        
+        if original_idea:
+            prompt += f"IDEIA ORIGINAL DO USUÁRIO:\n{original_idea[:500]}\n\n"
+        
+        prompt += (
+            f"ARTEFATOS DO PIPELINE (sintetize, não copie):\n"
+            f"{artifacts_context}\n\n"
+            f"GERE O PRD FINAL CONSOLIDADO AGORA."
+        )
+        
+        result = self.provider.generate(
+            prompt=prompt,
+            role="product_manager"
+        )
+        
+        if not result or len(result.strip()) < 200:
+            return (
+                "## PRD FINAL — CONSOLIDAÇÃO FALHOU\n\n"
+                "O modelo não produziu um PRD consolidado válido.\n"
+                "Consulte os artefatos individuais no relatório.\n"
+            )
+        
+        return result
+```
+
+---
+
+## 5. Código — `src/core/output_validator.py`
+
+Localizar `MIN_COMPLETENESS` e alterar a entrada `"prd_final"`:
+
+```python
+    MIN_COMPLETENESS = {
+        "prd": 0.75,
+        "system_design": 0.70,
+        "review": 0.60,
+        "security_review": 0.50,
+        "plan": 0.70,
+        "prd_final": 0.90,  # FASE 9.1: Era 0.70 — agora exige 90% (máx 2 seções ausentes de 20)
+    }
+```
+
+---
+
+## 6. Código — `src/agents/consistency_checker_agent.py`
+
+### Adicionar Check 6: Completude de Seções
+
+Localizar o método `check_consistency`. Após o bloco `# 5. RNF Metrics` e antes do `# Assembly`, adicionar:
+
+```python
+        # 6. Section Completeness (via OutputValidator)
+        completeness = self._check_section_completeness(prd_final)
+        if completeness:
+            issues.append(completeness["summary"])
+            sections.append(completeness["report"])
+```
+
+Atualizar a linha `checks_executados`:
+
+```python
+        report += f"- **checks_executados:** 6\n"
+```
+
+Adicionar o método privado na classe (após `_find_location`):
+
+```python
+    def _check_section_completeness(self, text: str) -> Dict | None:
+        """FASE 9.1: Verifica se todas as seções obrigatórias do prd_final estão presentes."""
+        from src.core.output_validator import OutputValidator
+        validator = OutputValidator()
+        validation = validator.validate(text, "prd_final")
+        
+        missing = validation.get("missing_sections", [])
+        completeness = validation.get("completeness_score", 0)
+        
+        if not missing:
+            return None
+        
+        report = "### ❌ Seções Obrigatórias Ausentes (CRITICAL)\n\n"
+        report += f"Completude: {int(completeness * 100)}% ({20 - len(missing)}/20 seções presentes)\n\n"
+        report += "Seções faltantes:\n"
+        for section in missing:
+            report += f"- {section}\n"
+        report += f"\n**Ação:** Re-executar pipeline ou verificar modelo LLM.\n\n"
+        
+        return {
+            "summary": f"CRITICAL: MISSING_SECTIONS — {len(missing)} seções ausentes",
+            "report": report
+        }
+```
+
+---
+
+## 7. Testes
+
+### 7.1 Atualizar `tests/test_output_validator_v2.py`
+
+Adicionar:
+
+```python
+    def test_prd_final_threshold_90_rejects_50_percent(self):
+        """FASE 9.1: PRD Final com 50% completude (10/20 seções) deve reprovar."""
+        content = (
+            "## Visão do Produto\n- Test\n\n"
+            "## Problema e Solução\n| ID | P |\n|---|---|\n| P1 | X |\n\n"
+            "## Público-Alvo\n| S | P | Pr |\n|---|---|---|\n| D | L | P0 |\n\n"
+            "## Princípios Arquiteturais\n| P | D | I |\n|---|---|---|\n| X | Y | Z |\n\n"
+            "## Diferenciais\n| A | P | S |\n|---|---|---|\n| X | Y | Z |\n\n"
+            "## Requisitos Funcionais\n| ID | R |\n|---|---|\n| RF-01 | X |\n\n"
+            "## Requisitos Não-Funcionais\n| ID | C |\n|---|---|\n| RNF-01 | X |\n\n"
+            "## Arquitetura e Tech Stack\n| C | T |\n|---|---|\n| BE | FA |\n\n"
+            "## ADRs\n| ID | D |\n|---|---|\n| ADR-01 | X |\n\n"
+            "## Análise de Segurança\n| ID | A |\n|---|---|\n| S-01 | X |\n\n"
+            "Texto longo para evitar TOO_SHORT. " * 30
+        )
+        res = self.validator.validate(content, "prd_final")
+        # 10/20 = 0.50, threshold é 0.90 → deve reprovar
+        self.assertFalse(res["valid"])
+        self.assertTrue(any("INCOMPLETE" in r for r in res["fail_reasons"]))
+        self.assertLess(res["completeness_score"], 0.90)
+    
+    def test_prd_final_threshold_90_accepts_18_of_20(self):
+        """FASE 9.1: PRD Final com 18/20 seções (90%) deve aprovar."""
+        content = (
+            "## Visão do Produto\n- Codinome: TestApp\n\n"
+            "## Problema e Solução\n| ID | P | I | R |\n|---|---|---|---|\n| P-01 | X | Y | Z |\n\n"
+            "## Público-Alvo\n| Seg | Perfil | Prio |\n|---|---|---|\n| Dev | Lucas | P0 |\n\n"
+            "## Princípios Arquiteturais\n| P | D | I |\n|---|---|---|\n| X | Y | Z |\n\n"
+            "## Diferenciais\n| A | P | S |\n|---|---|---|\n| X | Y | Z |\n\n"
+            "## Requisitos Funcionais\n| ID | R | CA | P | Cx | S |\n|---|---|---|---|---|---|\n| RF-01 | X | Y | Must | Low | OK |\n\n"
+            "## Requisitos Não-Funcionais\n| ID | C | R | M | T |\n|---|---|---|---|---|\n| RNF-01 | P | L | p95 | 200ms |\n\n"
+            "## Arquitetura e Tech Stack\n| C | T | J |\n|---|---|---|\n| BE | FA | Async |\n\n"
+            "## ADRs\n| ID | D | AR | C |\n|---|---|---|---|\n| ADR-01 | X | Y | Z |\n\n"
+            "## Análise de Segurança\n| ID | A | C | S | M |\n|---|---|---|---|---|\n| SEC-01 | X | Y | H | Z |\n\n"
+            "## Escopo MVP\n**Inclui:** RF-01\n\n"
+            "## Riscos Consolidados\n| ID | R | F | P | I | M |\n|---|---|---|---|---|---|\n| R-01 | X | PRD | M | A | Z |\n\n"
+            "## Métricas de Sucesso\n| M | T | P | CM |\n|---|---|---|---|\n| Users | 100 | 30d | GA |\n\n"
+            "## Plano de Implementação\n| F | D | E | CC |\n|---|---|---|---|\n| F1 | 2s | Core | Tests |\n\n"
+            "## Decisões do Debate\n- ISR + SWR\n\n"
+            "## Constraints Técnicos\n- Python\n\n"
+            "## Matriz de Rastreabilidade\n| RF | M | T | S |\n|---|---|---|---|\n| RF-01 | Auth | Unit | P |\n\n"
+            "## Limitações Conhecidas\n| ID | L | I | Q |\n|---|---|---|---|\n| LIM-01 | Mobile | UX | v2 |\n\n"
+            # Faltam: Guia de Replicação Resumido, Cláusula de Integridade (2 ausentes = 90%)
+            "Texto para 1000+ chars. " * 10
+        )
+        res = self.validator.validate(content, "prd_final")
+        # 18/20 = 0.90, threshold é 0.90 → deve aprovar
+        self.assertTrue(res["valid"], f"Falha: {res.get('fail_reasons')}")
+        self.assertGreaterEqual(res["completeness_score"], 0.90)
+```
+
+### 7.2 Novo arquivo: `tests/test_phase_9_1.py`
+
+```python
+"""
+test_phase_9_1.py — Testes da Fase 9.1: PRD Final via Geração Seccional.
+"""
+import unittest
+from unittest.mock import MagicMock
+from src.core.sectional_generator import SectionalGenerator, NEXUS_FINAL_PASSES
+from src.core.output_validator import OutputValidator
+from src.agents.consistency_checker_agent import ConsistencyCheckerAgent
+
+
+class TestNexusFinalPasses(unittest.TestCase):
+    """Testes para a estrutura dos NEXUS_FINAL_PASSES."""
+    
+    def test_5_passes_defined(self):
+        self.assertEqual(len(NEXUS_FINAL_PASSES), 5)
+    
+    def test_all_20_sections_covered(self):
+        """Verifica que os 5 passes cobrem todas as 20 seções obrigatórias."""
+        validator = OutputValidator()
+        required = set(validator.REQUIRED_SECTIONS["prd_final"])
+        
+        covered = set()
+        for p in NEXUS_FINAL_PASSES:
+            for section in p.sections:
+                covered.add(section)
+        
+        missing = required - covered
+        self.assertEqual(len(missing), 0,
+                         f"Seções obrigatórias não cobertas pelos passes: {missing}")
+    
+    def test_no_duplicate_sections(self):
+        """Nenhuma seção aparece em mais de um pass."""
+        all_sections = []
+        for p in NEXUS_FINAL_PASSES:
+            all_sections.extend(p.sections)
+        
+        self.assertEqual(len(all_sections), len(set(all_sections)),
+                         "Seções duplicadas entre passes")
+    
+    def test_pass_ids_unique(self):
+        ids = [p.pass_id for p in NEXUS_FINAL_PASSES]
+        self.assertEqual(len(ids), len(set(ids)))
+    
+    def test_all_passes_start_with_final(self):
+        """Necessário para _get_role() retornar 'product_manager'."""
+        for p in NEXUS_FINAL_PASSES:
+            self.assertTrue(p.pass_id.startswith("final"),
+                            f"Pass {p.pass_id} não começa com 'final'")
+    
+    def test_min_chars_reasonable(self):
+        for p in NEXUS_FINAL_PASSES:
+            self.assertGreaterEqual(p.min_chars, 200,
+                                    f"Pass {p.pass_id} min_chars muito baixo: {p.min_chars}")
+    
+    def test_max_output_tokens_reasonable(self):
+        for p in NEXUS_FINAL_PASSES:
+            self.assertGreaterEqual(p.max_output_tokens, 1000,
+                                    f"Pass {p.pass_id} max_output_tokens muito baixo")
+            self.assertLessEqual(p.max_output_tokens, 2000,
+                                 f"Pass {p.pass_id} max_output_tokens muito alto")
+
+
+class TestSectionalGeneratorRecognizesPrdFinal(unittest.TestCase):
+    """Verifica que o SectionalGenerator reconhece artifact_type='prd_final'."""
+    
+    def test_get_default_passes_returns_final_passes(self):
+        mock_provider = MagicMock()
+        gen = SectionalGenerator(mock_provider)
+        passes = gen._get_default_passes("prd_final")
+        
+        self.assertEqual(len(passes), 5)
+        self.assertEqual(passes[0].pass_id, "final_p1")
+        self.assertEqual(passes[4].pass_id, "final_p5")
+    
+    def test_get_role_returns_product_manager_for_final(self):
+        mock_provider = MagicMock()
+        gen = SectionalGenerator(mock_provider)
+        
+        self.assertEqual(gen._get_role("final_p1"), "product_manager")
+        self.assertEqual(gen._get_role("final_p5"), "product_manager")
+
+
+class TestOutputValidatorThreshold90(unittest.TestCase):
+    """Verifica que MIN_COMPLETENESS para prd_final é 0.90."""
+    
+    def test_threshold_value(self):
+        validator = OutputValidator()
+        self.assertEqual(validator.MIN_COMPLETENESS["prd_final"], 0.90)
+
+
+class TestConsistencyCheckerSectionCheck(unittest.TestCase):
+    """Verifica que o ConsistencyChecker detecta seções faltantes."""
+    
+    def setUp(self):
+        self.checker = ConsistencyCheckerAgent()
+    
+    def test_detects_missing_sections(self):
+        """PRD com apenas 10 seções deve ter CRITICAL: MISSING_SECTIONS."""
+        prd = (
+            "## Visão do Produto\n- Codinome: Test\n\n"
+            "## Problema e Solução\n| ID | P |\n|---|---|\n| P1 | X |\n\n"
+            "## Público-Alvo\n| S | P | Pr |\n|---|---|---|\n| D | L | P0 |\n\n"
+            "## Princípios Arquiteturais\n| P | D | I |\n|---|---|---|\n| X | Y | Z |\n\n"
+            "## Diferenciais\n| A | P | S |\n|---|---|---|\n| X | Y | Z |\n\n"
+            "## Requisitos Funcionais\n| ID | R |\n|---|---|\n| RF-01 | X |\n\n"
+            "## Requisitos Não-Funcionais\n| ID | C |\n|---|---|\n| RNF-01 | X |\n\n"
+            "## Arquitetura e Tech Stack\n| C | T |\n|---|---|\n| BE | FA |\n\n"
+            "## ADRs\n| ID | D |\n|---|---|\n| ADR-01 | X |\n\n"
+            "## Análise de Segurança\n| ID | A |\n|---|---|\n| S-01 | X |\n\n"
+            "Texto para preencher caracteres mínimos. " * 15
+        )
+        report = self.checker.check_consistency(prd)
+        self.assertIn("MISSING_SECTIONS", report)
+        self.assertIn("CRITICAL", report)
+        self.assertIn("is_clean:** False", report)
+    
+    def test_complete_prd_no_missing_sections(self):
+        """PRD com todas as 20 seções não deve acusar MISSING_SECTIONS."""
+        prd = (
+            "## Visão do Produto\n- Test\n\n"
+            "## Problema e Solução\n| ID | P |\n|---|---|\n| P1 | X |\n\n"
+            "## Público-Alvo\n| S | P | Pr |\n|---|---|---|\n| D | L | P0 |\n\n"
+            "## Princípios Arquiteturais\n| P | D | I |\n|---|---|---|\n| X | Y | Z |\n\n"
+            "## Diferenciais\n| A | P | S |\n|---|---|---|\n| X | Y | Z |\n\n"
+            "## Requisitos Funcionais\n| ID | R |\n|---|---|\n| RF-01 | X |\n\n"
+            "## Requisitos Não-Funcionais\n| ID | C |\n|---|---|\n| RNF-01 | X |\n\n"
+            "## Arquitetura e Tech Stack\n| C | T |\n|---|---|\n| BE | FA |\n\n"
+            "## ADRs\n| ID | D |\n|---|---|\n| ADR-01 | X |\n\n"
+            "## Análise de Segurança\n| ID | A |\n|---|---|\n| S-01 | X |\n\n"
+            "## Escopo MVP\n**Inclui:** RF-01\n\n"
+            "## Riscos Consolidados\n| ID | R |\n|---|---|\n| R-01 | X |\n\n"
+            "## Métricas de Sucesso\n| M | T |\n|---|---|\n| U | 100 |\n\n"
+            "## Plano de Implementação\n| F | D |\n|---|---|\n| F1 | 2s |\n\n"
+            "## Decisões do Debate\n- D1\n\n"
+            "## Constraints Técnicos\n- Python\n\n"
+            "## Matriz de Rastreabilidade\n| RF | M | T | S |\n|---|---|---|---|\n| RF-01 | X | U | P |\n\n"
+            "## Limitações Conhecidas\n| ID | L |\n|---|---|\n| LIM-01 | X |\n\n"
+            "## Guia de Replicação Resumido\n1. Python\n2. pip\n3. run\n4. check\n\n"
+            "## Cláusula de Integridade\n| Item | Status |\n|---|---|\n| RFs | ✅ |\n\n"
+            "Texto para preencher. " * 10
+        )
+        report = self.checker.check_consistency(prd)
+        self.assertNotIn("MISSING_SECTIONS", report)
+
+
+if __name__ == "__main__":
+    unittest.main()
+```
+
+---
+
+## 8. Critério de Conclusão
+
+A Fase 9.1 está concluída quando **todas** as seguintes condições são verdadeiras:
+
+1. `pytest tests/ -v` → todos os 100+ testes passam
+2. `pytest tests/test_phase_9_1.py -v` → 10 testes passam
+3. `SectionalGenerator._get_default_passes("prd_final")` retorna 5 passes
+4. `OutputValidator.MIN_COMPLETENESS["prd_final"]` == `0.90`
+5. Uma execução real (`python src/cli/main.py --no-gate`) produz `prd_final` com `completeness_score >= 0.90`
+6. `ConsistencyChecker.check_consistency()` retorna `is_clean: True` para o PRD Final gerado
+7. O arquivo `PRD_FINAL_{timestamp}.md` não contém comentário HTML `<!-- AVISO: Artefato com completude abaixo do threshold -->`
+
+---
+
+## 9. Comandos de Verificação
+
+```bash
+# Rodar testes específicos da Fase 9.1
+pytest tests/test_phase_9_1.py -v --tb=short
+
+# Rodar validador atualizado
+pytest tests/test_output_validator_v2.py -v --tb=short
+
+# Suite completa
+pytest tests/ -v --tb=short
+
+# Execução real
+python src/cli/main.py --no-gate
+```
+
+---
+
+## 10. DECISION_LOG
+
+```
+### Fase 9.1 — PRD Final Completo via Geração Seccional
+F9.1 | ADD | `NEXUS_FINAL_PASSES` | 5 passes seccionais para gerar PRD Final completo sem truncamento | `sectional_generator.py`
+F9.1 | MOD | `consolidate_prd()` | Refatorado de chamada única para SectionalGenerator com fallback | `product_manager_agent.py`
+F9.1 | MOD | `MIN_COMPLETENESS["prd_final"]` | De 0.70 para 0.90 (máx 2 seções ausentes) | `output_validator.py`
+F9.1 | MOD | `ConsistencyCheckerAgent` | Adicionado check 6: completude de seções via OutputValidator | `consistency_checker_agent.py`
+F9.1 | MOD | `_get_role()` | Adicionado case "final" → "product_manager" | `sectional_generator.py`
+F9.1 | RULE | Sectional Fallback | Se >50% dos passes falharem, usa single-pass (comportamento Fase 7.1) | `product_manager_agent.py`
+```
+
+---
+
+*Blueprint Técnico — Fase 9.1 | IdeaForge CLI | Versão 1.0*

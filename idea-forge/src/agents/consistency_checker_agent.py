@@ -54,6 +54,12 @@ class ConsistencyCheckerAgent:
             issues.append(rnfs["summary"])
             sections.append(rnfs["report"])
 
+        # 6. Section Completeness (via OutputValidator)
+        completeness = self._check_section_completeness(prd_final)
+        if completeness:
+            issues.append(completeness["summary"])
+            sections.append(completeness["report"])
+
         # Assembly
         is_clean = len(issues) == 0
         has_critical = any("CRITICAL" in i for i in issues)
@@ -72,7 +78,7 @@ class ConsistencyCheckerAgent:
         
         report += f"\n- **is_clean:** {is_clean}\n"
         report += f"- **has_critical:** {has_critical}\n"
-        report += f"- **checks_executados:** 5\n"
+        report += f"- **checks_executados:** 6\n"
         
         return report
 
@@ -169,6 +175,30 @@ class ConsistencyCheckerAgent:
             report += f"- {v}\n"
         
         return {"summary": "WARNING: VAGUE_RNFS", "report": report}
+
+    def _check_section_completeness(self, text: str) -> Dict | None:
+        """FASE 9.1: Verifica se todas as seções obrigatórias do prd_final estão presentes."""
+        from src.core.output_validator import OutputValidator
+        validator = OutputValidator()
+        validation = validator.validate(text, "prd_final")
+        
+        missing = validation.get("missing_sections", [])
+        completeness = validation.get("completeness_score", 0)
+        
+        if not missing:
+            return None
+        
+        report = "### ❌ Seções Obrigatórias Ausentes (CRITICAL)\n\n"
+        report += f"Completude: {int(completeness * 100)}% ({20 - len(missing)}/20 seções presentes)\n\n"
+        report += "Seções faltantes:\n"
+        for section in missing:
+            report += f"- {section}\n"
+        report += f"\n**Ação:** Re-executar pipeline ou verificar modelo LLM.\n\n"
+        
+        return {
+            "summary": f"CRITICAL: MISSING_SECTIONS — {len(missing)} seções ausentes",
+            "report": report
+        }
 
     def _find_location(self, text: str, token: str) -> str:
         last_header = "Início"

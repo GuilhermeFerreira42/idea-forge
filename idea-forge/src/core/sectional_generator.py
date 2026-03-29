@@ -182,6 +182,7 @@ class SectionalGenerator:
     def _get_role(self, pass_id: str) -> str:
         """Determina o folder do modelo baseado no ID do pass."""
         if pass_id.startswith("prd"): return "product_manager"
+        if pass_id.startswith("final"): return "product_manager"  # FASE 9.1
         if pass_id.startswith("design"): return "architect"
         if pass_id.startswith("review"): return "critic"
         if pass_id.startswith("security"): return "security_reviewer"
@@ -349,6 +350,8 @@ class SectionalGenerator:
             return REVIEW_PASSES
         elif artifact_type == "security_review":
             return SECURITY_PASSES
+        elif artifact_type == "prd_final":          # FASE 9.1
+            return NEXUS_FINAL_PASSES
         return []
 
 
@@ -676,5 +679,179 @@ PLAN_PASSES = [
         example="",
         instruction="Gere Dependências, Riscos consolidados e Plano de Testes.",
         min_chars=200,
+    ),
+]
+
+# ─── NEXUS FINAL: 5 passes para PRD Final consolidado (Fase 9.1) ─────────
+NEXUS_FINAL_PASSES = [
+    SectionPass(
+        pass_id="final_p1",
+        sections=["## Visão do Produto", "## Problema e Solução", "## Público-Alvo",
+                  "## Princípios Arquiteturais", "## Diferenciais"],
+        template=(
+            "## Visão do Produto\n"
+            "- **Codinome:** [nome do projeto]\n"
+            "- **Declaração de visão:** [1 frase, máx 30 palavras]\n\n"
+            "## Problema e Solução\n"
+            "| ID | Problema | Impacto | Como o Sistema Resolve |\n"
+            "|---|---|---|---|\n"
+            "| P-01 | ... | ... | ... |\n\n"
+            "## Público-Alvo\n"
+            "| Segmento | Perfil | Prioridade |\n"
+            "|---|---|---|\n\n"
+            "## Princípios Arquiteturais\n"
+            "| Princípio | Descrição | Implicação Técnica |\n"
+            "|---|---|---|\n\n"
+            "## Diferenciais\n"
+            "| Abordagem Atual | Problema | Como Este Sistema Supera |\n"
+            "|---|---|---|\n"
+        ),
+        example=(
+            "- **Codinome:** PriceHunter Nexus\n"
+            "- **Declaração de visão:** Agregar ofertas de marketplaces com ISR.\n\n"
+            "| P-01 | APIs heterogêneas | Dados inconsistentes | Pipeline ETL unificado |\n"
+        ),
+        instruction=(
+            "Sintetize visão, problemas, público, princípios e diferenciais dos artefatos. "
+            "NÃO copie artefatos — sintetize e consolide com dados reais do contexto. "
+            "Mínimo 4 problemas, 3 personas, 3 princípios, 3 diferenciais."
+        ),
+        min_chars=400,
+        max_output_tokens=1500,
+    ),
+    SectionPass(
+        pass_id="final_p2",
+        sections=["## Requisitos Funcionais", "## Requisitos Não-Funcionais"],
+        template=(
+            "## Requisitos Funcionais (Consolidados)\n"
+            "| ID | Requisito | Critério de Aceite | Prioridade | Complexidade | Status Pós-Review |\n"
+            "|---|---|---|---|---|---|\n"
+            "| RF-01 | ... | [teste automatizável] | Must | Low | ✅ Aprovado |\n\n"
+            "## Requisitos Não-Funcionais\n"
+            "| ID | Categoria | Requisito | Métrica | Target |\n"
+            "|---|---|---|---|---|\n"
+            "| RNF-01 | Performance | ... | p95 | <200ms |\n"
+        ),
+        example=(
+            "| RF-01 | Busca Full-Text | GET /api/search retorna 200 | Must | Med | ✅ |\n"
+            "| RNF-01 | Performance | LCP | p95 | <2.5s |\n"
+        ),
+        instruction=(
+            "Consolide requisitos do PRD original com status do Review. "
+            "NÃO copie artefatos — sintetize e consolide. "
+            "Mínimo 6 RFs e 4 RNFs. IDs sequenciais. Inclua coluna Status Pós-Review."
+        ),
+        min_chars=500,
+        max_output_tokens=1500,
+    ),
+    SectionPass(
+        pass_id="final_p3",
+        sections=["## Arquitetura e Tech Stack", "## ADRs", "## Análise de Segurança", "## Escopo MVP"],
+        template=(
+            "## Arquitetura e Tech Stack (do System Design)\n"
+            "- **Estilo:** [tipo]\n"
+            "- **Stack resumida em tabela**\n"
+            "| Camada | Tecnologia | Justificativa |\n"
+            "|---|---|---|\n\n"
+            "## ADRs (do System Design)\n"
+            "| ID | Decisão | Alternativa Rejeitada | Consequências |\n"
+            "|---|---|---|---|\n\n"
+            "## Análise de Segurança (do Security Review)\n"
+            "| ID | Ameaça STRIDE | Componente | Severidade | Mitigação |\n"
+            "|---|---|---|---|---|\n\n"
+            "## Escopo MVP\n"
+            "**Inclui:** [lista com RF-XX — APENAS IDs existentes na tabela de RFs]\n"
+            "**NÃO inclui:** [lista com justificativa]\n"
+        ),
+        example=(
+            "| Backend | FastAPI | Async nativo |\n"
+            "| ADR-01 | SQLite | PostgreSQL | Simplicidade |\n"
+            "| SEC-01 | Spoofing | API Auth | Alta | Rate limiting |\n"
+        ),
+        instruction=(
+            "Sintetize arquitetura, ADRs, segurança e escopo dos artefatos. "
+            "NÃO copie artefatos — sintetize e consolide. "
+            "Mínimo 3 camadas, 3 ADRs, 3 ameaças. "
+            "Escopo: referencie APENAS RF-IDs existentes na tabela de RFs."
+        ),
+        min_chars=400,
+        max_output_tokens=1500,
+    ),
+    SectionPass(
+        pass_id="final_p4",
+        sections=["## Riscos Consolidados", "## Métricas de Sucesso",
+                  "## Plano de Implementação", "## Decisões do Debate", "## Constraints Técnicos"],
+        template=(
+            "## Riscos Consolidados (PRD + Design + Security)\n"
+            "| ID | Risco | Fonte | Probabilidade | Impacto | Mitigação |\n"
+            "|---|---|---|---|---|---|\n\n"
+            "## Métricas de Sucesso\n"
+            "| Métrica | Target | Prazo | Como Medir |\n"
+            "|---|---|---|---|\n\n"
+            "## Plano de Implementação (resumo do Development Plan)\n"
+            "| Fase | Duração | Entregas | Critério de Conclusão |\n"
+            "|---|---|---|---|\n\n"
+            "## Decisões do Debate (pontos de consenso)\n"
+            "- [Decisão 1 com justificativa]\n"
+            "- [Decisão 2 com justificativa]\n\n"
+            "## Constraints Técnicos\n"
+            "- Linguagem: [...]\n"
+            "- Framework: [...]\n"
+            "- Banco de dados: [...]\n"
+            "- Infraestrutura: [...]\n"
+        ),
+        example=(
+            "| R-01 | Bloqueio de IP | Externo | Alta | Crítico | Proxies rotativos |\n"
+            "| LCP | <2.5s | Contínuo | PageSpeed |\n"
+            "| Fase 1 | 4 semanas | Core + Auth | Tests 80%+ |\n"
+        ),
+        instruction=(
+            "Consolide riscos, métricas, plano e decisões do debate. "
+            "NÃO copie artefatos — sintetize e consolide. "
+            "Mínimo 4 riscos, 4 métricas, 3 fases. "
+            "Decisões: extraia dos pontos de consenso do transcript."
+        ),
+        min_chars=400,
+        max_output_tokens=1500,
+    ),
+    SectionPass(
+        pass_id="final_p5",
+        sections=["## Matriz de Rastreabilidade", "## Limitações Conhecidas",
+                  "## Guia de Replicação Resumido", "## Cláusula de Integridade"],
+        template=(
+            "## Matriz de Rastreabilidade\n"
+            "| RF-ID | Componente/Módulo | Teste Associado | Status |\n"
+            "|---|---|---|---|\n"
+            "| RF-01 | [módulo] | [unit/integration/e2e] | Planejado |\n\n"
+            "## Limitações Conhecidas\n"
+            "| ID | Limitação | Impacto | Quando Será Resolvida |\n"
+            "|---|---|---|---|\n"
+            "| LIM-01 | [limitação] | [impacto] | v2 / Nunca |\n\n"
+            "## Guia de Replicação Resumido\n"
+            "1. **Pré-requisitos:** [linguagem, versões, ferramentas]\n"
+            "2. **Instalação:** [comandos exatos]\n"
+            "3. **Execução:** [comando para rodar]\n"
+            "4. **Verificação:** [como confirmar funcionamento]\n\n"
+            "## Cláusula de Integridade\n"
+            "| Item | Status |\n"
+            "|---|---|\n"
+            "| Todos os RF-IDs do Escopo existem na tabela de RFs | ✅/❌ |\n"
+            "| Todos os riscos HIGH possuem mitigação definida | ✅/❌ |\n"
+            "| Tech Stack é consistente entre seções | ✅/❌ |\n"
+            "| Métricas de sucesso possuem target quantitativo | ✅/❌ |\n"
+            "| Nenhuma seção contém placeholder 'A DEFINIR' | ✅/❌ |\n"
+            "| Security Review endereça todas as ameaças HIGH | ✅/❌ |\n"
+        ),
+        example=(
+            "| RF-01 | SearchModule | Unit (Jest) | Planejado |\n"
+            "| LIM-01 | Sem app mobile | UX limitada | v2 |\n"
+        ),
+        instruction=(
+            "Gere rastreabilidade (cada RF da tabela anterior DEVE aparecer), limitações, guia e cláusula. "
+            "NÃO copie artefatos — sintetize e consolide. "
+            "Na Cláusula, marque APENAS ✅ ou ❌ baseado no conteúdo real gerado."
+        ),
+        min_chars=300,
+        max_output_tokens=1500,
     ),
 ]

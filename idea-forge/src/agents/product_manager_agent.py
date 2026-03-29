@@ -84,11 +84,42 @@ class ProductManagerAgent:
 
     def consolidate_prd(self, artifacts_context: str, original_idea: str = "") -> str:
         """
-        FASE 7.1: Consolida todos os artefatos do pipeline em um PRD final
+        FASE 9.1: Consolida todos os artefatos do pipeline em um PRD final
         no padrão NEXUS Protocol v1.0.
         
-        Chamada ÚNICA ao LLM (sem SectionalGenerator) para máxima coerência.
+        Refatorado de chamada única para geração seccional (5 passes)
+        via SectionalGenerator, eliminando truncamento por limite de tokens.
+        
+        Fallback: chamada única se >50% dos passes falharem.
         """
+        generator = SectionalGenerator(
+            provider=self.provider,
+            direct_mode=self.direct_mode
+        )
+        
+        # Montar input combinado: ideia original + contexto dos artefatos
+        combined_input = ""
+        if original_idea:
+            combined_input += f"IDEIA ORIGINAL DO USUÁRIO:\n{original_idea[:500]}\n\n"
+        combined_input += (
+            f"ARTEFATOS DO PIPELINE (sintetize, NÃO copie):\n"
+            f"{artifacts_context}"
+        )
+        
+        result = generator.generate_sectional(
+            artifact_type="prd_final",
+            user_input=combined_input,
+            context=""
+        )
+        
+        if result and len(result) > 500:
+            return result
+        
+        # Fallback: chamada única (comportamento anterior da Fase 7.1)
+        return self._consolidate_single_pass(artifacts_context, original_idea)
+
+    def _consolidate_single_pass(self, artifacts_context: str, original_idea: str) -> str:
+        """Fallback de consolidação em chamada única (Fase 7.1 original)."""
         from src.core.prompt_templates import NEXUS_CONSOLIDATION_TEMPLATE
         
         prompt = (
@@ -112,7 +143,6 @@ class ProductManagerAgent:
             role="product_manager"
         )
         
-        # Fallback se resultado for muito curto
         if not result or len(result.strip()) < 200:
             return (
                 "## PRD FINAL — CONSOLIDAÇÃO FALHOU\n\n"
