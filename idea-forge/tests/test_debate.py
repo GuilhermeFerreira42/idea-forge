@@ -18,6 +18,6 @@ def test_debate_engine_execution():
     assert "Defense" in result
     assert "Score de Qualidade" in result
     
-    # Engine records (2 rounds * 2 agents) + 1 final decisions summary
-    assert len(engine.debate_transcript) == 5
+    # Engine records (2 rounds * 2 agents) + 1 final decisions summary + 1 state summary
+    assert len(engine.debate_transcript) == 6
     assert "## Decisões Aplicáveis (Síntese)" in result

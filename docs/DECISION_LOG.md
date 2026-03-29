@@ -70,3 +70,9 @@ F9 | MOD | `OutputValidator` | Thresholds aumentados (1000 chars) e novas seçõ
 F9 | MOD | `DebateEngine` | Extração automática de decisões estruturadas para o relatório | `debate_engine.py`
 F9 | ADD | `TASK_07b` | Nova task de auditoria na DAG para garantir integridade final | `planner.py`
 F9 | RULE | Programmatic Guardrails | Priorizar verificações determinísticas sobre novas chamadas LLM | `consistency_checker_agent.py`
+
+### Fase 10 — Orquestração Inteligente do Debate
+F10 | ADD | `DebateStateTracker` | Rastreamento programático de issues (OPEN/ACCEPTED/DEFERRED) entre rodadas | `debate_state_tracker.py`
+F10 | MOD | `DebateEngine` | Integração do tracker para injeção de contexto estruturado nos agentes | `debate_engine.py`
+F10 | MOD | Agentes (Critic/Proponent) | Expansão de limites de truncamento e novas regras de não-repetição (9-10) | `critic_agent.py`, `proponent_agent.py`
+F10 | RULE | State-Driven Debate | Priorizar o tratamento de issues pendentes sobre novas críticas em rodadas avançadas | `debate_engine.py`

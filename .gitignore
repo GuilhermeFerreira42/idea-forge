@@ -20,6 +20,7 @@ Thumbs.db
 
 # Outputs e Relatórios gerados pelo CLI
 debate_RELATORIO_*.md
+PRD_FINAL_*.md
 .forge/
 .tmp_artifacts/
 .tmp_planner/

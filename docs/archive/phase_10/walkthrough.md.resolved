@@ -1,0 +1,41 @@
+# Walkthrough: Fase 10.0 — Orquestração Inteligente do Debate
+
+Nesta fase, implementamos o **DebateStateTracker**, um componente programático projetado para rastrear o ciclo de vida dos issues levantados durante o debate. Isso elimina redundâncias, economiza tokens e melhora significativamente a qualidade da convergência técnica entre os agentes.
+
+## Mudanças Principais
+
+### 1. Novo Módulo: `DebateStateTracker`
+Implementado em `src/debate/debate_state_tracker.py`. Este módulo parseia as respostas dos agentes usando regex para identificar Issues (tabelas e bullets) e resoluções (seção "Pontos Aceitos").
+- **Ciclo de vida**: OPEN → ACCEPTED | DEFERRED | RESOLVED.
+- **Deduplicação Inteligente**: Utiliza normalização de texto para evitar que o mesmo problema seja registrado duas vezes com palavras ligeiramente diferentes.
+
+### 2. Integração no `DebateEngine`
+O motor de debate agora utiliza o tracker em cada iteração:
+- **Injeção de Contexto (Critic)**: O Critic recebe a lista de issues já registrados e é instruído pelas novas **Regras 9 e 10** a não os repetir.
+- **Injeção de Contexto (Proponent)**: O Proponent recebe a lista de issues pendentes (especialmente os HIGH) que ele DEVE endereçar em sua defesa técnica.
+- **Sumário Final**: O transcript agora termina com uma seção `## Estado Final do Debate`, fornecendo ao Consolidador uma visão clara do que foi resolvido e do que ainda é um risco aberto.
+
+### 3. Expansão de Contexto
+Aumentamos os limites de truncamento no `ProponentAgent` (de 1000 para 2000 caracteres no artefato e de 500 para 800 na crítica) para permitir respostas mais profundas e técnicas.
+
+## Verificação e Testes
+
+### Testes Unitários de Tracker
+Criamos uma suíte de testes robusta em `tests/test_debate_tracker.py` com **37 testes** cobrindo:
+- Parsing de tabelas (6 e 4 colunas)
+- Parsing de fallback (bullets)
+- Resolução baseada em ID e descrição (match fuzzy)
+- Rastreamento multi-rodada e estatísticas.
+
+### Resultados da Suíte Completa
+Todos os **165 testes** do projeto estão passando, garantindo que a introdução do tracker não quebrou o fluxo de debate, síntese ou consistência.
+
+```powershell
+pytest tests/ -v
+=========================== 165 passed in 0.69s ==============================
+```
+
+## Próximos Passos
+- Proceder com a **Fase 10.1** ou arquivamento conforme o protocolo.
+- Validar em execução real com `--no-gate` para observar a dinâmica de "debate guiado por estado".
+

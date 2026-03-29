@@ -57,8 +57,8 @@ class ProponentAgent:
         """
         defense_prompt = (
             f"System: {self.system_prompt}\n\n"
-            f"ARTEFATO:\n{artifact_content[:1000]}\n\n"
-            f"CRÍTICA RECEBIDA:\n{critique[:500]}\n\n"
+            f"ARTEFATO:\n{artifact_content[:2000]}\n\n"   # FASE 10.0: era [:1000]
+            f"CRÍTICA RECEBIDA:\n{critique[:800]}\n\n"    # FASE 10.0: era [:500]
         )
 
         if context:

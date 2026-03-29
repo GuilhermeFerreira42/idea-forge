@@ -1,5 +1,5 @@
 # CURRENT_STATE — IdeaForge CLI
-> Última atualização: Fase 9.0 (Integridade do Conteúdo) | 2026-03-28
+> Última atualização: Fase 10.0 (Orquestração Inteligente do Debate) | 2026-03-28
 
 ## Arquitetura NEXUS v1.2 (Integridade)
 - **Padrão**: Blackboard com Grafo de Artefatos (DAG) de 9 tarefas (incluindo TASK_07b).
@@ -16,6 +16,7 @@
 | Planner | `planner.py` | `load_default_dag()`, `execute_pipeline(user_idea)` | F9 |
 | Controller | `controller.py` | `run_pipeline(idea)`, `get_artifact_content(name)` | F9 |
 | ConsistencyChecker| `consistency_checker_agent.py`| `check_consistency(prd_final)` (sem LLM) | F9 |
+| DebateStateTracker| `debate_state_tracker.py` | `extract_issues`, `extract_resolutions` (sem LLM) | F10 |
 | PipelineLogger | `pipeline_logger.py`| `log(task, type)`, `save_artifact(name, content)` | F8 |
 | OutputValidator| `output_validator.py`| `validate(content, type)` (NEXUS v1.2: 20 seções, 1000 chars) | F9 |
 | ModelProvider | `ollama_provider.py` | `generate(prompt, think)`, `num_predict` (2500/5000) | F7 |
@@ -38,6 +39,7 @@
 4. **Log Immersion**: Toda execução gera uma run-id única com artifacts e pipeline.jsonl.
 
 ## Testes de Certificação
-- **Certificação**: 55+ testes unitários e de integração ativos.
-- **Consistência**: `tests/test_phase_9_consistency.py` (valida auditoria programática).
+- **Certificação**: 165+ testes unitários e de integração ativos (incluindo 37 de debate state).
+- **Tracker**: `tests/test_debate_tracker.py` (valida ciclo de vida de issues).
+- **Consistência**: `tests/test_phase_9_consistency.py` (valida auditoria pós-consolidação).
 - **Validação**: `test_output_validator_v2.py` (cobre schema NEXUS v1.2).
