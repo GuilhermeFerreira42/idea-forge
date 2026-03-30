@@ -24,7 +24,8 @@ class SectionPass:
                  template: str, example: str,
                  instruction: str, max_output_tokens: int = 800,
                  require_table: bool = True,
-                 min_chars: int = 80):
+                 min_chars: int = 80,
+                 input_budget: int = 600):
         self.pass_id = pass_id
         self.sections = sections
         self.template = template
@@ -33,6 +34,7 @@ class SectionPass:
         self.max_output_tokens = max_output_tokens
         self.require_table = require_table
         self.min_chars = min_chars
+        self.input_budget = input_budget
 
 
 class SectionalGenerator:
@@ -151,7 +153,12 @@ class SectionalGenerator:
                 )
 
             # Gerar
-            result = self.provider.generate(prompt=prompt, role=self._get_role(section_pass.pass_id))
+            # FASE 9.1.1: Passar max_tokens ao provider
+            result = self.provider.generate(
+                prompt=prompt,
+                role=self._get_role(section_pass.pass_id),
+                max_tokens=section_pass.max_output_tokens
+            )
             result = self._clean_pass_output(result)
 
             # Validar
@@ -250,9 +257,11 @@ class SectionalGenerator:
         prompt += f"GERE EXATAMENTE ESTAS SEÇÕES:\n{section_pass.template}\n\n"
 
         if section_pass.example:
-            prompt += f"REFERÊNCIA DE FORMATO:\n{section_pass.example}\n\n"
+            prompt += f"REFERÊNCIA DE FORMATO E PROFUNDIDADE:\n{section_pass.example}\n\n"
 
-        prompt += f"PROJETO:\n{user_input[:600]}\n\n"
+        # FASE 9.1.1: Usar input_budget do pass em vez de 600 fixo
+        budget = getattr(section_pass, 'input_budget', 600)
+        prompt += f"PROJETO:\n{user_input[:budget]}\n\n"
 
         if previous_output:
             summary = self._summarize_previous(previous_output, max_tokens=300)
@@ -682,7 +691,7 @@ PLAN_PASSES = [
     ),
 ]
 
-# ─── NEXUS FINAL: 5 passes para PRD Final consolidado (Fase 9.1) ─────────
+# ─── NEXUS FINAL: 5 passes para PRD Final consolidado (Fase 9.1.1) ─────────
 NEXUS_FINAL_PASSES = [
     SectionPass(
         pass_id="final_p1",
@@ -690,34 +699,68 @@ NEXUS_FINAL_PASSES = [
                   "## Princípios Arquiteturais", "## Diferenciais"],
         template=(
             "## Visão do Produto\n"
-            "- **Codinome:** [nome do projeto]\n"
-            "- **Declaração de visão:** [1 frase, máx 30 palavras]\n\n"
+            "- **Codinome:** [nome memorável do projeto]\n"
+            "- **Declaração de visão:** [1 frase, máx 30 palavras, verbo infinitivo]\n\n"
             "## Problema e Solução\n"
             "| ID | Problema | Impacto | Como o Sistema Resolve |\n"
             "|---|---|---|---|\n"
-            "| P-01 | ... | ... | ... |\n\n"
+            "| P-01 | [problema específico] | [impacto mensurável] | [solução técnica concreta] |\n"
+            "(mínimo 4 problemas)\n\n"
             "## Público-Alvo\n"
-            "| Segmento | Perfil | Prioridade |\n"
-            "|---|---|---|\n\n"
-            "## Princípios Arquiteturais\n"
-            "| Princípio | Descrição | Implicação Técnica |\n"
-            "|---|---|---|\n\n"
-            "## Diferenciais\n"
-            "| Abordagem Atual | Problema | Como Este Sistema Supera |\n"
+            "| Segmento | Perfil (nome fictício + dor específica com contexto) | Prioridade |\n"
             "|---|---|---|\n"
+            "| [segmento] | [Nome], [idade] — [narrativa de 1-2 frases sobre o problema real] | P0 |\n"
+            "(mínimo 3 personas com narrativa)\n\n"
+            "## Princípios Arquiteturais\n"
+            "| Princípio | Descrição Concreta | Implicação Técnica | Regra Verificável |\n"
+            "|---|---|---|---|\n"
+            "| [princípio] | [descrição detalhada] | [impl. técnica] | REGRA: [teste automatizado que valida] |\n"
+            "(mínimo 3 princípios com regra verificável)\n\n"
+            "## Diferenciais\n"
+            "| Abordagem Atual/Concorrente | Problema | Como Este Sistema Supera |\n"
+            "|---|---|---|\n"
+            "(mínimo 3 diferenciais)\n"
         ),
         example=(
-            "- **Codinome:** PriceHunter Nexus\n"
-            "- **Declaração de visão:** Agregar ofertas de marketplaces com ISR.\n\n"
-            "| P-01 | APIs heterogêneas | Dados inconsistentes | Pipeline ETL unificado |\n"
+            "- **Codinome:** OmniPrice Next\n"
+            "- **Declaração de visão:** Unificar ofertas de marketplaces utilizando ISR para "
+            "garantir SEO máximo e performance instantânea.\n\n"
+            "| P-01 | APIs heterogêneas por marketplace (formatos, auth, paginação distintos) | "
+            "Dados inconsistentes, falhas na exibição, custo alto de manutenção por integração | "
+            "Pipeline ETL unificado com schema normalizado (NormalizedProduct) que abstrai "
+            "diferenças entre Shopee, Magalu, Amazon e ML |\n"
+            "| P-02 | Latência na atualização de preços entre coleta e exibição | "
+            "Usuário encontra preço divergente no checkout, gerando frustração | "
+            "Revalidação sob demanda (On-demand Revalidation) via ISR com revalidate: 60 |\n\n"
+            "| Caçador de Oferta | Marina, 28 anos — Abre 6 abas para comparar preço de um fone "
+            "Bluetooth entre Shopee, Amazon e ML. Gasta 40min por compra e ainda assim não tem "
+            "certeza se encontrou o menor preço. | P0 |\n"
+            "| Afiliado Digital | Carlos, 34 anos — Cria conteúdo de review no Instagram e precisa "
+            "de links rastreáveis com páginas de carregamento rápido. Sua taxa de bounce atual "
+            "em sites lentos é 65%. | P0 |\n\n"
+            "| ISR First | Toda página de produto é pré-renderizada estaticamente e regenerada "
+            "em background a cada 60 segundos | Uso de revalidate no getStaticProps do Next.js | "
+            "REGRA: Nenhuma página pode usar force-dynamic. Teste automatizado verifica header "
+            "x-nextjs-cache: HIT|STALE em 100% das rotas /produto/* |\n\n"
+            "| Scraping em tempo real | Lentidão extrema (3-8s por busca) e bloqueio de IP | "
+            "Cache estratégico com ISR: dados pré-renderizados servidos em <100ms; invalidação "
+            "por evento de preço via webhook |\n"
         ),
         instruction=(
-            "Sintetize visão, problemas, público, princípios e diferenciais dos artefatos. "
-            "NÃO copie artefatos — sintetize e consolide com dados reais do contexto. "
+            "Sintetize os artefatos do pipeline para gerar as 5 seções acima.\n"
+            "Para Público-Alvo: inclua nome fictício, idade e narrativa de contexto real "
+            "com 1-2 frases sobre a dor — NÃO apenas rótulos genéricos.\n"
+            "Para Princípios Arquiteturais: inclua coluna 'Regra Verificável' com texto "
+            "'REGRA:' ou 'Teste:' descrevendo como validar automaticamente.\n"
+            "Para Diferenciais: compare com concorrentes reais e explique a vantagem técnica.\n"
+            "NÃO copie artefatos — sintetize e ELEVE a profundidade com dados do contexto.\n"
+            "PERMITIDO prosa dentro de células de tabela para dar contexto real.\n"
+            "PROIBIDO prosa fora de tabelas e bullets.\n"
             "Mínimo 4 problemas, 3 personas, 3 princípios, 3 diferenciais."
         ),
-        min_chars=400,
-        max_output_tokens=1500,
+        min_chars=800,
+        max_output_tokens=1800,
+        input_budget=3000,
     ),
     SectionPass(
         pass_id="final_p2",
@@ -726,56 +769,89 @@ NEXUS_FINAL_PASSES = [
             "## Requisitos Funcionais (Consolidados)\n"
             "| ID | Requisito | Critério de Aceite | Prioridade | Complexidade | Status Pós-Review |\n"
             "|---|---|---|---|---|---|\n"
-            "| RF-01 | ... | [teste automatizável] | Must | Low | ✅ Aprovado |\n\n"
+            "| RF-01 | [requisito] | [teste automatizável: ex: 'POST /api/x retorna 201'] | Must | Low | Aprovado |\n"
+            "(mínimo 6 RFs com critérios de aceite VERIFICÁVEIS POR TESTE AUTOMATIZADO)\n\n"
             "## Requisitos Não-Funcionais\n"
             "| ID | Categoria | Requisito | Métrica | Target |\n"
             "|---|---|---|---|---|\n"
-            "| RNF-01 | Performance | ... | p95 | <200ms |\n"
+            "| RNF-01 | Performance | [requisito] | [métrica mensurável] | [valor numérico] |\n"
+            "(mínimo 4 RNFs com target NUMÉRICO)\n"
         ),
         example=(
-            "| RF-01 | Busca Full-Text | GET /api/search retorna 200 | Must | Med | ✅ |\n"
-            "| RNF-01 | Performance | LCP | p95 | <2.5s |\n"
+            "| RF-01 | Busca Unificada Multi-Loja | GET /api/search retorna resultados de "
+            "Shopee, Magalu, Amazon e ML em <1s with status 200 e JSON validado via schema Zod | "
+            "Must | Med | Aprovado |\n"
+            "| RF-02 | Página de Produto com ISR | URL /produto/[slug] renderiza via ISR e atualiza "
+            "cache a cada 60s. Header x-nextjs-cache presente com valor HIT ou STALE | "
+            "Must | High | Aprovado |\n"
+            "| RF-03 | Histórico de Preços | Gráfico exibe variação de preço dos últimos 90 dias "
+            "por loja. GET /api/products/{slug}/history retorna data_points com min 12 entradas | "
+            "Should | Med | Aprovado |\n\n"
+            "| RNF-01 | Performance | Largest Contentful Paint (LCP) | p95 via Lighthouse | <2.5s |\n"
+            "| RNF-02 | SEO | Indexabilidade de Páginas Dinâmicas | Google Search Console | 100% Válidos |\n"
         ),
         instruction=(
             "Consolide requisitos do PRD original com status do Review. "
             "NÃO copie artefatos — sintetize e consolide. "
-            "Mínimo 6 RFs e 4 RNFs. IDs sequenciais. Inclua coluna Status Pós-Review."
+            "Mínimo 6 RFs e 4 RNFs. IDs sequenciais. Inclua coluna Status Pós-Review.\n"
+            "Critérios de aceite DEVEM ser testes automatizáveis — inclua endpoint, "
+            "status HTTP esperado e formato de resposta.\n"
+            "RNFs DEVEM ter target numérico — nunca 'bom' ou 'adequado'."
         ),
-        min_chars=500,
-        max_output_tokens=1500,
+        min_chars=600,
+        max_output_tokens=1800,
+        input_budget=3000,
     ),
     SectionPass(
         pass_id="final_p3",
         sections=["## Arquitetura e Tech Stack", "## ADRs", "## Análise de Segurança", "## Escopo MVP"],
         template=(
             "## Arquitetura e Tech Stack (do System Design)\n"
-            "- **Estilo:** [tipo]\n"
+            "- **Estilo:** [tipo de arquitetura]\n"
             "- **Stack resumida em tabela**\n"
             "| Camada | Tecnologia | Justificativa |\n"
-            "|---|---|---|\n\n"
+            "|---|---|---|\n"
+            "(mínimo 3 camadas)\n\n"
             "## ADRs (do System Design)\n"
             "| ID | Decisão | Alternativa Rejeitada | Consequências |\n"
-            "|---|---|---|---|\n\n"
+            "|---|---|---|---|\n"
+            "(mínimo 3 ADRs — cada um com alternativa rejeitada e motivo)\n\n"
             "## Análise de Segurança (do Security Review)\n"
-            "| ID | Ameaça STRIDE | Componente | Severidade | Mitigação |\n"
-            "|---|---|---|---|---|\n\n"
+            "| ID | Ameaça STRIDE | Componente | Severidade | Mitigação Concreta |\n"
+            "|---|---|---|---|---|\n"
+            "(mínimo 3 ameaças com mitigação ESPECÍFICA, não genérica)\n\n"
             "## Escopo MVP\n"
-            "**Inclui:** [lista com RF-XX — APENAS IDs existentes na tabela de RFs]\n"
-            "**NÃO inclui:** [lista com justificativa]\n"
+            "**Inclui:** [lista com RF-XX — APENAS IDs que existem na tabela de RFs acima]\n"
+            "**NÃO inclui:** [lista com justificativa técnica para cada exclusão]\n"
         ),
         example=(
-            "| Backend | FastAPI | Async nativo |\n"
-            "| ADR-01 | SQLite | PostgreSQL | Simplicidade |\n"
-            "| SEC-01 | Spoofing | API Auth | Alta | Rate limiting |\n"
+            "| Frontend/Edge | Next.js 14 + Vercel Edge | SSR/ISR nativo para SEO e "
+            "Core Web Vitals otimizados |\n"
+            "| Backend/Scraper | Python (FastAPI) + Playwright | Assincronia para I/O "
+            "e bibliotecas robustas de automação |\n"
+            "| Data/Cache | PostgreSQL + Redis | Consistência relacional para produtos "
+            "e cache de respostas de APIs |\n\n"
+            "| ADR-01 | ISR (Incremental Static Regeneration) | SSR (Server-Side Rendering) | "
+            "Reduz latência e carga no servidor; dados atualizados em background. "
+            "Trade-off: dados podem ter até 60s de atraso |\n\n"
+            "| SEC-01 | Spoofing | API Gateway | Alta | Autenticação JWT + Rate Limiting "
+            "rigoroso por IP (60 req/min). Implementação: middleware FastAPI com slowapi |\n\n"
+            "**Inclui:**\n- RF-01 (Busca Unificada)\n- RF-02 (Página de Produto ISR)\n"
+            "**NÃO inclui:**\n- RF-04 (Checkout Integrado) — complexidade de integração "
+            "with gateways de pagamento exige 8 semanas adicionais\n"
         ),
         instruction=(
             "Sintetize arquitetura, ADRs, segurança e escopo dos artefatos. "
             "NÃO copie artefatos — sintetize e consolide. "
             "Mínimo 3 camadas, 3 ADRs, 3 ameaças. "
+            "ADRs: incluir trade-off real da decisão, não apenas 'melhor opção'. "
+            "Segurança: mitigação deve ser ESPECÍFICA (ex: 'Rate limiting 60 req/min via slowapi'), "
+            "não genérica (ex: 'implementar segurança'). "
             "Escopo: referencie APENAS RF-IDs existentes na tabela de RFs."
         ),
-        min_chars=400,
-        max_output_tokens=1500,
+        min_chars=600,
+        max_output_tokens=1800,
+        input_budget=3000,
     ),
     SectionPass(
         pass_id="final_p4",
@@ -783,36 +859,68 @@ NEXUS_FINAL_PASSES = [
                   "## Plano de Implementação", "## Decisões do Debate", "## Constraints Técnicos"],
         template=(
             "## Riscos Consolidados (PRD + Design + Security)\n"
-            "| ID | Risco | Fonte | Probabilidade | Impacto | Mitigação |\n"
-            "|---|---|---|---|---|---|\n\n"
+            "| ID | Risco | Fonte | Probabilidade | Impacto | Mitigação | Workaround Atual |\n"
+            "|---|---|---|---|---|---|---|\n"
+            "(mínimo 4 riscos com mitigação E workaround)\n\n"
             "## Métricas de Sucesso\n"
             "| Métrica | Target | Prazo | Como Medir |\n"
-            "|---|---|---|---|\n\n"
+            "|---|---|---|---|\n"
+            "(mínimo 4 métricas com target NUMÉRICO e método de medição concreto)\n\n"
             "## Plano de Implementação (resumo do Development Plan)\n"
-            "| Fase | Duração | Entregas | Critério de Conclusão |\n"
-            "|---|---|---|---|\n\n"
+            "| Fase | Duração | Entregas | Critério de Conclusão | Dependência |\n"
+            "|---|---|---|---|---|\n"
+            "(mínimo 3 fases com critério de conclusão VERIFICÁVEL)\n\n"
             "## Decisões do Debate (pontos de consenso)\n"
-            "- [Decisão 1 com justificativa]\n"
-            "- [Decisão 2 com justificativa]\n\n"
+            "| Round | Tipo | Decisão | Justificativa Técnica |\n"
+            "|---|---|---|---|\n"
+            "(extrair dos pontos aceitos e melhorias propostas do transcript)\n\n"
             "## Constraints Técnicos\n"
-            "- Linguagem: [...]\n"
-            "- Framework: [...]\n"
-            "- Banco de dados: [...]\n"
-            "- Infraestrutura: [...]\n"
+            "- Linguagem: [valor concreto com versão]\n"
+            "- Framework: [valor concreto com versão]\n"
+            "- Banco de dados: [valor concreto]\n"
+            "- Infraestrutura: [provedores específicos]\n"
+            "- Restrições de segurança: [lista concreta]\n"
         ),
         example=(
-            "| R-01 | Bloqueio de IP | Externo | Alta | Crítico | Proxies rotativos |\n"
-            "| LCP | <2.5s | Contínuo | PageSpeed |\n"
-            "| Fase 1 | 4 semanas | Core + Auth | Tests 80%+ |\n"
+            "| R-01 | Bloqueio de IP por anti-bot | Security | Alta | Crítico | "
+            "Proxy rotation com pool de 20+ IPs brasileiros + delay 2-5s entre requests | "
+            "Cache stale serve dados antigos por até 1h enquanto proxy rotation recupera |\n"
+            "| R-02 | Dados desatualizados (ISR stale) | Design | Média | Alto | "
+            "Webhook de revalidação on-demand + cache TTL curto para itens populares | "
+            "Badge 'Atualizado há X minutos' visível ao usuário |\n\n"
+            "| LCP (Largest Contentful Paint) | <2.5s | Contínuo | Google Lighthouse CI "
+            "em pipeline de deploy — bloqueia merge se LCP > 2.5s |\n"
+            "| Precisão de Preço | >95% | Contínuo | Auditoria amostral manual: "
+            "comparar 50 produtos/semana com preço real no marketplace |\n\n"
+            "| Fase 1 — Infraestrutura | 2 semanas | PG, Redis, Docker, CI/CD | "
+            "docker-compose up funciona e migrations rodam | Nenhuma |\n"
+            "| Fase 2 — Backend API | 2 semanas | Endpoints REST, rate limiting | "
+            "Todos os endpoints retornam 200 com dados seedados, cobertura >=80% | Fase 1 |\n\n"
+            "| R2 | ACEITO | Alterar 'Tempo Real' para 'Near Real-Time (<5min)' | "
+            "ISR não garante sincronia milissegundo; 5min é aceitável para comparação de preços |\n"
+            "| R3 | MELHORIA | Implementar stale-while-revalidate no Cache-Control | "
+            "Garante disponibilidade durante regeneração de página ISR |\n\n"
+            "- Linguagem: TypeScript 5+ (Strict Mode)\n"
+            "- Framework: Next.js 14+ (App Router)\n"
+            "- Banco de dados: PostgreSQL 16 + Redis 7.2\n"
+            "- Infraestrutura: Vercel (Frontend/Edge) + Railway (Backend/Workers)\n"
+            "- Segurança: Rate Limiting por IP (60 req/min), CSP Headers, LGPD compliance\n"
         ),
         instruction=(
             "Consolide riscos, métricas, plano e decisões do debate. "
-            "NÃO copie artefatos — sintetize e consolide. "
-            "Mínimo 4 riscos, 4 métricas, 3 fases. "
-            "Decisões: extraia dos pontos de consenso do transcript."
+            "NÃO copie artefatos — sintetize e consolide.\n"
+            "Riscos: inclua coluna 'Workaround Atual' com ação concreta se o risco se materializar.\n"
+            "Métricas: 'Como Medir' deve descrever ferramenta E frequência (ex: 'Lighthouse CI no deploy').\n"
+            "Plano: cada fase deve ter critério de conclusão VERIFICÁVEL (ex: 'cobertura >=80%').\n"
+            "Decisões: extraia dos 'Pontos Aceitos' e 'Melhorias Propostas' do transcript do debate. "
+            "Se o debate não gerou decisões estruturadas, inferir dos pontos de consenso.\n"
+            "Constraints: valores CONCRETOS com versão — nunca 'a definir'.\n"
+            "PERMITIDO prosa dentro de células de tabela para dar contexto real.\n"
+            "Mínimo 4 riscos, 4 métricas, 3 fases, 3 decisões."
         ),
-        min_chars=400,
-        max_output_tokens=1500,
+        min_chars=600,
+        max_output_tokens=1800,
+        input_budget=3000,
     ),
     SectionPass(
         pass_id="final_p5",
@@ -822,36 +930,62 @@ NEXUS_FINAL_PASSES = [
             "## Matriz de Rastreabilidade\n"
             "| RF-ID | Componente/Módulo | Teste Associado | Status |\n"
             "|---|---|---|---|\n"
-            "| RF-01 | [módulo] | [unit/integration/e2e] | Planejado |\n\n"
+            "| RF-01 | [módulo responsável] | [tipo de teste: unit/integration/e2e] | Planejado |\n"
+            "(OBRIGATÓRIO: cada RF da tabela de Requisitos Funcionais DEVE aparecer aqui)\n\n"
             "## Limitações Conhecidas\n"
-            "| ID | Limitação | Impacto | Quando Será Resolvida |\n"
-            "|---|---|---|---|\n"
-            "| LIM-01 | [limitação] | [impacto] | v2 / Nunca |\n\n"
+            "| ID | Limitação | Severidade | Impacto | Workaround Atual | Quando Será Resolvida |\n"
+            "|---|---|---|---|---|---|\n"
+            "| LIM-01 | [limitação] | Alta/Média/Baixa | [impacto no usuário] | [workaround] | v2 / Nunca |\n"
+            "(mínimo 3 limitações com workaround E roadmap)\n\n"
             "## Guia de Replicação Resumido\n"
-            "1. **Pré-requisitos:** [linguagem, versões, ferramentas]\n"
-            "2. **Instalação:** [comandos exatos]\n"
-            "3. **Execução:** [comando para rodar]\n"
-            "4. **Verificação:** [como confirmar funcionamento]\n\n"
+            "1. **Pré-requisitos:** [linguagem, versões exatas, ferramentas obrigatórias]\n"
+            "2. **Instalação:** [comandos exatos para setup]\n"
+            "3. **Execução:** [comando para rodar o sistema]\n"
+            "4. **Verificação:** [como confirmar que está funcionando — URL e resposta esperada]\n\n"
             "## Cláusula de Integridade\n"
             "| Item | Status |\n"
             "|---|---|\n"
-            "| Todos os RF-IDs do Escopo existem na tabela de RFs | ✅/❌ |\n"
-            "| Todos os riscos HIGH possuem mitigação definida | ✅/❌ |\n"
-            "| Tech Stack é consistente entre seções | ✅/❌ |\n"
-            "| Métricas de sucesso possuem target quantitativo | ✅/❌ |\n"
-            "| Nenhuma seção contém placeholder 'A DEFINIR' | ✅/❌ |\n"
-            "| Security Review endereça todas as ameaças HIGH | ✅/❌ |\n"
+            "| Todos os RF-IDs do Escopo existem na tabela de RFs | [checkmark] |\n"
+            "| Todos os riscos HIGH possuem mitigação definida | [checkmark] |\n"
+            "| Tech Stack é consistente entre seções | [checkmark] |\n"
+            "| Métricas de sucesso possuem target quantitativo | [checkmark] |\n"
+            "| Nenhuma seção contém placeholder 'A DEFINIR' | [checkmark] |\n"
+            "| Security Review endereça todas as ameaças HIGH | [checkmark] |\n"
         ),
         example=(
-            "| RF-01 | SearchModule | Unit (Jest) | Planejado |\n"
-            "| LIM-01 | Sem app mobile | UX limitada | v2 |\n"
+            "| RF-01 | SearchModule (Next.js) | Unit (Jest): search retorna resultados de >=2 "
+            "marketplaces. Integration (Supertest): endpoint /api/search retorna 200 | Planejado |\n"
+            "| RF-02 | ProductPage (Next.js ISR) | E2E (Playwright): /produto/slug retorna header "
+            "x-nextjs-cache with valor HIT ou STALE | Planejado |\n\n"
+            "| LIM-01 | Bloqueio de IP por anti-bot dos marketplaces | Alta | "
+            "Coleta falha temporariamente, dados ficam stale por até 1h | "
+            "Proxy rotation + backoff exponencial + cache stale with badge 'dados podem estar "
+            "desatualizados' | v1.1 — Pool de proxies residenciais (Bright Data) with 100+ IPs |\n"
+            "| LIM-02 | ISR tem atraso de até 60s entre coleta e exibição | Média | "
+            "Usuário pode ver preço desatualizado por até 1 minuto | "
+            "Badge 'Atualizado há X min' + webhook on-demand reduz gap real para ~30s | "
+            "v1.5 — Server-Sent Events (SSE) para push de preço em tempo real |\n\n"
+            "1. **Pré-requisitos:** Node.js 18.17+, Python 3.11+, Docker 24+, npm 9.6+\n"
+            "2. **Instalação:** git clone repo && npm install && cd backend && pip install -e '.[dev]'\n"
+            "3. **Execução:** docker compose up -d && npm run dev\n"
+            "4. **Verificação:** Acessar http://localhost:3000/produto/slug-teste e confirmar "
+            "que header x-nextjs-cache existe e ofertas são exibidas\n"
         ),
         instruction=(
-            "Gere rastreabilidade (cada RF da tabela anterior DEVE aparecer), limitações, guia e cláusula. "
-            "NÃO copie artefatos — sintetize e consolide. "
-            "Na Cláusula, marque APENAS ✅ ou ❌ baseado no conteúdo real gerado."
+            "Gere rastreabilidade, limitações, guia de replicação e cláusula de integridade.\n"
+            "Rastreabilidade: cada RF da tabela anterior DEVE aparecer exatamente 1 vez. "
+            "Teste Associado deve descrever TIPO + FERRAMENTA + O QUE VALIDA.\n"
+            "Limitações: inclua Severidade, Workaround Atual E versão de resolução. "
+            "Workaround deve ser ação concreta que o sistema já faz, não plano futuro.\n"
+            "Guia: comandos exatos, não 'instale as dependências'. Inclua URL de verificação.\n"
+            "Cláusula: marque APENAS com checkmark ou X baseado no conteúdo REAL gerado "
+            "nas seções anteriores — não assuma que está tudo ok.\n"
+            "PERMITIDO prosa dentro de células de tabela para dar contexto real.\n"
+            "NÃO copie artefatos — sintetize e consolide.\n"
+            "Mínimo: todos os RFs na rastreabilidade, 3 limitações, 4 passos no guia."
         ),
-        min_chars=300,
-        max_output_tokens=1500,
+        min_chars=500,
+        max_output_tokens=1800,
+        input_budget=3000,
     ),
 ]

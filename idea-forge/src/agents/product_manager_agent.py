@@ -121,16 +121,20 @@ class ProductManagerAgent:
     def _consolidate_single_pass(self, artifacts_context: str, original_idea: str) -> str:
         """Fallback de consolidação em chamada única (Fase 7.1 original)."""
         from src.core.prompt_templates import NEXUS_CONSOLIDATION_TEMPLATE
+        from src.core.golden_examples import NEXUS_FINAL_EXAMPLE_FRAGMENT
         
         prompt = (
             f"System: Você é o Agente PRODUCT MANAGER do sistema IdeaForge.\n"
             f"Sua tarefa é consolidar os artefatos de um projeto em um PRD FINAL definitivo.\n"
-            f"Responda em Português. Use APENAS tabelas e bullets.\n\n"
+            f"Responda em Português. Use tabelas e bullets. "
+            f"PERMITIDO prosa dentro de células para dar contexto real.\n\n"
             f"{NEXUS_CONSOLIDATION_TEMPLATE}\n\n"
         )
         
         if original_idea:
             prompt += f"IDEIA ORIGINAL DO USUÁRIO:\n{original_idea[:500]}\n\n"
+        
+        prompt += NEXUS_FINAL_EXAMPLE_FRAGMENT
         
         prompt += (
             f"ARTEFATOS DO PIPELINE (sintetize, não copie):\n"
@@ -151,3 +155,4 @@ class ProductManagerAgent:
             )
         
         return result
+

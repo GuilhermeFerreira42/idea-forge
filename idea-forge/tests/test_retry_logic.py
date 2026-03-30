@@ -52,5 +52,22 @@ class TestRetryLogic(unittest.TestCase):
         # 1 original + 2 retries = 3 calls
         self.assertEqual(self.mock_provider.generate.call_count, 3)
 
+    def test_section_pass_accepts_input_budget(self):
+        """FASE 9.1.1: SectionPass deve aceitar input_budget."""
+        sp = SectionPass(
+            "test", ["## S1"], "## S1", "", "Inst",
+            min_chars=10, require_table=False, input_budget=3000
+        )
+        self.assertEqual(sp.input_budget, 3000)
+
+    def test_section_pass_default_input_budget(self):
+        """FASE 9.1.1: SectionPass sem input_budget deve ter default 600."""
+        sp = SectionPass(
+            "test", ["## S1"], "## S1", "", "Inst",
+            min_chars=10, require_table=False
+        )
+        self.assertEqual(sp.input_budget, 600)
+
 if __name__ == "__main__":
     unittest.main()
+

@@ -83,3 +83,11 @@ F9.1 | MOD | `ProductManagerAgent` | Orquestração seccional para `consolidate_
 F9.1 | MOD | `OutputValidator` | Threshold de completude aumentado de 0.70 para 0.90 | `output_validator.py`
 F9.1 | ADD | `ConsistencyCheckerAgent`| Check 6 (Completeness) programático para audit de seções | `consistency_checker_agent.py`
 F9.1 | RULE | Fractional Consolidation | Fragmentar geração final em blocos para evitar truncamento de tokens | `sectional_generator.py`
+
+### Fase 9.1.1 — Enriquecimento do PRD Final
+F9.1.1 | MOD | `SectionalGenerator` | Inclusão de `input_budget` (3000) e `max_tokens` por pass | `sectional_generator.py`
+F9.1.1 | MOD | `NEXUS_FINAL_PASSES` | Enriquecimento v1.1 com exemplos reais e regras verificáveis | `sectional_generator.py`
+F9.1.1 | MOD | `OutputValidator` | Detecção de markers de falha `[GERAÇÃO FALHOU]` (threshold 3) | `output_validator.py`
+F9.1.1 | ADD | `ANTI_PROLIXITY_RICH` | Permitir prosa em tabelas para profundidade e narrativas | `prompt_templates.py`
+F9.1.1 | ADD | `NEXUS_FINAL_EXAMPLE_FRAGMENT`| Fragmentos de exemplo de alta qualidade para calibração | `golden_examples.py`
+F9.1.1 | RULE | Validation Hardening | Rejeitar artefatos com markers de falha para forçar retries | `output_validator.py`

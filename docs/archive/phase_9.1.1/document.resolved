@@ -1,0 +1,837 @@
+# Blueprint Técnico — Fase 9.1.1: PRD Final Rico e Completo
+
+**Versão:** 1.0  
+**Fase:** 9.1.1  
+**Baseline:** Fase 10.0 (operacional, 97+ testes)  
+**Data:** 2026-03-29
+
+---
+
+## Seção 1 — Sumário da Fase
+
+### Objetivo
+
+Eliminar truncamento (Problema A) e rasidão (Problema B) do PRD Final consolidado. O PRD Final deve sair de ~6.000 chars para ≥30.000 chars, com 20/20 seções presentes, personas com narrativa, princípios com regras verificáveis, e zero marcadores `[GERAÇÃO FALHOU]`.
+
+### Arquivos Modificados
+
+| Arquivo | Tipo de Mudança | Impacto Esperado |
+|---|---|---|
+| `src/core/sectional_generator.py` | MOD — Enriquecer `NEXUS_FINAL_PASSES` (exemplos e instruções) | Passes produzem output mais profundo |
+| `src/agents/product_manager_agent.py` | Sem mudança — já usa `SectionalGenerator` desde Fase 9.1 | Nenhum |
+| `src/core/output_validator.py` | MOD — Detectar `[GERAÇÃO FALHOU]` como placeholder | Artefatos com marcadores de falha são rejeitados |
+| `src/core/prompt_templates.py` | MOD — Calibrar `ANTI_PROLIXITY_DIRECTIVE` com exceções por contexto | Seções ricas podem usar prosa dentro de células |
+| `src/core/golden_examples.py` | ADD — `NEXUS_FINAL_EXAMPLE_FRAGMENT` | Consolidador recebe referência de qualidade |
+| `src/core/planner.py` | MOD — Elevar `max_tokens` para passes do consolidador | Passes têm budget suficiente |
+| `tests/test_phase_9_1.py` | MOD — Atualizar testes de passes | Testes refletem novos exemplos |
+| `tests/test_output_validator_v2.py` | MOD — Adicionar teste de detecção de `[GERAÇÃO FALHOU]` | Validator rejeita marcadores de falha |
+
+### Invariantes que NÃO Mudam
+
+- DAG continua com 9 tasks (nenhuma task nova)
+- Assinatura pública de `consolidate_prd(artifacts_context, original_idea)` inalterada
+- `DebateStateTracker`, `PipelineLogger`, `Blackboard`, `ArtifactStore`, `debate_engine.py`, `consistency_checker_agent.py` — intocados
+- `SectionalGenerator` mantém retry (2 tentativas/pass) e fallback (>50% falhas → single-pass)
+- `num_predict` continua 2500/5000 — não é a solução
+
+---
+
+## Seção 2 — Validação do Diagnóstico (4.1)
+
+### Problemas adicionais identificados
+
+**C1 — Truncamento de contexto upstream nos passes do Consolidador.**
+
+O `_build_pass_prompt()` em `sectional_generator.py` trunca `user_input` para 600 chars (`user_input[:600]`). Para o Consolidador, `user_input` é o `combined_input` que contém a ideia original + TODOS os artefatos do pipeline. Com 6 artefatos que somam ~25.000 chars, truncar para 600 chars perde 97% do contexto. O modelo não pode sintetizar o que não recebe.
+
+**Solução:** Para passes do tipo `prd_final`, elevar o truncamento de `user_input` para 3000 chars e de `context` para 1500 chars. Isso é feito adicionando campo `input_budget` ao `SectionPass` e usando-o no `_build_pass_prompt`.
+
+**C2 — `max_output_tokens` dos passes finais é passado ao provider mas o provider ignora para usar `num_predict` fixo.**
+
+No `OllamaProvider.generate()`, se `max_tokens` não é passado, usa `num_predict=2500`. Porém o `SectionalGenerator` PASSA `max_tokens` via `self.provider.generate(prompt=prompt, role=...)` — sem o kwarg `max_tokens`. O `generate()` do provider aceita `max_tokens` como kwarg opcional, mas o `SectionalGenerator` não o passa.
+
+**Solução:** Modificar `_execute_pass_with_retry` para passar `max_tokens=section_pass.max_output_tokens` ao provider.
+
+**C3 — Ordem das seções nos passes é correta.**
+
+Os 5 passes do `NEXUS_FINAL_PASSES` seguem dependência natural: P1 (visão/problema) → P2 (requisitos) → P3 (arquitetura/segurança) → P4 (riscos/plano) → P5 (rastreabilidade/integridade). P5 referencia RF-IDs de P2 para a Matriz de Rastreabilidade, o que funciona porque `previous_output` é injetado como sumário. ✅ Ordem correta.
+
+**C4 — Risco de regressão nos 97 testes.**
+
+As mudanças são aditivas (enriquecer exemplos, adicionar campo opcional ao SectionPass, calibrar diretivas). Os testes existentes de `NEXUS_FINAL_PASSES` verificam contagem (5 passes), cobertura de seções (20), unicidade, e pass_ids. Nenhum teste verifica o CONTEÚDO dos exemplos ou instruções. ✅ Risco baixo.
+
+**C5 — DebateEngine e PlanGenerator limitam profundidade?**
+
+Sim, parcialmente. O `DebateEngine` trunca `first_input[:1000]` e `context[:500]`, e o `PlanGenerator` recebe contexto via `get_context_for_agent` com `max_tokens=2500`. Porém, resolver isso está **fora do escopo da Fase 9.1.1** — é um problema do Grupo B que afeta artefatos upstream (TASK_01–TASK_06). A Fase 9.1.1 foca exclusivamente no TASK_07 (Consolidador). Uma fase futura (9.2) deveria enriquecer os artefatos upstream.
+
+**C6 — Diagnóstico do Problema B está correto?**
+
+Sim, com um refinamento: o problema não é apenas a `ANTI_PROLIXITY_DIRECTIVE` — é a combinação de:
+1. Diretiva global que proíbe prosa (regra 3)
+2. Exemplos rasos nos passes (1-2 linhas genéricas)
+3. Instruções que dizem "sintetize" sem dizer "com profundidade"
+4. Contexto truncado a 600 chars (C1 acima)
+
+Todos os 4 precisam ser resolvidos juntos.
+
+---
+
+## Seção 3 — Nova Calibração de `ANTI_PROLIXITY_DIRECTIVE`
+
+### Problema
+
+A regra 3 atual proíbe "parágrafos narrativos (>2 linhas de texto corrido)". Isso impede:
+- Personas com narrativa contextual dentro de células de tabela
+- Princípios com regras verificáveis por teste automatizado
+- Limitações com workaround detalhado e roadmap
+- Decisões de debate com justificativa técnica
+
+### Solução: Sistema de permissões por contexto
+
+Substituir a diretiva global por duas variantes:
+
+```python
+# prompt_templates.py — NOVAS DIRETIVAS (substituem ANTI_PROLIXITY_DIRECTIVE global)
+
+ANTI_PROLIXITY_STRICT = (
+    "\nREGRAS OBRIGATÓRIAS DE FORMATO:\n"
+    "1. PROIBIDO escrever introduções, conclusões, saudações ou meta-comentários\n"
+    "2. PROIBIDO iniciar com 'Okay', 'Let me', 'Este documento', 'Com base na', 'A seguir'\n"
+    "3. PROIBIDO parágrafos narrativos (>2 linhas de texto corrido)\n"
+    "4. PROIBIDO repetir informações que já estão no contexto/artefato de entrada\n"
+    "5. OBRIGATÓRIO usar APENAS: headings ##, bullet points -, tabelas |, listas numeradas 1.\n"
+    "6. OBRIGATÓRIO responder em Português\n"
+    "7. OBRIGATÓRIO começar cada seção diretamente com dados, sem preâmbulo\n"
+    "8. Se faltar informação, escreva 'A DEFINIR' — nunca invente dados fictícios\n"
+)
+
+ANTI_PROLIXITY_RICH = (
+    "\nREGRAS OBRIGATÓRIAS DE FORMATO:\n"
+    "1. PROIBIDO escrever introduções, conclusões, saudações ou meta-comentários\n"
+    "2. PROIBIDO iniciar com 'Okay', 'Let me', 'Este documento', 'Com base na', 'A seguir'\n"
+    "3. PERMITIDO prosa dentro de células de tabela para dar contexto real "
+    "(ex: narrativa de persona, regra verificável, workaround técnico). "
+    "PROIBIDO prosa FORA de tabelas e bullets.\n"
+    "4. PROIBIDO repetir informações que já estão no contexto/artefato de entrada\n"
+    "5. OBRIGATÓRIO usar: headings ##, bullet points -, tabelas |, listas numeradas 1.\n"
+    "6. OBRIGATÓRIO responder em Português\n"
+    "7. OBRIGATÓRIO começar cada seção diretamente com dados, sem preâmbulo\n"
+    "8. Se faltar informação, escreva 'A DEFINIR' — nunca invente dados fictícios\n"
+    "9. Para Público-Alvo: incluir nome fictício, idade e narrativa de 1-2 frases sobre a dor real.\n"
+    "10. Para Princípios Arquiteturais: incluir REGRA verificável por teste automatizado.\n"
+    "11. Para Limitações: incluir workaround atual e versão em que será resolvida.\n"
+)
+```
+
+### Mapeamento de qual diretiva usar
+
+| Agente / Pass | Diretiva | Motivo |
+|---|---|---|
+| CriticAgent (review) | `ANTI_PROLIXITY_STRICT` | Reviews devem ser secos — issues em tabela |
+| ArchitectAgent (design) | `ANTI_PROLIXITY_STRICT` | Design é técnico — tabelas e ADRs |
+| SecurityReviewerAgent | `ANTI_PROLIXITY_STRICT` | STRIDE é tabular por natureza |
+| ProponentAgent (debate) | `ANTI_PROLIXITY_STRICT` | Debate já tem formato bullets/tabela |
+| PlanGenerator | `ANTI_PROLIXITY_STRICT` | Plano é tabular — fases, deps, riscos |
+| ProductManagerAgent (PRD inicial) | `ANTI_PROLIXITY_STRICT` | PRD inicial é input, não output final |
+| **NEXUS_FINAL_PASSES (p1, p4, p5)** | **`ANTI_PROLIXITY_RICH`** | Seções de personas, princípios, limitações precisam de prosa rica |
+| **NEXUS_FINAL_PASSES (p2, p3)** | **`ANTI_PROLIXITY_STRICT`** | RFs, RNFs, ADRs, segurança são tabulares |
+
+### Implementação
+
+Os agentes upstream NÃO mudam — continuam usando `ANTI_PROLIXITY_DIRECTIVE` (que será renomeado internamente para manter compatibilidade). A variável `ANTI_PROLIXITY_DIRECTIVE` continua existindo como alias para `ANTI_PROLIXITY_STRICT`:
+
+```python
+# Manter compatibilidade com agentes existentes
+ANTI_PROLIXITY_DIRECTIVE = ANTI_PROLIXITY_STRICT
+```
+
+A diretiva `ANTI_PROLIXITY_RICH` é usada APENAS dentro dos passes do `NEXUS_FINAL_PASSES`, injetada no campo `instruction` dos passes P1, P4 e P5.
+
+---
+
+## Seção 4 — Especificação dos `NEXUS_FINAL_PASSES` Enriquecidos
+
+### Mudanças estruturais no `SectionPass`
+
+Adicionar campo opcional `input_budget` ao `SectionPass` para controlar truncamento de `user_input` por pass:
+
+```python
+class SectionPass:
+    """Definição de um passo de geração."""
+    def __init__(self, pass_id: str, sections: List[str],
+                 template: str, example: str,
+                 instruction: str, max_output_tokens: int = 800,
+                 require_table: bool = True,
+                 min_chars: int = 80,
+                 input_budget: int = 600):
+        self.pass_id = pass_id
+        self.sections = sections
+        self.template = template
+        self.example = example
+        self.instruction = instruction
+        self.max_output_tokens = max_output_tokens
+        self.require_table = require_table
+        self.min_chars = min_chars
+        self.input_budget = input_budget
+```
+
+**Mudança em `_build_pass_prompt`:**
+
+```python
+def _build_pass_prompt(self, section_pass: SectionPass,
+                       user_input: str, context: str,
+                       previous_output: str,
+                       pass_number: int, total_passes: int) -> str:
+    """Constrói prompt otimizado para um pass individual."""
+    system = (
+        "Responda em Português. Formato: APENAS Markdown com tabelas e bullets.\n"
+        "PROIBIDO: introduções, conclusões, meta-comentários.\n"
+        "OBRIGATÓRIO: começar DIRETO com ## heading da primeira seção.\n"
+    )
+    if self.direct_mode:
+        system += "Responda diretamente sem blocos <think>.\n"
+
+    prompt = f"System: {system}\n\n"
+    prompt += f"GERE EXATAMENTE ESTAS SEÇÕES:\n{section_pass.template}\n\n"
+
+    if section_pass.example:
+        prompt += f"REFERÊNCIA DE FORMATO E PROFUNDIDADE:\n{section_pass.example}\n\n"
+
+    # FASE 9.1.1: Usar input_budget do pass em vez de 600 fixo
+    budget = getattr(section_pass, 'input_budget', 600)
+    prompt += f"PROJETO:\n{user_input[:budget]}\n\n"
+
+    if previous_output:
+        summary = self._summarize_previous(previous_output, max_tokens=300)
+        prompt += (
+            f"SEÇÕES JÁ GERADAS (NÃO repita, apenas referencie IDs se necessário):\n"
+            f"{summary}\n\n"
+        )
+
+    if context:
+        prompt += f"CONTEXTO ADICIONAL:\n{context[:400]}\n\n"
+
+    prompt += f"{section_pass.instruction}\n"
+
+    return prompt
+```
+
+**Mudança em `_execute_pass_with_retry`** para passar `max_tokens`:
+
+```python
+def _execute_pass_with_retry(self, section_pass: SectionPass,
+                             user_input: str, context: str,
+                             previous_output: str,
+                             pass_number: int,
+                             total_passes: int) -> Optional[str]:
+    last_fail_reasons = []
+    for attempt in range(1, MAX_RETRIES_PER_PASS + 2):
+        prompt = self._build_pass_prompt(
+            section_pass=section_pass,
+            user_input=user_input,
+            context=context,
+            previous_output=previous_output,
+            pass_number=pass_number,
+            total_passes=total_passes,
+        )
+
+        if attempt > 1 and last_fail_reasons:
+            prompt += self._build_retry_instruction(
+                section_pass, last_fail_reasons, attempt
+            )
+
+        # FASE 9.1.1: Passar max_tokens ao provider
+        result = self.provider.generate(
+            prompt=prompt,
+            role=self._get_role(section_pass.pass_id),
+            max_tokens=section_pass.max_output_tokens
+        )
+        result = self._clean_pass_output(result)
+
+        validation = self.validator.validate_pass(
+            content=result,
+            expected_sections=section_pass.sections,
+            require_table=section_pass.require_table,
+            min_chars=section_pass.min_chars,
+        )
+
+        if validation["valid"]:
+            if attempt > 1:
+                self._emit_ok(f"  Pass {pass_number} corrigido na tentativa {attempt}")
+            return result
+
+        last_fail_reasons = validation.get("fail_reasons", ["UNKNOWN"])
+        if attempt <= MAX_RETRIES_PER_PASS:
+            self._emit_warn(
+                f"  Pass {pass_number} tentativa {attempt} falhou: "
+                f"{last_fail_reasons}. Retentando..."
+            )
+
+    return None
+```
+
+### NEXUS_FINAL_PASSES — 5 Passes Completos
+
+```python
+# ─── NEXUS FINAL: 5 passes para PRD Final consolidado (Fase 9.1.1) ─────────
+NEXUS_FINAL_PASSES = [
+    SectionPass(
+        pass_id="final_p1",
+        sections=["## Visão do Produto", "## Problema e Solução", "## Público-Alvo",
+                  "## Princípios Arquiteturais", "## Diferenciais"],
+        template=(
+            "## Visão do Produto\n"
+            "- **Codinome:** [nome memorável do projeto]\n"
+            "- **Declaração de visão:** [1 frase, máx 30 palavras, verbo infinitivo]\n\n"
+            "## Problema e Solução\n"
+            "| ID | Problema | Impacto | Como o Sistema Resolve |\n"
+            "|---|---|---|---|\n"
+            "| P-01 | [problema específico] | [impacto mensurável] | [solução técnica concreta] |\n"
+            "(mínimo 4 problemas)\n\n"
+            "## Público-Alvo\n"
+            "| Segmento | Perfil (nome fictício + dor específica com contexto) | Prioridade |\n"
+            "|---|---|---|\n"
+            "| [segmento] | [Nome], [idade] — [narrativa de 1-2 frases sobre o problema real] | P0 |\n"
+            "(mínimo 3 personas com narrativa)\n\n"
+            "## Princípios Arquiteturais\n"
+            "| Princípio | Descrição Concreta | Implicação Técnica | Regra Verificável |\n"
+            "|---|---|---|---|\n"
+            "| [princípio] | [descrição detalhada] | [impl. técnica] | REGRA: [teste automatizado que valida] |\n"
+            "(mínimo 3 princípios com regra verificável)\n\n"
+            "## Diferenciais\n"
+            "| Abordagem Atual/Concorrente | Problema | Como Este Sistema Supera |\n"
+            "|---|---|---|\n"
+            "(mínimo 3 diferenciais)\n"
+        ),
+        example=(
+            "- **Codinome:** OmniPrice Next\n"
+            "- **Declaração de visão:** Unificar ofertas de marketplaces utilizando ISR para "
+            "garantir SEO máximo e performance instantânea.\n\n"
+            "| P-01 | APIs heterogêneas por marketplace (formatos, auth, paginação distintos) | "
+            "Dados inconsistentes, falhas na exibição, custo alto de manutenção por integração | "
+            "Pipeline ETL unificado com schema normalizado (NormalizedProduct) que abstrai "
+            "diferenças entre Shopee, Magalu, Amazon e ML |\n"
+            "| P-02 | Latência na atualização de preços entre coleta e exibição | "
+            "Usuário encontra preço divergente no checkout, gerando frustração | "
+            "Revalidação sob demanda (On-demand Revalidation) via ISR com revalidate: 60 |\n\n"
+            "| Caçador de Oferta | Marina, 28 anos — Abre 6 abas para comparar preço de um fone "
+            "Bluetooth entre Shopee, Amazon e ML. Gasta 40min por compra e ainda assim não tem "
+            "certeza se encontrou o menor preço. | P0 |\n"
+            "| Afiliado Digital | Carlos, 34 anos — Cria conteúdo de review no Instagram e precisa "
+            "de links rastreáveis com páginas de carregamento rápido. Sua taxa de bounce atual "
+            "em sites lentos é 65%. | P0 |\n\n"
+            "| ISR First | Toda página de produto é pré-renderizada estaticamente e regenerada "
+            "em background a cada 60 segundos | Uso de revalidate no getStaticProps do Next.js | "
+            "REGRA: Nenhuma página pode usar force-dynamic. Teste automatizado verifica header "
+            "x-nextjs-cache: HIT|STALE em 100% das rotas /produto/* |\n\n"
+            "| Scraping em tempo real | Lentidão extrema (3-8s por busca) e bloqueio de IP | "
+            "Cache estratégico com ISR: dados pré-renderizados servidos em <100ms; invalidação "
+            "por evento de preço via webhook |\n"
+        ),
+        instruction=(
+            "Sintetize os artefatos do pipeline para gerar as 5 seções acima.\n"
+            "Para Público-Alvo: inclua nome fictício, idade e narrativa de contexto real "
+            "com 1-2 frases sobre a dor — NÃO apenas rótulos genéricos.\n"
+            "Para Princípios Arquiteturais: inclua coluna 'Regra Verificável' com texto "
+            "'REGRA:' ou 'Teste:' descrevendo como validar automaticamente.\n"
+            "Para Diferenciais: compare com concorrentes reais e explique a vantagem técnica.\n"
+            "NÃO copie artefatos — sintetize e ELEVE a profundidade com dados do contexto.\n"
+            "PERMITIDO prosa dentro de células de tabela para dar contexto real.\n"
+            "PROIBIDO prosa fora de tabelas e bullets.\n"
+            "Mínimo 4 problemas, 3 personas, 3 princípios, 3 diferenciais."
+        ),
+        min_chars=800,
+        max_output_tokens=1800,
+        input_budget=3000,
+    ),
+    SectionPass(
+        pass_id="final_p2",
+        sections=["## Requisitos Funcionais", "## Requisitos Não-Funcionais"],
+        template=(
+            "## Requisitos Funcionais (Consolidados)\n"
+            "| ID | Requisito | Critério de Aceite | Prioridade | Complexidade | Status Pós-Review |\n"
+            "|---|---|---|---|---|---|\n"
+            "| RF-01 | [requisito] | [teste automatizável: ex: 'POST /api/x retorna 201'] | Must | Low | Aprovado |\n"
+            "(mínimo 6 RFs com critérios de aceite VERIFICÁVEIS POR TESTE AUTOMATIZADO)\n\n"
+            "## Requisitos Não-Funcionais\n"
+            "| ID | Categoria | Requisito | Métrica | Target |\n"
+            "|---|---|---|---|---|\n"
+            "| RNF-01 | Performance | [requisito] | [métrica mensurável] | [valor numérico] |\n"
+            "(mínimo 4 RNFs com target NUMÉRICO)\n"
+        ),
+        example=(
+            "| RF-01 | Busca Unificada Multi-Loja | GET /api/search retorna resultados de "
+            "Shopee, Magalu, Amazon e ML em <1s com status 200 e JSON validado via schema Zod | "
+            "Must | Med | Aprovado |\n"
+            "| RF-02 | Página de Produto com ISR | URL /produto/[slug] renderiza via ISR e atualiza "
+            "cache a cada 60s. Header x-nextjs-cache presente com valor HIT ou STALE | "
+            "Must | High | Aprovado |\n"
+            "| RF-03 | Histórico de Preços | Gráfico exibe variação de preço dos últimos 90 dias "
+            "por loja. GET /api/products/{slug}/history retorna data_points com min 12 entradas | "
+            "Should | Med | Aprovado |\n\n"
+            "| RNF-01 | Performance | Largest Contentful Paint (LCP) | p95 via Lighthouse | <2.5s |\n"
+            "| RNF-02 | SEO | Indexabilidade de Páginas Dinâmicas | Google Search Console | 100% Válidos |\n"
+        ),
+        instruction=(
+            "Consolide requisitos do PRD original com status do Review. "
+            "NÃO copie artefatos — sintetize e consolide. "
+            "Mínimo 6 RFs e 4 RNFs. IDs sequenciais. Inclua coluna Status Pós-Review.\n"
+            "Critérios de aceite DEVEM ser testes automatizáveis — inclua endpoint, "
+            "status HTTP esperado e formato de resposta.\n"
+            "RNFs DEVEM ter target numérico — nunca 'bom' ou 'adequado'."
+        ),
+        min_chars=600,
+        max_output_tokens=1800,
+        input_budget=3000,
+    ),
+    SectionPass(
+        pass_id="final_p3",
+        sections=["## Arquitetura e Tech Stack", "## ADRs", "## Análise de Segurança", "## Escopo MVP"],
+        template=(
+            "## Arquitetura e Tech Stack (do System Design)\n"
+            "- **Estilo:** [tipo de arquitetura]\n"
+            "- **Stack resumida em tabela**\n"
+            "| Camada | Tecnologia | Justificativa |\n"
+            "|---|---|---|\n"
+            "(mínimo 3 camadas)\n\n"
+            "## ADRs (do System Design)\n"
+            "| ID | Decisão | Alternativa Rejeitada | Consequências |\n"
+            "|---|---|---|---|\n"
+            "(mínimo 3 ADRs — cada um com alternativa rejeitada e motivo)\n\n"
+            "## Análise de Segurança (do Security Review)\n"
+            "| ID | Ameaça STRIDE | Componente | Severidade | Mitigação Concreta |\n"
+            "|---|---|---|---|---|\n"
+            "(mínimo 3 ameaças com mitigação ESPECÍFICA, não genérica)\n\n"
+            "## Escopo MVP\n"
+            "**Inclui:** [lista com RF-XX — APENAS IDs que existem na tabela de RFs acima]\n"
+            "**NÃO inclui:** [lista com justificativa técnica para cada exclusão]\n"
+        ),
+        example=(
+            "| Frontend/Edge | Next.js 14 + Vercel Edge | SSR/ISR nativo para SEO e "
+            "Core Web Vitals otimizados |\n"
+            "| Backend/Scraper | Python (FastAPI) + Playwright | Assincronia para I/O "
+            "e bibliotecas robustas de automação |\n"
+            "| Data/Cache | PostgreSQL + Redis | Consistência relacional para produtos "
+            "e cache de respostas de APIs |\n\n"
+            "| ADR-01 | ISR (Incremental Static Regeneration) | SSR (Server-Side Rendering) | "
+            "Reduz latência e carga no servidor; dados atualizados em background. "
+            "Trade-off: dados podem ter até 60s de atraso |\n\n"
+            "| SEC-01 | Spoofing | API Gateway | Alta | Autenticação JWT + Rate Limiting "
+            "rigoroso por IP (60 req/min). Implementação: middleware FastAPI com slowapi |\n\n"
+            "**Inclui:**\n- RF-01 (Busca Unificada)\n- RF-02 (Página de Produto ISR)\n"
+            "**NÃO inclui:**\n- RF-04 (Checkout Integrado) — complexidade de integração "
+            "com gateways de pagamento exige 8 semanas adicionais\n"
+        ),
+        instruction=(
+            "Sintetize arquitetura, ADRs, segurança e escopo dos artefatos. "
+            "NÃO copie artefatos — sintetize e consolide. "
+            "Mínimo 3 camadas, 3 ADRs, 3 ameaças. "
+            "ADRs: incluir trade-off real da decisão, não apenas 'melhor opção'. "
+            "Segurança: mitigação deve ser ESPECÍFICA (ex: 'Rate limiting 60 req/min via slowapi'), "
+            "não genérica (ex: 'implementar segurança'). "
+            "Escopo: referencie APENAS RF-IDs existentes na tabela de RFs."
+        ),
+        min_chars=600,
+        max_output_tokens=1800,
+        input_budget=3000,
+    ),
+    SectionPass(
+        pass_id="final_p4",
+        sections=["## Riscos Consolidados", "## Métricas de Sucesso",
+                  "## Plano de Implementação", "## Decisões do Debate", "## Constraints Técnicos"],
+        template=(
+            "## Riscos Consolidados (PRD + Design + Security)\n"
+            "| ID | Risco | Fonte | Probabilidade | Impacto | Mitigação | Workaround Atual |\n"
+            "|---|---|---|---|---|---|---|\n"
+            "(mínimo 4 riscos com mitigação E workaround)\n\n"
+            "## Métricas de Sucesso\n"
+            "| Métrica | Target | Prazo | Como Medir |\n"
+            "|---|---|---|---|\n"
+            "(mínimo 4 métricas com target NUMÉRICO e método de medição concreto)\n\n"
+            "## Plano de Implementação (resumo do Development Plan)\n"
+            "| Fase | Duração | Entregas | Critério de Conclusão | Dependência |\n"
+            "|---|---|---|---|---|\n"
+            "(mínimo 3 fases com critério de conclusão VERIFICÁVEL)\n\n"
+            "## Decisões do Debate (pontos de consenso)\n"
+            "| Round | Tipo | Decisão | Justificativa Técnica |\n"
+            "|---|---|---|---|\n"
+            "(extrair dos pontos aceitos e melhorias propostas do transcript)\n\n"
+            "## Constraints Técnicos\n"
+            "- Linguagem: [valor concreto com versão]\n"
+            "- Framework: [valor concreto com versão]\n"
+            "- Banco de dados: [valor concreto]\n"
+            "- Infraestrutura: [provedores específicos]\n"
+            "- Restrições de segurança: [lista concreta]\n"
+        ),
+        example=(
+            "| R-01 | Bloqueio de IP por anti-bot | Security | Alta | Crítico | "
+            "Proxy rotation com pool de 20+ IPs brasileiros + delay 2-5s entre requests | "
+            "Cache stale serve dados antigos por até 1h enquanto proxy rotation recupera |\n"
+            "| R-02 | Dados desatualizados (ISR stale) | Design | Média | Alto | "
+            "Webhook de revalidação on-demand + cache TTL curto para itens populares | "
+            "Badge 'Atualizado há X minutos' visível ao usuário |\n\n"
+            "| LCP (Largest Contentful Paint) | <2.5s | Contínuo | Google Lighthouse CI "
+            "em pipeline de deploy — bloqueia merge se LCP > 2.5s |\n"
+            "| Precisão de Preço | >95% | Contínuo | Auditoria amostral manual: "
+            "comparar 50 produtos/semana com preço real no marketplace |\n\n"
+            "| Fase 1 — Infraestrutura | 2 semanas | PG, Redis, Docker, CI/CD | "
+            "docker-compose up funciona e migrations rodam | Nenhuma |\n"
+            "| Fase 2 — Backend API | 2 semanas | Endpoints REST, rate limiting | "
+            "Todos os endpoints retornam 200 com dados seedados, cobertura >=80% | Fase 1 |\n\n"
+            "| R2 | ACEITO | Alterar 'Tempo Real' para 'Near Real-Time (<5min)' | "
+            "ISR não garante sincronia milissegundo; 5min é aceitável para comparação de preços |\n"
+            "| R3 | MELHORIA | Implementar stale-while-revalidate no Cache-Control | "
+            "Garante disponibilidade durante regeneração de página ISR |\n\n"
+            "- Linguagem: TypeScript 5+ (Strict Mode)\n"
+            "- Framework: Next.js 14+ (App Router)\n"
+            "- Banco de dados: PostgreSQL 16 + Redis 7.2\n"
+            "- Infraestrutura: Vercel (Frontend/Edge) + Railway (Backend/Workers)\n"
+            "- Segurança: Rate Limiting por IP (60 req/min), CSP Headers, LGPD compliance\n"
+        ),
+        instruction=(
+            "Consolide riscos, métricas, plano e decisões do debate. "
+            "NÃO copie artefatos — sintetize e consolide.\n"
+            "Riscos: inclua coluna 'Workaround Atual' com ação concreta se o risco se materializar.\n"
+            "Métricas: 'Como Medir' deve descrever ferramenta E frequência (ex: 'Lighthouse CI no deploy').\n"
+            "Plano: cada fase deve ter critério de conclusão VERIFICÁVEL (ex: 'cobertura >=80%').\n"
+            "Decisões: extraia dos 'Pontos Aceitos' e 'Melhorias Propostas' do transcript do debate. "
+            "Se o debate não gerou decisões estruturadas, inferir dos pontos de consenso.\n"
+            "Constraints: valores CONCRETOS com versão — nunca 'a definir'.\n"
+            "PERMITIDO prosa dentro de células de tabela para dar contexto real.\n"
+            "Mínimo 4 riscos, 4 métricas, 3 fases, 3 decisões."
+        ),
+        min_chars=600,
+        max_output_tokens=1800,
+        input_budget=3000,
+    ),
+    SectionPass(
+        pass_id="final_p5",
+        sections=["## Matriz de Rastreabilidade", "## Limitações Conhecidas",
+                  "## Guia de Replicação Resumido", "## Cláusula de Integridade"],
+        template=(
+            "## Matriz de Rastreabilidade\n"
+            "| RF-ID | Componente/Módulo | Teste Associado | Status |\n"
+            "|---|---|---|---|\n"
+            "| RF-01 | [módulo responsável] | [tipo de teste: unit/integration/e2e] | Planejado |\n"
+            "(OBRIGATÓRIO: cada RF da tabela de Requisitos Funcionais DEVE aparecer aqui)\n\n"
+            "## Limitações Conhecidas\n"
+            "| ID | Limitação | Severidade | Impacto | Workaround Atual | Quando Será Resolvida |\n"
+            "|---|---|---|---|---|---|\n"
+            "| LIM-01 | [limitação] | Alta/Média/Baixa | [impacto no usuário] | [workaround] | v2 / Nunca |\n"
+            "(mínimo 3 limitações com workaround E roadmap)\n\n"
+            "## Guia de Replicação Resumido\n"
+            "1. **Pré-requisitos:** [linguagem, versões exatas, ferramentas obrigatórias]\n"
+            "2. **Instalação:** [comandos exatos para setup]\n"
+            "3. **Execução:** [comando para rodar o sistema]\n"
+            "4. **Verificação:** [como confirmar que está funcionando — URL e resposta esperada]\n\n"
+            "## Cláusula de Integridade\n"
+            "| Item | Status |\n"
+            "|---|---|\n"
+            "| Todos os RF-IDs do Escopo existem na tabela de RFs | [checkmark] |\n"
+            "| Todos os riscos HIGH possuem mitigação definida | [checkmark] |\n"
+            "| Tech Stack é consistente entre seções | [checkmark] |\n"
+            "| Métricas de sucesso possuem target quantitativo | [checkmark] |\n"
+            "| Nenhuma seção contém placeholder 'A DEFINIR' | [checkmark] |\n"
+            "| Security Review endereça todas as ameaças HIGH | [checkmark] |\n"
+        ),
+        example=(
+            "| RF-01 | SearchModule (Next.js) | Unit (Jest): search retorna resultados de >=2 "
+            "marketplaces. Integration (Supertest): endpoint /api/search retorna 200 | Planejado |\n"
+            "| RF-02 | ProductPage (Next.js ISR) | E2E (Playwright): /produto/slug retorna header "
+            "x-nextjs-cache com valor HIT ou STALE | Planejado |\n\n"
+            "| LIM-01 | Bloqueio de IP por anti-bot dos marketplaces | Alta | "
+            "Coleta falha temporariamente, dados ficam stale por até 1h | "
+            "Proxy rotation + backoff exponencial + cache stale com badge 'dados podem estar "
+            "desatualizados' | v1.1 — Pool de proxies residenciais (Bright Data) com 100+ IPs |\n"
+            "| LIM-02 | ISR tem atraso de até 60s entre coleta e exibição | Média | "
+            "Usuário pode ver preço desatualizado por até 1 minuto | "
+            "Badge 'Atualizado há X min' + webhook on-demand reduz gap real para ~30s | "
+            "v1.5 — Server-Sent Events (SSE) para push de preço em tempo real |\n\n"
+            "1. **Pré-requisitos:** Node.js 18.17+, Python 3.11+, Docker 24+, npm 9.6+\n"
+            "2. **Instalação:** git clone repo && npm install && cd backend && pip install -e '.[dev]'\n"
+            "3. **Execução:** docker compose up -d && npm run dev\n"
+            "4. **Verificação:** Acessar http://localhost:3000/produto/slug-teste e confirmar "
+            "que header x-nextjs-cache existe e ofertas são exibidas\n"
+        ),
+        instruction=(
+            "Gere rastreabilidade, limitações, guia de replicação e cláusula de integridade.\n"
+            "Rastreabilidade: cada RF da tabela anterior DEVE aparecer exatamente 1 vez. "
+            "Teste Associado deve descrever TIPO + FERRAMENTA + O QUE VALIDA.\n"
+            "Limitações: inclua Severidade, Workaround Atual E versão de resolução. "
+            "Workaround deve ser ação concreta que o sistema já faz, não plano futuro.\n"
+            "Guia: comandos exatos, não 'instale as dependências'. Inclua URL de verificação.\n"
+            "Cláusula: marque APENAS com checkmark ou X baseado no conteúdo REAL gerado "
+            "nas seções anteriores — não assuma que está tudo ok.\n"
+            "PERMITIDO prosa dentro de células de tabela para dar contexto real.\n"
+            "NÃO copie artefatos — sintetize e consolide.\n"
+            "Mínimo: todos os RFs na rastreabilidade, 3 limitações, 4 passos no guia."
+        ),
+        min_chars=500,
+        max_output_tokens=1800,
+        input_budget=3000,
+    ),
+]
+```
+
+---
+
+## Seção 5 — `NEXUS_FINAL_EXAMPLE_FRAGMENT`
+
+Adicionar ao `golden_examples.py`:
+
+```python
+# ─── Example: PRD Final Consolidado (Fase 9.1.1) ───────────────────
+NEXUS_FINAL_EXAMPLE_FRAGMENT = (
+    "EXEMPLO DE QUALIDADE ESPERADA PARA O PRD FINAL CONSOLIDADO:\n\n"
+    "## Público-Alvo\n"
+    "| Segmento | Perfil | Prioridade |\n"
+    "|---|---|---|\n"
+    "| Caçador de Oferta | Marina, 28 anos — Abre 6 abas para comparar preço de um fone "
+    "Bluetooth entre Shopee, Amazon e ML. Gasta 40min por compra e ainda assim não tem "
+    "certeza se encontrou o menor preço. | P0 |\n\n"
+    "## Princípios Arquiteturais\n"
+    "| Princípio | Descrição | Implicação Técnica | Regra Verificável |\n"
+    "|---|---|---|---|\n"
+    "| ISR First | Toda página de produto é pré-renderizada estaticamente e regenerada "
+    "em background a cada 60 segundos | Uso de revalidate no getStaticProps do Next.js | "
+    "REGRA: Nenhuma página pode usar force-dynamic. Teste automatizado verifica header "
+    "x-nextjs-cache: HIT|STALE em 100% das rotas /produto/* |\n\n"
+    "## Limitações Conhecidas\n"
+    "| ID | Limitação | Severidade | Impacto | Workaround Atual | Quando Resolvida |\n"
+    "|---|---|---|---|---|---|\n"
+    "| LIM-01 | Bloqueio de IP por anti-bot | Alta | Coleta falha temporariamente | "
+    "Proxy rotation + backoff exponencial. Cache stale serve dados por até 1h | "
+    "v1.1 — Pool de proxies residenciais (Bright Data) com 100+ IPs |\n\n"
+    "---\nFIM DO EXEMPLO. Gere o PRD Final REAL com este nível de profundidade.\n\n"
+)
+```
+
+**Injeção no Consolidador:** O `NEXUS_FINAL_EXAMPLE_FRAGMENT` é injetado no fallback `_consolidate_single_pass` do `ProductManagerAgent`. Para o path principal (seccional), os exemplos já estão nos `SectionPass.example`.
+
+```python
+# product_manager_agent.py — _consolidate_single_pass (adicionar import e injeção)
+def _consolidate_single_pass(self, artifacts_context: str, original_idea: str) -> str:
+    """Fallback de consolidação em chamada única (Fase 7.1 original)."""
+    from src.core.prompt_templates import NEXUS_CONSOLIDATION_TEMPLATE
+    from src.core.golden_examples import NEXUS_FINAL_EXAMPLE_FRAGMENT
+
+    prompt = (
+        f"System: Você é o Agente PRODUCT MANAGER do sistema IdeaForge.\n"
+        f"Sua tarefa é consolidar os artefatos de um projeto em um PRD FINAL definitivo.\n"
+        f"Responda em Português. Use tabelas e bullets. "
+        f"PERMITIDO prosa dentro de células para dar contexto real.\n\n"
+        f"{NEXUS_CONSOLIDATION_TEMPLATE}\n\n"
+    )
+
+    if original_idea:
+        prompt += f"IDEIA ORIGINAL DO USUÁRIO:\n{original_idea[:500]}\n\n"
+
+    prompt += NEXUS_FINAL_EXAMPLE_FRAGMENT
+
+    prompt += (
+        f"ARTEFATOS DO PIPELINE (sintetize, não copie):\n"
+        f"{artifacts_context}\n\n"
+        f"GERE O PRD FINAL CONSOLIDADO AGORA."
+    )
+
+    result = self.provider.generate(
+        prompt=prompt,
+        role="product_manager"
+    )
+
+    if not result or len(result.strip()) < 200:
+        return (
+            "## PRD FINAL — CONSOLIDAÇÃO FALHOU\n\n"
+            "O modelo não produziu um PRD consolidado válido.\n"
+            "Consulte os artefatos individuais no relatório.\n"
+        )
+
+    return result
+```
+
+---
+
+## Seção 6 — Alterações no `output_validator.py`
+
+### Mudança: Detectar `[GERAÇÃO FALHOU]` no `is_placeholder_heavy()`
+
+**Antes:**
+```python
+def is_placeholder_heavy(self, content: str) -> bool:
+    # ... código existente ...
+    # Check in bullets/text
+    placeholders = ['A DEFINIR', '[...]', '...', '...]']
+    lines_with_placeholder = sum(1 for l in lines if any(p in l for p in placeholders))
+    # ...
+```
+
+**Depois:**
+```python
+def is_placeholder_heavy(self, content: str) -> bool:
+    if not content:
+        return True
+
+    lines = content.split('\n')
+    table_lines = [l for l in lines if l.strip().startswith('|')
+                   and '---|' not in l]
+
+    if len(table_lines) >= 2:
+        placeholder_count = 0
+        for line in table_lines:
+            cells = [c.strip() for c in line.split('|') if c.strip()]
+            if not cells:
+                continue
+            placeholder_cells = sum(
+                1 for c in cells
+                if c in ('...', 'A DEFINIR', '', '-')
+                or c.startswith('...')
+            )
+            if placeholder_cells >= len(cells) / 2:
+                placeholder_count += 1
+
+        if placeholder_count >= len(table_lines) / 2:
+            return True
+
+    # Check in bullets/text — FASE 9.1.1: Adicionado GERAÇÃO FALHOU
+    placeholders = ['A DEFINIR', '[...]', '...', '...]', 'GERAÇÃO FALHOU', 'PASS_FAILED', 'CONSOLIDAÇÃO FALHOU']
+    lines_with_placeholder = sum(1 for l in lines if any(p in l for p in placeholders))
+    if lines_with_placeholder >= len(lines) / 2 and len(lines) > 2:
+        return True
+
+    # FASE 9.1.1: Detecção específica de marcadores de falha semântica
+    fail_markers = ['[GERAÇÃO FALHOU', 'GERAÇÃO FALHOU', 'PASS_FAILED', 'CONSOLIDAÇÃO FALHOU']
+    fail_marker_lines = sum(1 for l in lines if any(m in l for m in fail_markers))
+    if fail_marker_lines >= 3:
+        return True
+
+    return False
+```
+
+**Mudança:** 3 linhas adicionadas no final do método. Se ≥3 linhas contêm marcadores de falha, o artefato é rejeitado como placeholder-heavy. Isso garante que um PRD Final com 5 seções `[GERAÇÃO FALHOU]` será reprovado pelo validator.
+
+---
+
+## Seção 7 — Mudança no `planner.py`
+
+O `TASK_CONFIGS` para `consolidate_prd` já tem `max_tokens: 3000`. Nenhuma mudança necessária no planner. O contexto é passado ao `consolidate_prd` via `get_context_for_agent` com `max_tokens=3000` (configurado no `TaskDefinition.max_context_tokens=3000` para TASK_07). ✅ Suficiente.
+
+---
+
+## Seção 8 — Testes Obrigatórios
+
+### 8.1 Atualizar `test_phase_9_1.py`
+
+```python
+def test_all_passes_have_rich_examples(self):
+    """FASE 9.1.1: Exemplos devem ter >=200 chars para calibrar profundidade."""
+    for p in NEXUS_FINAL_PASSES:
+        self.assertGreaterEqual(len(p.example), 200,
+            f"Pass {p.pass_id} example muito curto: {len(p.example)} chars. "
+            f"Mínimo 200 para calibrar profundidade do modelo.")
+
+def test_all_passes_have_input_budget(self):
+    """FASE 9.1.1: Passes do PRD Final devem ter input_budget >= 2000."""
+    for p in NEXUS_FINAL_PASSES:
+        budget = getattr(p, 'input_budget', 600)
+        self.assertGreaterEqual(budget, 2000,
+            f"Pass {p.pass_id} input_budget muito baixo: {budget}. "
+            f"Consolidador precisa de >=2000 chars de contexto.")
+
+def test_max_output_tokens_sufficient(self):
+    """FASE 9.1.1: Passes devem ter max_output_tokens >= 1500."""
+    for p in NEXUS_FINAL_PASSES:
+        self.assertGreaterEqual(p.max_output_tokens, 1500,
+            f"Pass {p.pass_id} max_output_tokens muito baixo: {p.max_output_tokens}")
+```
+
+### 8.2 Adicionar a `test_output_validator_v2.py`
+
+```python
+def test_generation_failed_marker_detected(self):
+    """FASE 9.1.1: Artefato com múltiplos [GERAÇÃO FALHOU] deve ser rejeitado."""
+    content = (
+        "## Visão do Produto\n- Codinome: Test\n\n"
+        "## Problema e Solução\n| ID | P |\n|---|---|\n| P1 | X |\n\n"
+        "## Riscos Consolidados\n- [GERAÇÃO FALHOU — seção não produzida pelo modelo]\n"
+        "## Métricas de Sucesso\n- [GERAÇÃO FALHOU — seção não produzida pelo modelo]\n"
+        "## Plano de Implementação\n- [GERAÇÃO FALHOU — seção não produzida pelo modelo]\n"
+        "## Decisões do Debate\n- [GERAÇÃO FALHOU — seção não produzida pelo modelo]\n"
+        "## Constraints Técnicos\n- [GERAÇÃO FALHOU — seção não produzida pelo modelo]\n"
+        "Texto para evitar TOO_SHORT. " * 40
+    )
+    self.assertTrue(self.validator.is_placeholder_heavy(content),
+        "Artefato com 5+ marcadores GERAÇÃO FALHOU deveria ser detectado como placeholder-heavy")
+```
+
+### 8.3 Teste de integração do golden example
+
+```python
+# test_phase_9_1.py
+def test_nexus_final_example_fragment_exists(self):
+    """FASE 9.1.1: Golden example para PRD Final deve existir."""
+    from src.core.golden_examples import NEXUS_FINAL_EXAMPLE_FRAGMENT
+    self.assertGreater(len(NEXUS_FINAL_EXAMPLE_FRAGMENT), 400,
+        "NEXUS_FINAL_EXAMPLE_FRAGMENT deve ter >=400 chars")
+    self.assertIn("Marina", NEXUS_FINAL_EXAMPLE_FRAGMENT,
+        "Exemplo deve conter persona com narrativa")
+    self.assertIn("REGRA:", NEXUS_FINAL_EXAMPLE_FRAGMENT,
+        "Exemplo deve conter princípio com regra verificável")
+```
+
+### 8.4 Teste do SectionPass.input_budget
+
+```python
+# test_retry_logic.py — adicionar
+def test_section_pass_accepts_input_budget(self):
+    """FASE 9.1.1: SectionPass deve aceitar input_budget."""
+    sp = SectionPass(
+        "test", ["## S1"], "## S1", "", "Inst",
+        min_chars=10, require_table=False, input_budget=3000
+    )
+    self.assertEqual(sp.input_budget, 3000)
+
+def test_section_pass_default_input_budget(self):
+    """FASE 9.1.1: SectionPass sem input_budget deve ter default 600."""
+    sp = SectionPass(
+        "test", ["## S1"], "## S1", "", "Inst",
+        min_chars=10, require_table=False
+    )
+    self.assertEqual(sp.input_budget, 600)
+```
+
+---
+
+## Seção 9 — Critério de Conclusão da Fase 9.1.1
+
+A fase está concluída quando **TODAS** as condições abaixo forem verdadeiras em uma execução real com `--no-gate`:
+
+| # | Condição | Verificação |
+|---|---|---|
+| 1 | PRD Final tem ≥18 de 20 seções presentes | `OutputValidator.validate(content, "prd_final")["completeness_score"] >= 0.90` |
+| 2 | Nenhuma seção com marcador de falha | `"[GERAÇÃO FALHOU]" not in prd_final_content` |
+| 3 | Consistência interna aprovada | `ConsistencyChecker.check_consistency()` não contém `"CRITICAL: FAILED_SECTIONS"` |
+| 4 | PRD Final tem profundidade | `len(prd_final_content) >= 15000` chars (meta: 30.000, piso: 15.000) |
+| 5 | Personas com narrativa real | Pelo menos 1 célula de Público-Alvo com mais de 80 chars |
+| 6 | Princípios com regra verificável | Pelo menos 1 Princípio com texto "REGRA:" ou "Teste:" |
+| 7 | Limitações com workaround | Pelo menos 1 Limitação com workaround concreto (não "a definir") |
+| 8 | Todos os testes continuam passando | `pytest tests/ -q` sem falhas (97+ existentes + novos) |
+
+**Condição binária final:** `completeness >= 0.90 AND "[GERAÇÃO FALHOU]" not in content AND len(content) >= 15000 AND pytest_exit_code == 0`
+
+---
+
+## Seção 10 — Decision Log
+
+```
+[FASE 9.1.1] | ADD | ANTI_PROLIXITY_RICH | Permitir prosa dentro de células para personas/princípios/limitações sem abrir espaço para prolixidade fora de tabelas | prompt_templates.py
+[FASE 9.1.1] | MOD | NEXUS_FINAL_PASSES exemplos | Exemplos de 1-2 linhas genéricas → 8-12 linhas do padrão ouro com narrativa, regras verificáveis e workarounds | sectional_generator.py
+[FASE 9.1.1] | ADD | SectionPass.input_budget | Campo para controlar truncamento de user_input por pass — Consolidador precisa de 3000 chars vs 600 padrão | sectional_generator.py
+[FASE 9.1.1] | MOD | _execute_pass_with_retry | Passar max_tokens ao provider para que passes usem budget declarado em vez de num_predict fixo | sectional_generator.py
+[FASE 9.1.1] | MOD | is_placeholder_heavy | Detectar GERAÇÃO FALHOU, PASS_FAILED, CONSOLIDAÇÃO FALHOU como marcadores de falha semântica | output_validator.py
+[FASE 9.1.1] | ADD | NEXUS_FINAL_EXAMPLE_FRAGMENT | Golden example de 500+ chars com persona narrativa, princípio verificável e limitação com workaround | golden_examples.py
+[FASE 9.1.1] | RULE | Rich Content Scoping | Prosa rica permitida APENAS dentro de células de tabela em seções específicas (Público-Alvo, Princípios, Limitações) — nunca fora de tabelas/bullets | prompt_templates.py, sectional_generator.py
+```
+
+---
+
+*Blueprint Técnico — Fase 9.1.1 | IdeaForge CLI | Versão 1.0*

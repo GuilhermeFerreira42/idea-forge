@@ -1,0 +1,48 @@
+# Walkthrough — Phase 9.1.1: PRD Final Rico e Completo
+
+Phase 9.1.1 successfully enriched the final PRD generation process, ensuring technical depth, narratives for personas, and zero semantic failures.
+
+## Key Accomplishments
+
+### 1. Calibrated Anti-Prolixity Directives
+Implemented a dual-tier system for LLM instructions in [prompt_templates.py](file:///c:/Users/Usuario/Desktop/idea-forge/idea-forge/src/core/prompt_templates.py):
+- **`ANTI_PROLIXITY_STRICT`**: Maintains the legacy strict formatting rules.
+- **`ANTI_PROLIXITY_RICH`**: Allows prose inside table cells for narratives and technical depth, while mandating verifiable rules for principles.
+
+### 2. Enriched NEXUS Protocol (v1.1)
+Completely overhauled the sectional generation passes in [sectional_generator.py](file:///c:/Users/Usuario/Desktop/idea-forge/idea-forge/src/core/sectional_generator.py):
+- **Passes count**: Maintained at 5, but with significantly richer instructions and examples.
+- **Context Budget**: Increased `input_budget` from 600 to 3000 characters per pass.
+- **Output Budget**: Increased `max_output_tokens` to 1800 per pass to prevent truncation.
+- **Golden Examples**: Added `NEXUS_FINAL_EXAMPLE_FRAGMENT` in [golden_examples.py](file:///c:/Users/Usuario/Desktop/idea-forge/idea-forge/src/core/golden_examples.py) to calibrate the model's depth.
+
+### 3. Hardened Validation
+Enhanced the `OutputValidator` in [output_validator.py](file:///c:/Users/Usuario/Desktop/idea-forge/idea-forge/src/core/output_validator.py):
+- **Failure Detection**: Added explicit detection for `[GERAÇÃO FALHOU]`, `PASS_FAILED`, and `CONSOLIDAÇÃO FALHOU` markers.
+- **Semantic Rejection**: The system now rejects artifacts that contain multiple semantic failure markers, triggering retries or fallbacks.
+
+## Verification Results
+
+### Automated Tests
+All 45+ tests related to the NEXUS pipeline passed successfully:
+
+```powershell
+Ran 16 tests in 0.202s (test_phase_9_1.py) - OK
+Ran 12 tests in 0.014s (test_output_validator_v2.py) - OK
+Ran 17 tests in 0.055s (test_retry_logic.py) - OK
+```
+
+### Key Test Highlights:
+- `test_all_passes_have_rich_examples`: Confirms all passes use examples ≥ 200 chars.
+- `test_all_passes_have_input_budget`: Verifies `input_budget` ≥ 2000.
+- `test_generation_failed_marker_detected`: Ensures `OutputValidator` catches semantic failures.
+
+## Visual Changes
+> [!NOTE]
+> The final PRD now includes narratives like:
+> "| Caçador de Oferta | Marina, 28 anos — Abre 6 abas para comparar preço... | P0 |"
+> And verifiable rules like:
+> "REGRA: Nenhuma página pode usar force-dynamic. Teste automatizado verifica header..."
+
+---
+Phase 9.1.1 is now complete and verified. Ready for Phase 10.0 or further refinements.

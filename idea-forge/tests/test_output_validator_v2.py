@@ -165,5 +165,21 @@ class TestOutputValidatorV2(unittest.TestCase):
         self.assertTrue(res["valid"], f"Falha: {res.get('fail_reasons')}")
         self.assertGreaterEqual(res["completeness_score"], 0.90)
 
+    def test_generation_failed_marker_detected(self):
+        """FASE 9.1.1: Artefato com múltiplos [GERAÇÃO FALHOU] deve ser rejeitado."""
+        content = (
+            "## Visão do Produto\n- Codinome: Test\n\n"
+            "## Problema e Solução\n| ID | P |\n|---|---|\n| P1 | X |\n\n"
+            "## Riscos Consolidados\n- [GERAÇÃO FALHOU — seção não produzida pelo modelo]\n"
+            "## Métricas de Sucesso\n- [GERAÇÃO FALHOU — seção não produzida pelo modelo]\n"
+            "## Plano de Implementação\n- [GERAÇÃO FALHOU — seção não produzida pelo modelo]\n"
+            "## Decisões do Debate\n- [GERAÇÃO FALHOU — seção não produzida pelo modelo]\n"
+            "## Constraints Técnicos\n- [GERAÇÃO FALHOU — seção não produzida pelo modelo]\n"
+            "Texto para evitar TOO_SHORT. " * 40
+        )
+        self.assertTrue(self.validator.is_placeholder_heavy(content),
+            "Artefato com 5+ marcadores GERAÇÃO FALHOU deveria ser detectado como placeholder-heavy")
+
 if __name__ == "__main__":
     unittest.main()
+

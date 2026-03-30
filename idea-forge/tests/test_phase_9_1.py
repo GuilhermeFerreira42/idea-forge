@@ -143,5 +143,38 @@ class TestConsistencyCheckerSectionCheck(unittest.TestCase):
         self.assertNotIn("MISSING_SECTIONS", report)
 
 
+    def test_all_passes_have_rich_examples(self):
+        """FASE 9.1.1: Exemplos devem ter >=200 chars para calibrar profundidade."""
+        for p in NEXUS_FINAL_PASSES:
+            self.assertGreaterEqual(len(p.example), 200,
+                f"Pass {p.pass_id} example muito curto: {len(p.example)} chars. "
+                f"Mínimo 200 para calibrar profundidade do modelo.")
+
+    def test_all_passes_have_input_budget(self):
+        """FASE 9.1.1: Passes do PRD Final devem ter input_budget >= 2000."""
+        for p in NEXUS_FINAL_PASSES:
+            budget = getattr(p, 'input_budget', 600)
+            self.assertGreaterEqual(budget, 2000,
+                f"Pass {p.pass_id} input_budget muito baixo: {budget}. "
+                f"Consolidador precisa de >=2000 chars de contexto.")
+
+    def test_max_output_tokens_sufficient(self):
+        """FASE 9.1.1: Passes devem ter max_output_tokens >= 1500."""
+        for p in NEXUS_FINAL_PASSES:
+            self.assertGreaterEqual(p.max_output_tokens, 1500,
+                f"Pass {p.pass_id} max_output_tokens muito baixo: {p.max_output_tokens}")
+
+    def test_nexus_final_example_fragment_exists(self):
+        """FASE 9.1.1: Golden example para PRD Final deve existir."""
+        from src.core.golden_examples import NEXUS_FINAL_EXAMPLE_FRAGMENT
+        self.assertGreater(len(NEXUS_FINAL_EXAMPLE_FRAGMENT), 400,
+            "NEXUS_FINAL_EXAMPLE_FRAGMENT deve ter >=400 chars")
+        self.assertIn("Marina", NEXUS_FINAL_EXAMPLE_FRAGMENT,
+            "Exemplo deve conter persona com narrativa")
+        self.assertIn("REGRA:", NEXUS_FINAL_EXAMPLE_FRAGMENT,
+            "Exemplo deve conter princípio com regra verificável")
+
+
 if __name__ == "__main__":
     unittest.main()
+

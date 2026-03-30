@@ -108,5 +108,33 @@ PLAN_EXAMPLE_FRAGMENT = (
     "| Fase 0 — Setup | 1 semana | Repo, CI, configs, health check | make health → ✅ | Nenhuma |\n"
     "| Fase 1 — Core | 2 semanas | Agentes base, provider LLM, filesystem | Testes unitários 80%+ | Fase 0 |\n"
     "| Fase 2 — Pipeline | 2 semanas | Orquestrador, DAG, retry | Pipeline E2E com mock | Fase 1 |\n\n"
-    "---\nFIM DO EXEMPLO. Gere o artefato real.\n\n"
+    "---\n"
+    "FIM DO EXEMPLO. Gere o artefato real.\n\n"
 )
+
+# ─── Example: PRD Final Consolidado (Fase 9.1.1) ───────────────────
+NEXUS_FINAL_EXAMPLE_FRAGMENT = (
+    "EXEMPLO DE QUALIDADE ESPERADA PARA O PRD FINAL CONSOLIDADO:\n\n"
+    "## Público-Alvo\n"
+    "| Segmento | Perfil | Prioridade |\n"
+    "|---|---|---|\n"
+    "| Caçador de Oferta | Marina, 28 anos — Abre 6 abas para comparar preço de um fone "
+    "Bluetooth entre Shopee, Amazon e ML. Gasta 40min por compra e ainda assim não tem "
+    "certeza se encontrou o menor preço. | P0 |\n\n"
+    "## Princípios Arquiteturais\n"
+    "| Princípio | Descrição | Implicação Técnica | Regra Verificável |\n"
+    "|---|---|---|---|\n"
+    "| ISR First | Toda página de produto é pré-renderizada estaticamente e regenerada "
+    "em background a cada 60 segundos | Uso de revalidate no getStaticProps do Next.js | "
+    "REGRA: Nenhuma página pode usar force-dynamic. Teste automatizado verifica header "
+    "x-nextjs-cache: HIT|STALE em 100% das rotas /produto/* |\n\n"
+    "## Limitações Conhecidas\n"
+    "| ID | Limitação | Severidade | Impacto | Workaround Atual | Quando Resolvida |\n"
+    "|---|---|---|---|---|---|\n"
+    "| LIM-01 | Bloqueio de IP por anti-bot | Alta | Coleta falha temporariamente | "
+    "Proxy rotation + backoff exponencial. Cache stale serve dados por até 1h | "
+    "v1.1 — Pool de proxies residenciais (Bright Data) com 100+ IPs |\n\n"
+    "---\n"
+    "FIM DO EXEMPLO. Gere o PRD Final REAL com este nível de profundidade.\n\n"
+)
+

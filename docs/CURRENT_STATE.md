@@ -1,8 +1,9 @@
 # CURRENT_STATE — IdeaForge CLI
-> Última atualização: Fase 10.0 (Orquestração Inteligente do Debate) | 2026-03-28
+> Última atualização: Fase 9.1.1 (Enriquecimento PRD Final) | 2026-03-30
 
-- [x] **Fase 9.1 — PRD Final Completo (Geração Seccional)**: Transição para 5 passes dedicados no NEXUS Protocol v1.2, eliminando truncamento e elevando threshold de completude para 90%.
+- [x] **Fase 9.1.1 — Enriquecimento do PRD Final**: Calibração de `input_budget` (3000), detecção de markers de falha `[GERAÇÃO FALHOU]` e exemplos v1.1 de alta profundidade no consolidado.
 - [x] **Fase 10.0 — Orquestração de Debate**: DebateStateTracker implementado, rastreando Issues e Resoluções entre rounds.
+- [x] **Fase 9.1 — PRD Final Completo (Geração Seccional)**: Transição para 5 passes dedicados no NEXUS Protocol v1.2, eliminando truncamento e elevando threshold de completude para 90%.
 
 ## Arquitetura NEXUS v1.2 (Integridade)
 - **Padrão**: Blackboard com Grafo de Artefatos (DAG) de 9 tarefas (incluindo TASK_07b).

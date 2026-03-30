@@ -253,13 +253,20 @@ class OutputValidator:
             if placeholder_count >= len(table_lines) / 2:
                 return True
 
-        # Check in bullets/text
-        placeholders = ['A DEFINIR', '[...]', '...', '...]']
+        # Check in bullets/text — FASE 9.1.1: Adicionado GERAÇÃO FALHOU
+        placeholders = ['A DEFINIR', '[...]', '...', '...]', 'GERAÇÃO FALHOU', 'PASS_FAILED', 'CONSOLIDAÇÃO FALHOU']
         lines_with_placeholder = sum(1 for l in lines if any(p in l for p in placeholders))
         if lines_with_placeholder >= len(lines) / 2 and len(lines) > 2:
             return True
 
+        # FASE 9.1.1: Detecção específica de marcadores de falha semântica
+        fail_markers = ['[GERAÇÃO FALHOU', 'GERAÇÃO FALHOU', 'PASS_FAILED', 'CONSOLIDAÇÃO FALHOU']
+        fail_marker_lines = sum(1 for l in lines if any(m in l for m in fail_markers))
+        if fail_marker_lines >= 3:
+            return True
+
         return False
+
 
     def _calculate_density(self, content: str) -> float:
         """Calcula razão linhas técnicas / total linhas."""

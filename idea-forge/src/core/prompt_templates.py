@@ -8,9 +8,9 @@ REGRAS:
 - Idioma: Português para instruções de sistema, templates em formato universal
 """
 
-# ─── Diretiva Anti-Prolixidade (aplicada a TODOS os agentes) ───────────
+# ─── Diretivas Anti-Prolixidade (aplicadas a TODOS os agentes) ───────────
 
-ANTI_PROLIXITY_DIRECTIVE = (
+ANTI_PROLIXITY_STRICT = (
     "\nREGRAS OBRIGATÓRIAS DE FORMATO:\n"
     "1. PROIBIDO escrever introduções, conclusões, saudações ou meta-comentários\n"
     "2. PROIBIDO iniciar com 'Okay', 'Let me', 'Este documento', 'Com base na', 'A seguir'\n"
@@ -21,6 +21,26 @@ ANTI_PROLIXITY_DIRECTIVE = (
     "7. OBRIGATÓRIO começar cada seção diretamente com dados, sem preâmbulo\n"
     "8. Se faltar informação, escreva 'A DEFINIR' — nunca invente dados fictícios\n"
 )
+
+ANTI_PROLIXITY_RICH = (
+    "\nREGRAS OBRIGATÓRIAS DE FORMATO:\n"
+    "1. PROIBIDO escrever introduções, conclusões, saudações ou meta-comentários\n"
+    "2. PROIBIDO iniciar com 'Okay', 'Let me', 'Este documento', 'Com base na', 'A seguir'\n"
+    "3. PERMITIDO prosa dentro de células de tabela para dar contexto real "
+    "(ex: narrativa de persona, regra verificável, workaround técnico). "
+    "PROIBIDO prosa FORA de tabelas e bullets.\n"
+    "4. PROIBIDO repetir informações que já estão no contexto/artefato de entrada\n"
+    "5. OBRIGATÓRIO usar: headings ##, bullet points -, tabelas |, listas numeradas 1.\n"
+    "6. OBRIGATÓRIO responder em Português\n"
+    "7. OBRIGATÓRIO começar cada seção diretamente com dados, sem preâmbulo\n"
+    "8. Se faltar informação, escreva 'A DEFINIR' — nunca invente dados fictícios\n"
+    "9. Para Público-Alvo: incluir nome fictício, idade e narrativa de 1-2 frases sobre a dor real.\n"
+    "10. Para Princípios Arquiteturais: incluir REGRA verificável por teste automatizado.\n"
+    "11. Para Limitações: incluir workaround atual e versão em que será resolvida.\n"
+)
+
+# Manter compatibilidade com agentes existentes
+ANTI_PROLIXITY_DIRECTIVE = ANTI_PROLIXITY_STRICT
 
 STYLE_CONTRACT = (
     "\nSTYLE CONTRACT: No introductions, no conclusions, no narrative paragraphs. "
