@@ -82,40 +82,73 @@ class ProductManagerAgent:
         
         return self.provider.generate(prompt=prompt, role="product_manager")
 
+    def _parse_artifact_sections(self, context: str) -> dict:
+        """
+        FASE 9.2: Divide o contexto consolidado em seções nomeadas.
+        Procura por delimitadores como '--- ARTEFATO: [NOME] ---' ou similar.
+        """
+        import re
+        sections = {}
+        # Tenta capturar seções delimitadas por headings ou marcadores
+        pattern = r"(?i)---?\s*(?:ARTEFATO|SEÇÃO):\s*([\w\s_]+)\s*---?\n(.*?)(?=\n---?\s*(?:ARTEFATO|SEÇÃO)|\Z)"
+        matches = re.findall(pattern, context, re.DOTALL)
+        
+        if matches:
+            for name, content in matches:
+                sections[name.strip().lower()] = content.strip()
+        else:
+            # Fallback se não usar delimitadores: tenta headings ##
+            pattern_h2 = r"(?m)^##\s*(.*?)\s*\n(.*?)(?=\n^##|\Z)"
+            matches_h2 = re.findall(pattern_h2, context, re.DOTALL)
+            for name, content in matches_h2:
+                sections[name.strip().lower()] = content.strip()
+
+        return sections
+
     def consolidate_prd(self, artifacts_context: str, original_idea: str = "") -> str:
         """
-        FASE 9.1: Consolida todos os artefatos do pipeline em um PRD final
-        no padrão NEXUS Protocol v1.0.
-        
-        Refatorado de chamada única para geração seccional (5 passes)
-        via SectionalGenerator, eliminando truncamento por limite de tokens.
-        
-        Fallback: chamada única se >50% dos passes falharem.
+        FASE 9.2: Consolidação Granular (12 passes) com contexto seletivo.
         """
+        from src.core.sectional_generator import NEXUS_FINAL_PASSES
         generator = SectionalGenerator(
             provider=self.provider,
             direct_mode=self.direct_mode
         )
         
-        # Montar input combinado: ideia original + contexto dos artefatos
-        combined_input = ""
-        if original_idea:
-            combined_input += f"IDEIA ORIGINAL DO USUÁRIO:\n{original_idea[:500]}\n\n"
-        combined_input += (
-            f"ARTEFATOS DO PIPELINE (sintetize, NÃO copie):\n"
-            f"{artifacts_context}"
-        )
+        # 1. Parsear artefatos em dicionário
+        parsed = self._parse_artifact_sections(artifacts_context)
         
-        result = generator.generate_sectional(
+        # 2. Preparar inputs específicos por pass
+        pass_inputs = []
+        for p in NEXUS_FINAL_PASSES:
+            # Adicionar ideia original se disponível em todos os passes para coerência
+            p_input = ""
+            if original_idea:
+                p_input += f"IDEIA ORIGINAL:\n{original_idea[:500]}\n\n"
+            
+            # Adicionar apenas artefatos solicitados por este pass
+            for art_name in p.context_artifacts:
+                art_content = parsed.get(art_name.lower())
+                if art_content:
+                    p_input += f"--- {art_name.upper()} ---\n{art_content}\n\n"
+                else:
+                    # Fallback: se não achou via parse, tenta injetar do context inteiro
+                    # (isso garante que não falte nada se o delimitador falhar)
+                    p_input += f"--- {art_name.upper()} ---\n{artifacts_context[:1000]} (excerto)\n\n"
+            
+            pass_inputs.append(p_input)
+
+        # 3. Gerar via orquestrador seletivo
+        result = generator.generate_sectional_with_inputs(
             artifact_type="prd_final",
-            user_input=combined_input,
-            context=""
+            pass_inputs=pass_inputs,
+            passes=NEXUS_FINAL_PASSES
         )
         
-        if result and len(result) > 500:
+        if result and len(result) > 1000:
             return result
         
-        # Fallback: chamada única (comportamento anterior da Fase 7.1)
+        # Fallback: chamada única (emergência)
         return self._consolidate_single_pass(artifacts_context, original_idea)
 
     def _consolidate_single_pass(self, artifacts_context: str, original_idea: str) -> str:

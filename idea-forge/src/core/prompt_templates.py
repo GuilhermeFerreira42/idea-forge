@@ -39,6 +39,25 @@ ANTI_PROLIXITY_RICH = (
     "11. Para Limitações: incluir workaround atual e versão em que será resolvida.\n"
 )
 
+CONSOLIDATOR_DIRECTIVE = (
+    "\nREGRAS DO CONSOLIDADOR (PRD FINAL):\n"
+    "1. PROIBIDO introduções, conclusões, saudações ou meta-comentários.\n"
+    "2. PROIBIDO iniciar com 'Okay', 'Let me', 'Este documento'.\n"
+    "3. PERMITIDO prosa técnica dentro de células de tabela e em descrições de componentes, "
+    "fluxos e justificativas de decisão. Máximo 3 linhas por parágrafo.\n"
+    "4. PROIBIDO prosa fora de tabelas, bullets e headings — exceto em descrições de Responsabilidade "
+    "de componentes (máximo 2 frases).\n"
+    "5. OBRIGATÓRIO usar: headings ##, bullet points -, tabelas |, listas numeradas, "
+    "blocos de código ``` para JSON/Mermaid/SQL.\n"
+    "6. OBRIGATÓRIO responder em Português.\n"
+    "7. OBRIGATÓRIO começar DIRETO com ## heading da primeira seção.\n"
+    "8. Se faltar informação nos artefatos, INFERIR do contexto disponível — nunca escreva 'A DEFINIR'.\n"
+    "9. JSON deve ser completo e funcional — nunca esqueleto com '...' ou comentários.\n"
+    "10. Diagramas Mermaid devem estar em bloco de código ```mermaid.\n"
+    "11. Cada princípio arquitetural DEVE ter regra verificável (REGRA: ...).\n"
+    "12. Cada persona DEVE ter nome fictício, idade e narrativa de 1-2 frases.\n"
+)
+
 # Manter compatibilidade com agentes existentes
 ANTI_PROLIXITY_DIRECTIVE = ANTI_PROLIXITY_STRICT
 

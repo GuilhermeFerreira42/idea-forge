@@ -91,3 +91,10 @@ F9.1.1 | MOD | `OutputValidator` | Detecção de markers de falha `[GERAÇÃO FA
 F9.1.1 | ADD | `ANTI_PROLIXITY_RICH` | Permitir prosa em tabelas para profundidade e narrativas | `prompt_templates.py`
 F9.1.1 | ADD | `NEXUS_FINAL_EXAMPLE_FRAGMENT`| Fragmentos de exemplo de alta qualidade para calibração | `golden_examples.py`
 F9.1.1 | RULE | Validation Hardening | Rejeitar artefatos com markers de falha para forçar retries | `output_validator.py`
+
+### Fase 9.2 — Consolidador Fracionado (12 Passes)
+F9.2 | ADD | `CONSOLIDATOR_DIRECTIVE` | Resgate de detalhamento narrativo em tabelas técnicas | `prompt_templates.py`
+F9.2 | MOD | `SectionalGenerator` | Orquestração 12-pass com `generate_sectional_with_inputs` | `sectional_generator.py`
+F9.2 | MOD | `ProductManagerAgent` | `_parse_artifact_sections` para contexto seletivo granular | `product_manager_agent.py`
+F9.2 | MOD | `NEXUS_FINAL_PASSES` | Expansão de 5 para 12 passes granulares (P01-P12) | `sectional_generator.py`
+F9.2 | RULE | Selective Context | Injetar apenas artefatos necessários por pass para economizar tokens | `product_manager_agent.py`

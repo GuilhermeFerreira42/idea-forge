@@ -1,0 +1,35 @@
+# Walkthrough — Fase 9.2: Consolidador Fracionado (12 Passes)
+
+Nesta fase, refatoremos o processo de consolidação final do PRD (NEXUS Protocol v1.2) para uma estrutura granular de 12 passes. Isso permite maior profundidade de conteúdo, melhor gestão de tokens e conformidade estrita com as diretrizes de formatação.
+
+## Alterações Principais
+
+### 1. `CONSOLIDATOR_DIRECTIVE`
+Introduzida em [prompt_templates.py](file:///c:/Users/Usuario/Desktop/idea-forge/idea-forge/src/core/prompt_templates.py) para permitir prosa rica em tabelas e bullet points (narrativas de personas, princípios), mantendo a estrutura técnica rígida.
+
+### 2. Geração Granular (12 Passes)
+O `NEXUS_FINAL_PASSES` em [sectional_generator.py](file:///c:/Users/Usuario/Desktop/idea-forge/idea-forge/src/core/sectional_generator.py) agora conta com 12 estágios (P01–P12), cada um com:
+- **Exemplos Ricos:** Todos os exemplos foram expandidos para >200 caracteres para calibrar o modelo para saídas densas.
+- **Contexto Seletivo:** Cada pass solicita apenas os artefatos necessários (ex: P07 solicita apenas `security_review`).
+
+### 3. Orquestração com Contexto Seletivo
+- **SectionalGenerator:** Novo método `generate_sectional_with_inputs` que recebe uma lista de inputs específicos por pass.
+- **ProductManagerAgent:** Implementado `_parse_artifact_sections` para decompor o contexto consolidado e injetar as partes corretas em cada pass da consolidação.
+
+### 4. Validação e Testes
+- Atualizado [test_phase_9_1.py](file:///c:/Users/Usuario/Desktop/idea-forge/idea-forge/tests/test_phase_9_1.py) para validar a nova estrutura de 12 passes.
+- Garantido que todos os passes cobrem as 20 seções obrigatórias do NEXUS Protocol.
+
+## Resultados dos Testes
+
+Foram executados 18 testes unitários cobrindo:
+- Quantidade e unicidade de passes.
+- Cobertura total das 20 seções obrigatórias.
+- Orçamento de tokens e profundidade de exemplos.
+- Lógica de parse de artefatos no Agente.
+
+**Status:** Todos os 18 testes passaram com sucesso.
+
+---
+> [!IMPORTANT]
+> A consolidação agora é significativamente mais robusta contra truncamento, permitindo PRDs de 15k-25k caracteres sem perda de qualidade em seções críticas como Arquitetura e Segurança.

@@ -1,0 +1,726 @@
+# Blueprint Técnico — Fase 9.2: Consolidador Fracionado (12 Passes)
+
+**Versão:** 1.0
+**Fase:** 9.2
+**Baseline:** Fase 9.1.1 (implementada)
+**Modelo alvo:** 20B parâmetros
+
+---
+
+## Seção 1 — Sumário da Fase
+
+### Objetivo
+
+Refatorar o Consolidador (TASK_07) de 5 passes para 12 passes granulares, cada um gerando 1-2 seções com prompts curtos, contexto seletivo e diretivas próprias. O PRD Final deve ter 15.000-25.000 chars, 20 seções presentes, zero marcadores `[GERAÇÃO FALHOU]`, e conteúdo rico com prosa técnica onde apropriado.
+
+### Arquivos modificados
+
+| Arquivo | Tipo | Impacto |
+|---|---|---|
+| `src/core/sectional_generator.py` | MOD | 12 novos passes substituem os 5 anteriores, campo `context_artifacts` no SectionPass |
+| `src/core/prompt_templates.py` | ADD | `CONSOLIDATOR_DIRECTIVE` separada dos agentes |
+| `src/agents/product_manager_agent.py` | MOD | `consolidate_prd()` monta contexto seletivo por pass |
+| `src/core/output_validator.py` | Sem mudança | Já funciona com 20 seções e threshold 0.90 |
+| `tests/test_phase_9_1.py` | MOD | Atualizar para 12 passes |
+
+### Invariantes que NÃO mudam
+
+- DAG continua com 9 tasks
+- Assinatura `consolidate_prd(artifacts_context, original_idea)` inalterada
+- Módulos estáveis intocados (DebateStateTracker, PipelineLogger, etc.)
+- `num_predict` continua 2500/5000
+- Retry 2x/pass e fallback >50% mantidos
+- Agentes upstream (TASK_01-TASK_06) inalterados
+
+---
+
+## Seção 2 — `CONSOLIDATOR_DIRECTIVE`
+
+Adicionar em `prompt_templates.py`:
+
+```python
+CONSOLIDATOR_DIRECTIVE = (
+    "\nREGRAS DO CONSOLIDADOR (PRD FINAL):\n"
+    "1. PROIBIDO introduções, conclusões, saudações ou meta-comentários.\n"
+    "2. PROIBIDO iniciar com 'Okay', 'Let me', 'Este documento'.\n"
+    "3. PERMITIDO prosa técnica dentro de células de tabela e em descrições de componentes, "
+    "fluxos e justificativas de decisão. Máximo 3 linhas por parágrafo.\n"
+    "4. PROIBIDO prosa fora de tabelas, bullets e headings — exceto em descrições de Responsabilidade "
+    "de componentes (máximo 2 frases).\n"
+    "5. OBRIGATÓRIO usar: headings ##, bullet points -, tabelas |, listas numeradas, "
+    "blocos de código ``` para JSON/Mermaid/SQL.\n"
+    "6. OBRIGATÓRIO responder em Português.\n"
+    "7. OBRIGATÓRIO começar DIRETO com ## heading da primeira seção.\n"
+    "8. Se faltar informação nos artefatos, INFERIR do contexto disponível — nunca escreva 'A DEFINIR'.\n"
+    "9. JSON deve ser completo e funcional — nunca esqueleto com '...' ou comentários.\n"
+    "10. Diagramas Mermaid devem estar em bloco de código ```mermaid.\n"
+    "11. Cada princípio arquitetural DEVE ter regra verificável (REGRA: ...).\n"
+    "12. Cada persona DEVE ter nome fictício, idade e narrativa de 1-2 frases.\n"
+)
+```
+
+---
+
+## Seção 3 — Campo `context_artifacts` no `SectionPass`
+
+Mudança mínima no construtor de `SectionPass` em `sectional_generator.py`:
+
+```python
+class SectionPass:
+    def __init__(self, pass_id: str, sections: List[str],
+                 template: str, example: str,
+                 instruction: str, max_output_tokens: int = 800,
+                 require_table: bool = True,
+                 min_chars: int = 80,
+                 input_budget: int = 600,
+                 context_artifacts: List[str] = None):
+        self.pass_id = pass_id
+        self.sections = sections
+        self.template = template
+        self.example = example
+        self.instruction = instruction
+        self.max_output_tokens = max_output_tokens
+        self.require_table = require_table
+        self.min_chars = min_chars
+        self.input_budget = input_budget
+        self.context_artifacts = context_artifacts or []
+```
+
+O campo `context_artifacts` é uma lista de nomes de artefatos (ex: `["prd", "system_design"]`). Se vazia, o pass usa o `user_input` completo (comportamento atual). Se preenchida, o `consolidate_prd` monta contexto seletivo.
+
+---
+
+## Seção 4 — `consolidate_prd()` atualizado
+
+Diff do método em `product_manager_agent.py`:
+
+```python
+def consolidate_prd(self, artifacts_context: str, original_idea: str = "") -> str:
+    """
+    FASE 9.2: Consolida todos os artefatos em PRD Final via 12 passes granulares.
+    Cada pass recebe contexto seletivo baseado em context_artifacts.
+    """
+    from src.core.sectional_generator import SectionalGenerator, NEXUS_FINAL_PASSES
+
+    generator = SectionalGenerator(
+        provider=self.provider,
+        direct_mode=self.direct_mode
+    )
+
+    # Montar input base: ideia original + contexto completo
+    combined_input = ""
+    if original_idea:
+        combined_input += f"IDEIA ORIGINAL:\n{original_idea[:500]}\n\n"
+    combined_input += f"ARTEFATOS DO PIPELINE (sintetize, NÃO copie):\n{artifacts_context}"
+
+    # FASE 9.2: Montar contexto seletivo por pass
+    # Parsear artefatos do contexto para extração seletiva
+    artifact_sections = self._parse_artifact_sections(artifacts_context)
+
+    # Gerar passes com contexto seletivo
+    passes = NEXUS_FINAL_PASSES
+    pass_inputs = []
+    for p in passes:
+        if p.context_artifacts:
+            # Montar contexto seletivo: apenas artefatos listados
+            selective_context = ""
+            if original_idea:
+                selective_context += f"IDEIA ORIGINAL:\n{original_idea[:300]}\n\n"
+            for art_name in p.context_artifacts:
+                if art_name in artifact_sections:
+                    selective_context += f"--- {art_name.upper()} ---\n{artifact_sections[art_name][:2000]}\n\n"
+            pass_inputs.append(selective_context)
+        else:
+            pass_inputs.append(combined_input)
+
+    # Usar generate_sectional com inputs por pass
+    result = generator.generate_sectional_with_inputs(
+        artifact_type="prd_final",
+        pass_inputs=pass_inputs,
+        passes=passes,
+    )
+
+    if result and len(result) > 500:
+        return result
+
+    # Fallback: chamada única
+    return self._consolidate_single_pass(artifacts_context, original_idea)
+
+def _parse_artifact_sections(self, artifacts_context: str) -> dict:
+    """Parseia o contexto de artefatos em seções nomeadas."""
+    sections = {}
+    current_name = None
+    current_content = []
+
+    for line in artifacts_context.split('\n'):
+        if line.strip().startswith('=== ARTIFACT:'):
+            if current_name and current_content:
+                sections[current_name] = '\n'.join(current_content)
+            # Extrair nome: "=== ARTIFACT: prd (v1, document) ==="
+            parts = line.split('ARTIFACT:')
+            if len(parts) > 1:
+                name_part = parts[1].split('(')[0].strip()
+                current_name = name_part.lower().replace(' ', '_')
+                current_content = []
+        elif line.strip().startswith('=== END ARTIFACT'):
+            if current_name and current_content:
+                sections[current_name] = '\n'.join(current_content)
+            current_name = None
+            current_content = []
+        elif current_name is not None:
+            current_content.append(line)
+
+    if current_name and current_content:
+        sections[current_name] = '\n'.join(current_content)
+
+    return sections
+```
+
+---
+
+## Seção 5 — Novo método no `SectionalGenerator`
+
+Adicionar ao `SectionalGenerator` em `sectional_generator.py`:
+
+```python
+def generate_sectional_with_inputs(self, artifact_type: str,
+                                    pass_inputs: List[str],
+                                    passes: List[SectionPass]) -> Optional[str]:
+    """
+    FASE 9.2: Gera artefato com input diferente por pass (contexto seletivo).
+    """
+    if not passes or len(passes) != len(pass_inputs):
+        return None
+
+    accumulated_output = ""
+    pass_results = []
+    failed_passes = 0
+
+    for i, section_pass in enumerate(passes):
+        self._emit(f"[PASS {i+1}/{len(passes)}] "
+                   f"Gerando: {', '.join(section_pass.sections)}")
+
+        result = self._execute_pass_with_retry(
+            section_pass=section_pass,
+            user_input=pass_inputs[i],
+            context="",
+            previous_output=accumulated_output,
+            pass_number=i + 1,
+            total_passes=len(passes),
+        )
+
+        if result is None:
+            failed_passes += 1
+            self._emit_warn(
+                f"Pass {i+1} FALHOU. Seções: {section_pass.sections}"
+            )
+            failed_marker = "\n".join(
+                f"{s}\n- [GERAÇÃO FALHOU — seção não produzida pelo modelo]"
+                for s in section_pass.sections
+            )
+            pass_results.append(failed_marker)
+        else:
+            pass_results.append(result)
+            accumulated_output += result + "\n\n"
+
+    if failed_passes > len(passes) / 2:
+        self._emit_warn(f"FALHA ESTRUTURAL: {failed_passes}/{len(passes)} passes falharam.")
+        return None
+
+    final_output = "\n\n".join(pass_results)
+
+    validation = self.validator.validate(final_output, artifact_type)
+    if validation.get("valid"):
+        self._emit_ok(
+            f"Artefato aprovado — density: {validation['density_score']:.2f}, "
+            f"completude: {int(validation['completeness_score']*100)}%"
+        )
+    else:
+        self._emit_warn(f"Artefato com problemas: {validation.get('fail_reasons', [])}")
+
+    return final_output
+```
+
+---
+
+## Seção 6 — Os 12 `NEXUS_FINAL_PASSES`
+
+Cada pass tem prompts curtos (<1500 chars de template+exemplo+instrução), budget de output de 1200-1500 tokens, e contexto seletivo.
+
+```python
+NEXUS_FINAL_PASSES = [
+    # === PASS 1: Visão e Identidade ===
+    SectionPass(
+        pass_id="final_p01",
+        sections=["## Visão do Produto", "## Problema e Solução"],
+        template=(
+            "## Visão do Produto\n"
+            "- **Codinome:** [nome memorável]\n"
+            "- **Declaração de visão:** [1 frase, máx 30 palavras]\n\n"
+            "## Problema e Solução\n"
+            "| ID | Problema | Impacto | Como o Sistema Resolve |\n"
+            "|---|---|---|---|\n"
+            "(mínimo 4 problemas com impacto mensurável e solução técnica concreta)\n"
+        ),
+        example=(
+            "- **Codinome:** OmniPrice Next\n"
+            "- **Declaração de visão:** Unificar ofertas de marketplaces com ISR para SEO e performance.\n\n"
+            "| P-01 | APIs heterogêneas por marketplace | Dados inconsistentes | Pipeline ETL com schema normalizado |\n"
+            "| P-02 | Latência na atualização de preços | Preço divergente no checkout | ISR com revalidate: 60 |\n"
+        ),
+        instruction=(
+            "Sintetize visão e problemas do projeto a partir dos artefatos.\n"
+            "Mínimo 4 problemas. Cada problema deve ter impacto mensurável e solução técnica concreta."
+        ),
+        min_chars=300,
+        max_output_tokens=1200,
+        input_budget=2000,
+        context_artifacts=["prd"],
+    ),
+
+    # === PASS 2: Público-Alvo ===
+    SectionPass(
+        pass_id="final_p02",
+        sections=["## Público-Alvo"],
+        template=(
+            "## Público-Alvo\n"
+            "| Segmento | Perfil (nome fictício + dor com contexto) | Prioridade |\n"
+            "|---|---|---|\n"
+            "(mínimo 3 personas com nome, idade e narrativa de 1-2 frases)\n"
+        ),
+        example=(
+            "| Caçador de Oferta | Marina, 28 anos — Abre 6 abas para comparar preço de um fone "
+            "Bluetooth. Gasta 40min por compra e não tem certeza se achou o menor preço. | P0 |\n"
+            "| Afiliado Digital | Carlos, 34 anos — Cria reviews no Instagram, precisa de links rastreáveis "
+            "com páginas rápidas. Taxa de bounce em sites lentos é 65%. | P0 |\n"
+        ),
+        instruction=(
+            "Crie personas ricas com nome fictício, idade e narrativa de 1-2 frases sobre a dor real.\n"
+            "NÃO use rótulos genéricos. Mínimo 3 personas."
+        ),
+        min_chars=200,
+        max_output_tokens=1000,
+        input_budget=1500,
+        context_artifacts=["prd"],
+    ),
+
+    # === PASS 3: Princípios e Diferenciais ===
+    SectionPass(
+        pass_id="final_p03",
+        sections=["## Princípios Arquiteturais", "## Diferenciais"],
+        template=(
+            "## Princípios Arquiteturais\n"
+            "| Princípio | Descrição | Implicação Técnica | Regra Verificável |\n"
+            "|---|---|---|---|\n"
+            "(mínimo 3 princípios, cada um com REGRA: verificável por teste)\n\n"
+            "## Diferenciais\n"
+            "| Abordagem Atual | Problema | Como Este Sistema Supera |\n"
+            "|---|---|---|\n"
+            "(mínimo 3 diferenciais vs concorrentes ou abordagem manual)\n"
+        ),
+        example=(
+            "| ISR First | Páginas pré-renderizadas a cada 60s | revalidate no Next.js | "
+            "REGRA: Nenhuma página usa force-dynamic. Teste verifica header x-nextjs-cache |\n\n"
+            "| Scraping em tempo real | Lentidão 3-8s e bloqueio de IP | "
+            "Cache ISR: dados servidos em <100ms com invalidação por webhook |\n"
+        ),
+        instruction=(
+            "Princípios: cada um DEVE ter coluna 'Regra Verificável' com texto 'REGRA:'.\n"
+            "Diferenciais: compare com concorrentes reais ou abordagem manual atual."
+        ),
+        min_chars=300,
+        max_output_tokens=1200,
+        input_budget=2000,
+        context_artifacts=["prd", "system_design"],
+    ),
+
+    # === PASS 4: Requisitos Funcionais ===
+    SectionPass(
+        pass_id="final_p04",
+        sections=["## Requisitos Funcionais"],
+        template=(
+            "## Requisitos Funcionais (Consolidados)\n"
+            "| ID | Requisito | Critério de Aceite | Prioridade | Complexidade | Status Pós-Review |\n"
+            "|---|---|---|---|---|---|\n"
+            "(mínimo 6 RFs. Critérios DEVEM ser testes automatizáveis com endpoint e status HTTP)\n"
+        ),
+        example=(
+            "| RF-01 | Busca Unificada | GET /api/search retorna 200 com resultados de >=2 marketplaces | Must | Med | Aprovado |\n"
+            "| RF-02 | Página de Produto ISR | /produto/[slug] retorna 200 com header x-nextjs-cache | Must | High | Aprovado |\n"
+        ),
+        instruction=(
+            "Consolide RFs do PRD original com status do Review. Mínimo 6 RFs.\n"
+            "Critérios de aceite DEVEM incluir endpoint, status HTTP e formato de resposta."
+        ),
+        min_chars=400,
+        max_output_tokens=1500,
+        input_budget=2500,
+        context_artifacts=["prd", "prd_review"],
+    ),
+
+    # === PASS 5: Requisitos Não-Funcionais ===
+    SectionPass(
+        pass_id="final_p05",
+        sections=["## Requisitos Não-Funcionais"],
+        template=(
+            "## Requisitos Não-Funcionais\n"
+            "| ID | Categoria | Requisito | Métrica | Target |\n"
+            "|---|---|---|---|---|\n"
+            "(mínimo 4 RNFs com target NUMÉRICO. Categorias: Performance, SEO, Disponibilidade, Segurança)\n"
+        ),
+        example=(
+            "| RNF-01 | Performance | LCP em páginas de produto | p95 Lighthouse | <2.5s |\n"
+            "| RNF-02 | SEO | Indexabilidade | Google Search Console | 100% válidos |\n"
+        ),
+        instruction="Mínimo 4 RNFs. Target DEVE ser numérico, nunca 'bom' ou 'adequado'.",
+        min_chars=200,
+        max_output_tokens=1000,
+        input_budget=1500,
+        context_artifacts=["prd"],
+    ),
+
+    # === PASS 6: Arquitetura e Tech Stack ===
+    SectionPass(
+        pass_id="final_p06",
+        sections=["## Arquitetura e Tech Stack", "## ADRs"],
+        template=(
+            "## Arquitetura e Tech Stack\n"
+            "- **Estilo:** [tipo de arquitetura]\n"
+            "| Camada | Tecnologia | Justificativa |\n"
+            "|---|---|---|\n"
+            "(mínimo 3 camadas)\n\n"
+            "## ADRs (Decisões Arquiteturais)\n"
+            "| ID | Decisão | Alternativa Rejeitada | Consequências |\n"
+            "|---|---|---|---|\n"
+            "(mínimo 3 ADRs com trade-off real)\n"
+        ),
+        example=(
+            "| Frontend | Next.js 14 + Vercel Edge | SSR/ISR nativo para SEO |\n\n"
+            "| ADR-01 | ISR | SSR puro | Reduz latência mas dados podem ter até 60s de atraso |\n"
+        ),
+        instruction=(
+            "Sintetize do System Design. ADRs: incluir trade-off real, não apenas 'melhor opção'.\n"
+            "Mínimo 3 camadas e 3 ADRs."
+        ),
+        min_chars=300,
+        max_output_tokens=1200,
+        input_budget=2500,
+        context_artifacts=["system_design"],
+    ),
+
+    # === PASS 7: Análise de Segurança ===
+    SectionPass(
+        pass_id="final_p07",
+        sections=["## Análise de Segurança"],
+        template=(
+            "## Análise de Segurança\n"
+            "| ID | Ameaça STRIDE | Componente | Severidade | Mitigação Concreta |\n"
+            "|---|---|---|---|---|\n"
+            "(mínimo 3 ameaças. Mitigação DEVE ser específica, não genérica)\n"
+        ),
+        example=(
+            "| SEC-01 | Spoofing | API Gateway | Alta | JWT + Rate Limiting 60 req/min via slowapi |\n"
+            "| SEC-02 | Injection | Banco de Dados | Alta | Consultas parametrizadas com ORM |\n"
+        ),
+        instruction="Sintetize do Security Review. Mitigação deve ser ESPECÍFICA com ferramenta/lib mencionada.",
+        min_chars=200,
+        max_output_tokens=1000,
+        input_budget=2000,
+        context_artifacts=["security_review"],
+    ),
+
+    # === PASS 8: Escopo MVP ===
+    SectionPass(
+        pass_id="final_p08",
+        sections=["## Escopo MVP"],
+        template=(
+            "## Escopo MVP\n"
+            "**Inclui:** [lista com RF-XX — APENAS IDs existentes na tabela de RFs]\n"
+            "**NÃO inclui:** [lista com justificativa técnica para cada exclusão]\n"
+        ),
+        example=(
+            "**Inclui:**\n- RF-01 (Busca Unificada)\n- RF-02 (Página ISR)\n\n"
+            "**NÃO inclui:**\n- RF-04 (Checkout) — complexidade de integração exige 8 semanas adicionais\n"
+        ),
+        instruction="Referencie APENAS RF-IDs da tabela de RFs gerada anteriormente. NÃO invente IDs novos.",
+        min_chars=150,
+        max_output_tokens=800,
+        input_budget=1500,
+        require_table=False,
+        context_artifacts=["prd"],
+    ),
+
+    # === PASS 9: Riscos Consolidados e Métricas ===
+    SectionPass(
+        pass_id="final_p09",
+        sections=["## Riscos Consolidados", "## Métricas de Sucesso"],
+        template=(
+            "## Riscos Consolidados (PRD + Design + Security)\n"
+            "| ID | Risco | Fonte | Probabilidade | Impacto | Mitigação |\n"
+            "|---|---|---|---|---|---|\n"
+            "(mínimo 4 riscos)\n\n"
+            "## Métricas de Sucesso\n"
+            "| Métrica | Target | Prazo | Como Medir |\n"
+            "|---|---|---|---|\n"
+            "(mínimo 4 métricas com target numérico e método concreto de medição)\n"
+        ),
+        example=(
+            "| R-01 | Bloqueio de IP | Security | Alta | Crítico | Proxy rotation + delay 2-5s |\n\n"
+            "| LCP | <2.5s | Contínuo | Lighthouse CI — bloqueia merge se LCP > 2.5s |\n"
+        ),
+        instruction=(
+            "Consolide riscos de PRD, Design e Security. Mínimo 4 riscos e 4 métricas.\n"
+            "Métricas: 'Como Medir' deve descrever ferramenta E frequência."
+        ),
+        min_chars=400,
+        max_output_tokens=1500,
+        input_budget=2500,
+        context_artifacts=["prd", "system_design", "security_review"],
+    ),
+
+    # === PASS 10: Plano e Decisões do Debate ===
+    SectionPass(
+        pass_id="final_p10",
+        sections=["## Plano de Implementação", "## Decisões do Debate"],
+        template=(
+            "## Plano de Implementação\n"
+            "| Fase | Duração | Entregas | Critério de Conclusão | Dependência |\n"
+            "|---|---|---|---|---|\n"
+            "(mínimo 3 fases com critério verificável)\n\n"
+            "## Decisões do Debate\n"
+            "| Round | Tipo | Decisão | Justificativa Técnica |\n"
+            "|---|---|---|---|\n"
+            "(extrair pontos de consenso do debate)\n"
+        ),
+        example=(
+            "| Fase 1 | 2 semanas | Infra + DB | docker-compose up funciona | Nenhuma |\n\n"
+            "| R2 | ACEITO | Near Real-Time em vez de Real-Time | ISR não garante sincronia milissegundo |\n"
+        ),
+        instruction=(
+            "Plano: critério de conclusão VERIFICÁVEL (ex: 'cobertura >=80%').\n"
+            "Decisões: extraia dos Pontos Aceitos e Melhorias do transcript do debate."
+        ),
+        min_chars=300,
+        max_output_tokens=1200,
+        input_budget=2500,
+        context_artifacts=["development_plan", "debate_transcript"],
+    ),
+
+    # === PASS 11: Constraints + Matriz + Limitações ===
+    SectionPass(
+        pass_id="final_p11",
+        sections=["## Constraints Técnicos", "## Matriz de Rastreabilidade", "## Limitações Conhecidas"],
+        template=(
+            "## Constraints Técnicos\n"
+            "- Linguagem: [valor com versão]\n"
+            "- Framework: [valor com versão]\n"
+            "- Banco de dados: [valor]\n"
+            "- Infraestrutura: [provedores]\n"
+            "- Segurança: [lista concreta]\n\n"
+            "## Matriz de Rastreabilidade\n"
+            "| RF-ID | Componente | Teste Associado | Status |\n"
+            "|---|---|---|---|\n"
+            "(cada RF da tabela anterior DEVE aparecer)\n\n"
+            "## Limitações Conhecidas\n"
+            "| ID | Limitação | Severidade | Impacto | Workaround | Quando Resolvida |\n"
+            "|---|---|---|---|---|---|\n"
+            "(mínimo 3 limitações com workaround concreto)\n"
+        ),
+        example=(
+            "- Linguagem: TypeScript 5+ (Strict Mode)\n\n"
+            "| RF-01 | SearchModule | Unit (Jest): retorna resultados de >=2 marketplaces | Planejado |\n\n"
+            "| LIM-01 | Bloqueio de IP | Alta | Coleta falha temporariamente | Proxy rotation + cache stale | v1.1 |\n"
+        ),
+        instruction=(
+            "Constraints: valores CONCRETOS com versão.\n"
+            "Rastreabilidade: cada RF DEVE aparecer exatamente 1 vez.\n"
+            "Limitações: workaround concreto que o sistema já faz, não plano futuro."
+        ),
+        min_chars=400,
+        max_output_tokens=1500,
+        input_budget=2500,
+        context_artifacts=["prd", "system_design"],
+    ),
+
+    # === PASS 12: Guia de Replicação + Cláusula ===
+    SectionPass(
+        pass_id="final_p12",
+        sections=["## Guia de Replicação Resumido", "## Cláusula de Integridade"],
+        template=(
+            "## Guia de Replicação Resumido\n"
+            "1. **Pré-requisitos:** [linguagem, versões exatas, ferramentas]\n"
+            "2. **Instalação:** [comandos exatos]\n"
+            "3. **Execução:** [comando para rodar]\n"
+            "4. **Verificação:** [URL + resposta esperada]\n\n"
+            "## Cláusula de Integridade\n"
+            "| Item | Status |\n"
+            "|---|---|\n"
+            "| Todos os RF-IDs do Escopo existem na tabela de RFs | [checkmark/X] |\n"
+            "| Todos os riscos HIGH possuem mitigação | [checkmark/X] |\n"
+            "| Tech Stack consistente entre seções | [checkmark/X] |\n"
+            "| Métricas possuem target quantitativo | [checkmark/X] |\n"
+            "| Security Review endereça ameaças HIGH | [checkmark/X] |\n"
+        ),
+        example=(
+            "1. **Pré-requisitos:** Node.js 18.17+, Python 3.11+, Docker 24+\n"
+            "2. **Instalação:** git clone repo && npm install && pip install -e '.[dev]'\n"
+            "3. **Execução:** docker compose up -d && npm run dev\n"
+            "4. **Verificação:** http://localhost:3000 — header x-nextjs-cache existe\n"
+        ),
+        instruction=(
+            "Guia: comandos EXATOS. Inclua URL de verificação.\n"
+            "Cláusula: marque com checkmark ou X baseado no conteúdo REAL gerado nas seções anteriores."
+        ),
+        min_chars=300,
+        max_output_tokens=1200,
+        input_budget=1500,
+        require_table=True,
+        context_artifacts=["development_plan"],
+    ),
+]
+```
+
+---
+
+## Seção 7 — Mudança no `_build_pass_prompt`
+
+O system prompt do consolidador usa `CONSOLIDATOR_DIRECTIVE` em vez da diretiva genérica:
+
+```python
+def _build_pass_prompt(self, section_pass: SectionPass,
+                       user_input: str, context: str,
+                       previous_output: str,
+                       pass_number: int, total_passes: int) -> str:
+    # FASE 9.2: Usar CONSOLIDATOR_DIRECTIVE para passes do prd_final
+    if section_pass.pass_id.startswith("final"):
+        from src.core.prompt_templates import CONSOLIDATOR_DIRECTIVE
+        system = CONSOLIDATOR_DIRECTIVE
+    else:
+        system = (
+            "Responda em Português. Formato: APENAS Markdown com tabelas e bullets.\n"
+            "PROIBIDO: introduções, conclusões, meta-comentários, prosa.\n"
+            "OBRIGATÓRIO: começar DIRETO com ## heading da primeira seção.\n"
+        )
+
+    if self.direct_mode:
+        system += "\nResponda diretamente sem blocos <think>.\n"
+
+    prompt = f"System: {system}\n\n"
+    prompt += f"GERE EXATAMENTE ESTAS SEÇÕES:\n{section_pass.template}\n\n"
+
+    if section_pass.example:
+        prompt += f"REFERÊNCIA DE FORMATO:\n{section_pass.example}\n\n"
+
+    budget = getattr(section_pass, 'input_budget', 600)
+    prompt += f"PROJETO:\n{user_input[:budget]}\n\n"
+
+    if previous_output:
+        summary = self._summarize_previous(previous_output, max_tokens=200)
+        prompt += f"SEÇÕES JÁ GERADAS (NÃO repita):\n{summary}\n\n"
+
+    if context:
+        prompt += f"CONTEXTO:\n{context[:400]}\n\n"
+
+    prompt += f"{section_pass.instruction}\n"
+
+    return prompt
+```
+
+---
+
+## Seção 8 — Testes obrigatórios
+
+Atualizar `test_phase_9_1.py`:
+
+```python
+def test_12_passes_defined(self):
+    self.assertEqual(len(NEXUS_FINAL_PASSES), 12)
+
+def test_all_20_sections_covered(self):
+    validator = OutputValidator()
+    required = set(validator.REQUIRED_SECTIONS["prd_final"])
+    covered = set()
+    for p in NEXUS_FINAL_PASSES:
+        for section in p.sections:
+            covered.add(section)
+    missing = required - covered
+    self.assertEqual(len(missing), 0, f"Seções não cobertas: {missing}")
+
+def test_no_duplicate_sections(self):
+    all_sections = []
+    for p in NEXUS_FINAL_PASSES:
+        all_sections.extend(p.sections)
+    self.assertEqual(len(all_sections), len(set(all_sections)))
+
+def test_all_passes_have_context_artifacts(self):
+    """Cada pass deve especificar quais artefatos precisa."""
+    for p in NEXUS_FINAL_PASSES:
+        self.assertIsInstance(p.context_artifacts, list,
+            f"Pass {p.pass_id} sem context_artifacts")
+        self.assertGreater(len(p.context_artifacts), 0,
+            f"Pass {p.pass_id} com context_artifacts vazio")
+
+def test_pass_ids_start_with_final(self):
+    for p in NEXUS_FINAL_PASSES:
+        self.assertTrue(p.pass_id.startswith("final"),
+            f"Pass {p.pass_id} não começa com 'final'")
+
+def test_max_output_tokens_reasonable(self):
+    for p in NEXUS_FINAL_PASSES:
+        self.assertGreaterEqual(p.max_output_tokens, 800)
+        self.assertLessEqual(p.max_output_tokens, 1500)
+
+def test_generate_sectional_with_inputs_exists(self):
+    """Verifica que o método novo existe no SectionalGenerator."""
+    from src.core.sectional_generator import SectionalGenerator
+    mock_provider = MagicMock()
+    gen = SectionalGenerator(mock_provider)
+    self.assertTrue(hasattr(gen, 'generate_sectional_with_inputs'))
+```
+
+---
+
+## Seção 9 — Critério de conclusão
+
+A fase está concluída quando TODAS as condições forem verdadeiras em execução real com `--no-gate`:
+
+| Condição | Verificação |
+|---|---|
+| PRD Final tem >=18 de 20 seções | `completeness_score >= 0.90` |
+| Zero marcadores de falha | `"[GERAÇÃO FALHOU]" not in content` |
+| ConsistencyChecker sem CRITICAL: FAILED_SECTIONS | `"CRITICAL: FAILED_SECTIONS" not in report` |
+| Tamanho >= 10.000 chars | `len(content) >= 10000` |
+| Personas com narrativa | Pelo menos 1 célula de Público-Alvo > 80 chars |
+| Princípios com regra | Pelo menos 1 com "REGRA:" |
+| Todos os testes passam | `pytest tests/ -q` sem falhas |
+
+---
+
+## Seção 10 — Decision Log
+
+```
+[FASE 9.2] | MOD | NEXUS_FINAL_PASSES de 5 para 12 passes | Modelo 20B não consegue gerar 5 seções em 1 pass | sectional_generator.py
+[FASE 9.2] | ADD | CONSOLIDATOR_DIRECTIVE | Separar diretivas do consolidador dos agentes upstream — permitir prosa técnica | prompt_templates.py
+[FASE 9.2] | ADD | SectionPass.context_artifacts | Contexto seletivo por pass — cada pass recebe apenas artefatos relevantes | sectional_generator.py
+[FASE 9.2] | ADD | generate_sectional_with_inputs() | Método que aceita inputs diferentes por pass | sectional_generator.py
+[FASE 9.2] | MOD | consolidate_prd() | Parseia artefatos e monta contexto seletivo antes de gerar | product_manager_agent.py
+[FASE 9.2] | MOD | _build_pass_prompt() | Usa CONSOLIDATOR_DIRECTIVE para passes do prd_final | sectional_generator.py
+[FASE 9.2] | RULE | Contexto Seletivo | Cada pass recebe apenas os artefatos listados em context_artifacts — reduz tamanho do prompt | sectional_generator.py
+```
+
+---
+
+## Checklist de implementação (ordem exata)
+
+```
+[ ] 1. Adicionar CONSOLIDATOR_DIRECTIVE em prompt_templates.py
+[ ] 2. Adicionar campo context_artifacts ao SectionPass.__init__
+[ ] 3. Adicionar método generate_sectional_with_inputs ao SectionalGenerator
+[ ] 4. Modificar _build_pass_prompt para usar CONSOLIDATOR_DIRECTIVE em passes final_*
+[ ] 5. Substituir NEXUS_FINAL_PASSES por 12 passes novos
+[ ] 6. Adicionar _parse_artifact_sections e atualizar consolidate_prd em ProductManagerAgent
+[ ] 7. Atualizar testes em test_phase_9_1.py (contagem 12, context_artifacts, novo método)
+[ ] 8. Rodar pytest tests/ — confirmar todos passam
+[ ] 9. Executar pipeline real com --no-gate
+[ ] 10. Verificar PRD Final: 20 seções, zero falhas, >= 10.000 chars
+```
