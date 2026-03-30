@@ -1,0 +1,16 @@
+# Walkthrough — Fase 9.3: Calibração de Profundidade
+
+## Objetivo
+Calibrar a geração do PRD Final para depth real, removendo limites artificiais e pedindo explicitamente prosa técnica, blocos de código e formatos estruturados.
+
+## O que foi feito
+- Ajustado `SectionalGenerator._summarize_previous()` para suportar `max_tokens=500`.
+- Recalibrado `NEXUS_FINAL_PASSES` em `src/core/sectional_generator.py` para 12 passes granulares.
+- Elevado `max_output_tokens` para 2500 nos passes relevantes do PRD Final.
+- Enriquecido exemplos para 8-15 linhas de profundidade, com linguagem técnica e casos concretos.
+
+## Validação
+- O teste focal `pytest idea-forge/tests/test_phase_9_1.py -v` passou com `18 passed`.
+
+## Observações
+Este walkthrough serve como referência para a fase e complementa o blueprint arquivado em `docs/archive/phase_9_3/document.resolved`.

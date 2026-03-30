@@ -329,7 +329,7 @@ class SectionalGenerator:
         prompt += f"PROJETO:\n{user_input[:budget]}\n\n"
 
         if previous_output:
-            summary = self._summarize_previous(previous_output, max_tokens=300)
+            summary = self._summarize_previous(previous_output, max_tokens=500)
             prompt += (
                 f"SEÇÕES JÁ GERADAS (NÃO repita, apenas referencie IDs se necessário):\n"
                 f"{summary}\n\n"
@@ -342,7 +342,7 @@ class SectionalGenerator:
 
         return prompt
 
-    def _summarize_previous(self, text: str, max_tokens: int = 300) -> str:
+    def _summarize_previous(self, text: str, max_tokens: int = 500) -> str:
         """Extrai apenas headings e primeiras linhas."""
         lines = text.split('\n')
         summary_lines = []
@@ -756,7 +756,7 @@ PLAN_PASSES = [
     ),
 ]
 
-# ─── NEXUS FINAL: 12 passes para PRD Final consolidado (Fase 9.2) ─────────
+# ─── NEXUS FINAL: 12 passes para PRD Final consolidado (Fase 9.3) ─────────
 NEXUS_FINAL_PASSES = [
     # === PASS 1: Visão e Identidade ===
     SectionPass(
@@ -769,22 +769,25 @@ NEXUS_FINAL_PASSES = [
             "## Problema e Solução\n"
             "| ID | Problema | Impacto | Como o Sistema Resolve |\n"
             "|---|---|---|---|\n"
-            "(mínimo 4 problemas com impacto mensurável e solução técnica concreta)\n"
+            "(mínimo 5 problemas com impacto mensurável e solução técnica concreta)\n"
         ),
         example=(
             "- **Codinome:** OmniPrice Next\n"
             "- **Declaração de visão:** Unificar ofertas de marketplaces com ISR para SEO e performance de ponta.\n\n"
             "| P-01 | APIs heterogêneas por marketplace | Dados inconsistentes e falha na normalização | Pipeline ETL com schema normalizado (Zod) |\n"
             "| P-02 | Latência na atualização de preços | Preço divergente no checkout gerando reclamações | ISR com revalidate automático a cada 60s |\n"
-            "| P-03 | Bloqueio de IP por scraping | Interrupção do serviço e perda de receita | Proxy rotation com pool de 100+ IPs residenciais |\n"
+            "| P-03 | Falta de histórico de preço | Usuário não sabe se o preço atual é bom | Snapshots diários com gráfico de tendência de 90 dias |\n"
+            "| P-04 | Bloqueio por scraping | Interrupção do serviço e perda de receita | Proxy rotation com pool de 100+ IPs e backoff |\n"
+            "| P-05 | SEO ruim em páginas dinâmicas | Perda de tráfego orgânico | SSR/ISR no Next.js com sitemap dinâmico |\n"
         ),
         instruction=(
             "Sintetize visão e problemas do projeto a partir dos artefatos.\n"
-            "Mínimo 4 problemas. Cada problema deve ter impacto mensurável e solução técnica concreta."
+            "Mínimo 5 problemas. Cada problema deve ter impacto mensurável e solução técnica concreta.\n"
+            "Escreva com profundidade técnica. NÃO use generalidades."
         ),
-        min_chars=300,
-        max_output_tokens=1200,
-        input_budget=2000,
+        min_chars=600,
+        max_output_tokens=2500,
+        input_budget=2500,
         context_artifacts=["prd"],
     ),
 
@@ -796,15 +799,16 @@ NEXUS_FINAL_PASSES = [
             "## Público-Alvo\n"
             "| Segmento | Perfil (nome fictício + dor com contexto) | Prioridade |\n"
             "|---|---|---|\n"
-            "(mínimo 3 personas com nome, idade e narrativa de 1-2 frases)\n"
+            "(mínimo 3 personas com nome, idade e narrativa de 2-3 frases)\n"
         ),
         example=(
             "| Caçador de Oferta | Marina, 28 anos — Abre 6 abas para comparar preço de um fone "
-            "Bluetooth. Gasta 40min por compra e não tem certeza se achou o menor preço. | P0 |\n"
-            "| Afiliado Digital | Carlos, 34 anos — Cria reviews no Instagram, precisa de links rastreáveis "
-            "com páginas rápidas. Taxa de bounce em sites lentos é 65%. | P0 |\n"
-            "| Desenvolvedor | Paulo, 24 anos — Quer integrar com uma API de preços simples e bem "
-            "documentada para seu projeto web, sem precisar de scraping manual complexo. | P1 |\n"
+            "Bluetooth. Gasta 40min por compra e não tem certeza se achou o menor preço. Já perdeu "
+            "promoções de Black Friday por não monitorar preços. | P0 |\n"
+            "| Afiliado Digital | Carlos, 34 anos — Cria reviews no Instagram e precisa de links rastreáveis "
+            "com páginas rápidas. Taxa de bounce em sites lentos é 65%, perdendo cerca de R$800/mês em comissões. | P0 |\n"
+            "| Comprador Recorrente | Dona Fátima, 52 anos — Compra produtos de limpeza todo mês. Quer alerta "
+            "quando o preço cair abaixo do valor aceitável. Já perdeu ofertas de supermercado por não ter monitoramento automático. | P1 |\n"
         ),
         instruction=(
             "Crie personas ricas com nome fictício, idade e narrativa de 1-2 frases sobre a dor real.\n"
@@ -842,9 +846,9 @@ NEXUS_FINAL_PASSES = [
             "Princípios: cada um DEVE ter coluna 'Regra Verificável' com texto 'REGRA:'.\n"
             "Diferenciais: compare com concorrentes reais ou abordagem manual atual."
         ),
-        min_chars=300,
-        max_output_tokens=1200,
-        input_budget=2000,
+        min_chars=700,
+        max_output_tokens=2500,
+        input_budget=2500,
         context_artifacts=["prd", "system_design"],
     ),
 
@@ -867,8 +871,8 @@ NEXUS_FINAL_PASSES = [
             "Consolide RFs do PRD original com status do Review. Mínimo 6 RFs.\n"
             "Critérios de aceite DEVEM incluir endpoint, status HTTP e formato de resposta."
         ),
-        min_chars=400,
-        max_output_tokens=1500,
+        min_chars=600,
+        max_output_tokens=2500,
         input_budget=2500,
         context_artifacts=["prd", "prd_review"],
     ),
@@ -921,9 +925,9 @@ NEXUS_FINAL_PASSES = [
             "Sintetize do System Design. ADRs: incluir trade-off real, não apenas 'melhor opção'.\n"
             "Mínimo 3 camadas e 3 ADRs."
         ),
-        min_chars=300,
-        max_output_tokens=1200,
-        input_budget=2500,
+        min_chars=800,
+        max_output_tokens=2500,
+        input_budget=3000,
         context_artifacts=["system_design"],
     ),
 
@@ -944,9 +948,9 @@ NEXUS_FINAL_PASSES = [
             "| SEC-04 | Denial of Service | Crawler | Alta | Cloudflare WAF + bloqueio de geo-IP suspeito |\n"
         ),
         instruction="Sintetize do Security Review. Mitigação deve ser ESPECÍFICA com ferramenta/lib mencionada.",
-        min_chars=200,
-        max_output_tokens=1000,
-        input_budget=2000,
+        min_chars=500,
+        max_output_tokens=2000,
+        input_budget=2500,
         context_artifacts=["security_review"],
     ),
 
@@ -966,9 +970,9 @@ NEXUS_FINAL_PASSES = [
             "- RF-08 (Marketplace) — modelo de negócio focado em agregação na V1\n"
         ),
         instruction="Referencie APENAS RF-IDs da tabela de RFs gerada anteriormente. NÃO invente IDs novos.",
-        min_chars=150,
-        max_output_tokens=800,
-        input_budget=1500,
+        min_chars=300,
+        max_output_tokens=1500,
+        input_budget=2000,
         require_table=False,
         context_artifacts=["prd"],
     ),
@@ -997,9 +1001,9 @@ NEXUS_FINAL_PASSES = [
             "Consolide riscos de PRD, Design e Security. Mínimo 4 riscos e 4 métricas.\n"
             "Métricas: 'Como Medir' deve descrever ferramenta E frequência."
         ),
-        min_chars=400,
-        max_output_tokens=1500,
-        input_budget=2500,
+        min_chars=600,
+        max_output_tokens=2500,
+        input_budget=3000,
         context_artifacts=["prd", "system_design", "security_review"],
     ),
 
@@ -1027,9 +1031,9 @@ NEXUS_FINAL_PASSES = [
             "Plano: critério de conclusão VERIFICÁVEL (ex: 'cobertura >=80%').\n"
             "Decisões: extraia dos Pontos Aceitos e Melhorias do transcript do debate."
         ),
-        min_chars=300,
-        max_output_tokens=1200,
-        input_budget=2500,
+        min_chars=600,
+        max_output_tokens=2500,
+        input_budget=3000,
         context_artifacts=["development_plan", "debate_transcript"],
     ),
 
@@ -1067,8 +1071,8 @@ NEXUS_FINAL_PASSES = [
             "Rastreabilidade: cada RF DEVE aparecer exatamente 1 vez.\n"
             "Limitações: workaround concreto que o sistema já faz, não plano futuro."
         ),
-        min_chars=400,
-        max_output_tokens=1500,
+        min_chars=600,
+        max_output_tokens=2500,
         input_budget=2500,
         context_artifacts=["prd", "system_design"],
     ),
@@ -1102,9 +1106,9 @@ NEXUS_FINAL_PASSES = [
             "Guia: comandos EXATOS. Inclua URL de verificação.\n"
             "Cláusula: marque com checkmark ou X baseado no conteúdo REAL gerado nas seções anteriores."
         ),
-        min_chars=300,
-        max_output_tokens=1200,
-        input_budget=1500,
+        min_chars=400,
+        max_output_tokens=2500,
+        input_budget=2500,
         require_table=True,
         context_artifacts=["development_plan"],
     ),

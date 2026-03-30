@@ -1,7 +1,6 @@
 # CURRENT_STATE — IdeaForge CLI
-> Última atualização: Fase 9.2 (Consolidador Fracionado 12-Pass) | 2026-03-30
 
-- [x] **Fase 9.2 — Consolidador Fracionado (12 Passes)**: Refatoração da consolidação final para 12 passes granulares com contexto seletivo por artefato e exemplos ricos (>200 chars) para profundidade v1.2.
+- [x] **Fase 9.3 — Calibração de Profundidade**: PRD Final recalibrado para 12 passes com exemplos ricos, `max_output_tokens` ampliado para 2500 e prosa técnica explícita.
 - [x] **Fase 9.1.1 — Enriquecimento do PRD Final**: Calibração de `input_budget` (3000), detecção de markers de falha `[GERAÇÃO FALHOU]` e exemplos v1.1 de alta profundidade no consolidado.
 - [x] **Fase 10.0 — Orquestração de Debate**: DebateStateTracker implementado, rastreando Issues e Resoluções entre rounds.
 - [x] **Fase 9.1 — PRD Final Completo (Geração Seccional)**: Transição para 5 passes dedicados no NEXUS Protocol v1.2, eliminando truncamento e elevando threshold de completude para 90%.
@@ -20,7 +19,7 @@
 | ArtifactStore | `artifact_store.py` | `write`, `read`, `get_context_for_agent` | F3 |
 | Planner | `planner.py` | `load_default_dag()`, `execute_pipeline(user_idea)` | F9 |
 | Controller | `controller.py` | `run_pipeline(idea)`, `get_artifact_content(name)` | F9 |
-| SectionalGenerator | `sectional_generator.py` | `generate_sectional_with_inputs(passes, inputs)` | F12 |
+| SectionalGenerator | `sectional_generator.py` | `generate_sectional_with_inputs(passes, inputs)` | F9.3 |
 | ProductManagerAgent | `product_manager_agent.py` | `consolidate_prd(artifacts_context)` (12-pass) | F12 |
 | ConsistencyChecker| `consistency_checker_agent.py`| `check_consistency(prd_final)` (sem LLM) | F9 |
 | DebateStateTracker| `debate_state_tracker.py` | `extract_issues`, `extract_resolutions` (sem LLM) | F10 |

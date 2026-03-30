@@ -1,0 +1,251 @@
+# Fase 9.3 — Calibração de Profundidade
+
+Este arquivo faz parte do arquivamento da fase 9.3. Ele serve apenas para auditoria humana e não será lido pela IA.
+
+## Escopo da fase
+- Elevar `max_output_tokens` para 2500 em todos os passes do PRD Final.
+- Recalibrar `NEXUS_FINAL_PASSES` para exemplos mais longos e instruções de prosa técnica.
+- Ajustar `_summarize_previous()` para `max_tokens=500` e permitir visão de RF-IDs anteriores.
+- Validar o consolidado do PRD com a arquitetura NEXUS de 12 passes.
+
+## Arquivos modificados
+- `src/core/sectional_generator.py`
+
+## Resultado
+A implementação concluiu a recalibração de profundidade do PRD final, mantendo o padrão NEXUS com 12 passes granulares e aumentando o budget de contexto para os passes tardios.
+
+---
+
+# Blueprint original da fase 9.3
+
+## Entendido. Vamos remover os limites e deixar o modelo escrever livremente.
+
+Sua análise está correta: o excesso de tabelas e a falta de prosa técnica, árvores de diretório, JSON funcional e diagramas Mermaid são consequência de três restrições que vamos eliminar agora.
+
+## As 3 mudanças fundamentais desta fase
+
+**Mudança 1 — Remover teto de tokens nos passes do consolidador.**
+
+Atualmente cada pass tem `max_output_tokens=1000-1500`. Vamos elevar para `2500` em todos os passes do PRD Final. O modelo de 20B tem capacidade de gerar mais — estávamos limitando artificialmente.
+
+**Mudança 2 — Exemplos extensos e ricos extraídos do padrão ouro.**
+
+Em vez de exemplos de 2-3 linhas, cada pass terá exemplos de 8-15 linhas com o nível de profundidade real esperado. O modelo aprende pelo exemplo, não pela instrução.
+
+**Mudança 3 — Instruções que pedem prosa técnica, JSON, Mermaid e árvore de diretórios.**
+
+Os passes relevantes devem pedir explicitamente blocos de código, JSON funcional e diagramas — não apenas tabelas.
+
+## Arquivos que mudam
+
+Apenas **2 arquivos**:
+
+1. `src/core/sectional_generator.py` — os 12 `NEXUS_FINAL_PASSES` recalibrados
+2. `src/core/sectional_generator.py` — `_summarize_previous()` com budget maior
+
+Nenhum arquivo novo. Nenhum método novo. Nenhuma assinatura alterada.
+
+## Diff 1 — `_summarize_previous` (budget maior)
+
+Localizar o método `_summarize_previous` na classe `SectionalGenerator` e alterar `max_tokens` default:
+
+```python
+# ANTES:
+def _summarize_previous(self, text: str, max_tokens: int = 200) -> str:
+
+# DEPOIS:
+def _summarize_previous(self, text: str, max_tokens: int = 500) -> str:
+```
+
+Isso permite que passes tardios (P08-P12) vejam os RF-IDs gerados nos passes anteriores, resolvendo o problema de IDs fantasmas.
+
+## Diff 2 — Os 12 passes recalibrados
+
+Substituir todo o bloco `NEXUS_FINAL_PASSES = [...]` pelo código abaixo. Este é o arquivo completo dos passes — copie e substitua o bloco inteiro.
+
+```python
+# ─── NEXUS FINAL: 12 passes para PRD Final consolidado (Fase 9.3) ─────────
+NEXUS_FINAL_PASSES = [
+    # === PASS 1: Visão e Problemas ===
+    SectionPass(
+        pass_id="final_p01",
+        sections=["## Visão do Produto", "## Problema e Solução"],
+        template=(
+            "## Visão do Produto\n"
+            "- **Codinome:** [nome memorável e único]\n"
+            "- **Versão:** 0.1.0\n"
+            "- **Declaração de visão:** [1 frase, máx 30 palavras, verbo no infinitivo]\n\n"
+            "## Problema e Solução\n"
+            "| ID | Problema | Impacto | Como o Sistema Resolve |\n"
+            "|---|---|---|---|\n"
+            "(mínimo 5 problemas. Impacto DEVE ser mensurável. Solução DEVE ser técnica e concreta.)\n"
+        ),
+        example=(
+            "- **Codinome:** OmniPrice Next\n"
+            "- **Versão:** 0.1.0\n"
+            "- **Declaração de visão:** Unificar ofertas de Shopee, Magalu, Amazon e Mercado Livre "
+            "utilizando ISR para garantir SEO máximo e performance instantânea.\n\n"
+            "| P-01 | APIs heterogêneas por marketplace (formatos, autenticação, paginação distintos) | "
+            "Dados inconsistentes, falhas na exibição, custo alto de manutenção por integração | "
+            "Pipeline ETL unificado com schema normalizado (NormalizedProduct) que abstrai diferenças |\n"
+            "| P-02 | Latência na atualização de preços entre coleta e exibição | "
+            "Usuário encontra preço divergente no checkout, gerando frustração e perda de confiança | "
+            "Revalidação sob demanda via ISR com revalidate: 60 + webhook de invalidação por evento |\n"
+            "| P-03 | Baixa indexação de conteúdo em SPAs tradicionais (React puro, Vue CSR) | "
+            "Perda de até 70% do tráfego orgânico potencial (SEO) | "
+            "Renderização híbrida (SSR + ISR) no Next.js 14 App Router |\n"
+            "| P-04 | Carregamento lento em redes móveis brasileiras (3G/4G instável) | "
+            "Taxa de rejeição superior a 53% quando LCP > 4s (dados Google) | "
+            "Otimização de imagens via next/image (WebP/AVIF), Code Splitting automático |\n"
+            "| P-05 | Ausência de histórico de preços em comparadores existentes | "
+            "Consumidor não sabe se o preço atual é bom ou inflacionado | "
+            "Snapshots diários de preço com gráfico de tendência dos últimos 90 dias |\n"
+        ),
+        instruction=(
+            "Sintetize visão e problemas do projeto.\n"
+            "Mínimo 5 problemas. Cada problema DEVE ter:\n"
+            "- Impacto MENSURÁVEL (com número ou percentual quando possível)\n"
+            "- Solução TÉCNICA CONCRETA (com nome de tecnologia/padrão)\n"
+            "Escreva com profundidade técnica. NÃO use generalidades."
+        ),
+        min_chars=600,
+        max_output_tokens=2500,
+        input_budget=2500,
+        context_artifacts=["prd"],
+    ),
+
+    # === PASS 2: Público-Alvo ===
+    SectionPass(
+        pass_id="final_p02",
+        sections=["## Público-Alvo"],
+        template=(
+            "## Público-Alvo\n"
+            "| Segmento | Perfil (nome fictício + dor específica com contexto) | Prioridade |\n"
+            "|---|---|---|---|\n"
+            "(mínimo 3 personas. Cada persona DEVE ter nome, idade, e narrativa de 2-3 frases "
+            "descrevendo a dor real com números concretos.)\n"
+        ),
+        example=(
+            "| Caçador de Oferta | Marina, 28 anos — Abre 6 abas para comparar preço de um fone "
+            "Bluetooth entre Shopee, Amazon e ML. Gasta 40min por compra e ainda assim não tem "
+            "certeza se encontrou o menor preço. Já comprou produto R$50 mais caro por não ter "
+            "encontrado a oferta de outro marketplace. | P0 |\n"
+            "| Afiliado Digital | Carlos, 34 anos — Cria conteúdo de review no Instagram e precisa "
+            "de links rastreáveis com páginas de carregamento rápido para não perder a conversão "
+            "do clique. Sua taxa de bounce atual em sites lentos é 65%. Perde ~R$800/mês em comissões "
+            "por links quebrados ou sem rastreabilidade. | P0 |\n"
+            "| Comprador Recorrente | Dona Fátima, 52 anos — Compra produtos de limpeza e higiene "
+            "mensalmente. Quer ser avisada quando o preço do produto que ela já conhece cair abaixo "
+            "de um valor aceitável. Já perdeu promoções de Black Friday por não monitorar preços. | P1 |\n"
+        ),
+        instruction=(
+            "Crie personas RICAS com profundidade real.\n"
+            "Cada persona DEVE ter:\n"
+            "- Nome fictício e idade\n"
+            "- Narrativa de 2-3 frases sobre a dor REAL com números concretos\n"
+            "- Consequência financeira ou de tempo da dor\n"
+            "NÃO use rótulos genéricos como 'Desenvolvedor' sem contexto. Mínimo 3 personas."
+        ),
+        min_chars=400,
+        max_output_tokens=1500,
+        input_budget=1500,
+        context_artifacts=["prd"],
+    ),
+
+    # === PASS 3: Princípios e Diferenciais ===
+    SectionPass(
+        pass_id="final_p03",
+        sections=["## Princípios Arquiteturais", "## Diferenciais"],
+        template=(
+            "## Princípios Arquiteturais\n"
+            "| Princípio | Descrição Concreta | Implicação Técnica | Regra Verificável |\n"
+            "|---|---|---|---|\n"
+            "(mínimo 5 princípios. Cada um com REGRA: verificável por teste automatizado ou auditoria.)\n\n"
+            "## Diferenciais\n"
+            "| Abordagem Atual/Concorrente | Problema | Como Este Sistema Supera |\n"
+            "|---|---|---|\n"
+            "(mínimo 4 diferenciais vs concorrentes reais ou abordagem manual.)\n"
+        ),
+        example=(
+            "| ISR First | Toda página de produto é pré-renderizada estaticamente e regenerada em "
+            "background a cada 60 segundos | Uso de revalidate: 60 em generateStaticParams do Next.js | "
+            "REGRA: Nenhuma página pode usar force-dynamic. Teste verifica header x-nextjs-cache: "
+            "HIT|STALE em 100% das rotas /produto/* |\n"
+            "| Normalização de Dados | Toda informação de produto passa por transformação para "
+            "schema único antes de persistência | Camada de domínio (NormalizedProduct) com Pydantic | "
+            "REGRA: Nenhum dado bruto de marketplace é exposto ao frontend. Teste verifica que toda "
+            "resposta da API conforma com NormalizedProductSchema |\n"
+            "| Edge Caching | Conteúdo estático distribuído em PoPs próximos ao usuário | "
+            "Deploy em Vercel Edge com Cache-Control: s-maxage=60, stale-while-revalidate=300 | "
+            "REGRA: Toda resposta contém header x-vercel-cache. Teste verifica latência p95 < 200ms |\n"
+            "| Fail Gracefully | Falha em um marketplace não impede exibição dos demais | "
+            "Circuit breaker por collector com fallback para último cache válido | "
+            "REGRA: Se Shopee estiver indisponível, página renderiza com dados de Amazon, Magalu e ML |\n"
+            "| Zero Trust em Scraping | Todo dado coletado é considerado potencialmente malicioso | "
+            "Sanitização HTML, validação de tipo, limites de tamanho | "
+            "REGRA: Nenhum texto coletado é renderizado sem sanitização via DOMPurify |\n\n"
+            "| Scraping em tempo real (Buscapé) | Lentidão 3-8s por busca e bloqueio de IP frequente | "
+            "Cache ISR: dados pré-renderizados servidos em <100ms; invalidação por webhook |\n"
+            "| Renderização no Cliente (CSR) | SEO inexistente, primeira pintura >4s | "
+            "Pré-renderização SSR/ISR de 100% das páginas com LCP alvo <2.5s |\n"
+            "| Comparação estática (blogs) | Dados desatualizados, sem personalização | "
+            "Gráfico de histórico de 90 dias + alertas por email quando preço atinge target |\n"
+            "| Agregadores sem rastreabilidade | Afiliados não rastreiam conversão | "
+            "Links com UTM automático, dashboard de cliques por afiliado, relatório de CTR |\n"
+        ),
+        instruction=(
+            "Gere princípios com PROFUNDIDADE TÉCNICA REAL.\n"
+            "Mínimo 5 princípios. Cada um DEVE ter:\n"
+            "- Descrição concreta (não genérica)\n"
+            "- Implicação técnica com nome de tecnologia/lib\n"
+            "- REGRA: verificável por teste automatizado\n\n"
+            "Mínimo 4 diferenciais comparando com concorrentes REAIS."
+        ),
+        min_chars=700,
+        max_output_tokens=2500,
+        input_budget=2500,
+        context_artifacts=["prd", "system_design"],
+    ),
+
+    # === PASS 4: Requisitos Funcionais ===
+    SectionPass(
+        pass_id="final_p04",
+        sections=["## Requisitos Funcionais"],
+        template=(
+            "## Requisitos Funcionais (Consolidados)\n"
+            "| ID | Requisito | Critério de Aceite | Prioridade | Complexidade | Status Pós-Review |\n"
+            "|---|---|---|---|---|---|\n"
+            "(mínimo 8 RFs. Critérios DEVEM ser testes automatizáveis com endpoint, status HTTP "
+            "e formato de resposta. Cada RF deve referenciar o componente responsável.)\n"
+        ),
+        example=(
+            "| RF-01 | Busca Unificada Multi-Loja | GET /api/v1/search?q=jbl+510bt retorna JSON com "
+            "campo results[] contendo itens de >=2 marketplaces. Status 200. Tempo p95 < 1000ms | "
+            "Must | Média | Aprovado |\n"
+            "| RF-02 | Página de Produto com ISR | URL /produto/{slug} retorna HTML com status 200. "
+            "Header x-nextjs-cache presente com valor HIT ou STALE. Revalidação a cada 60s | "
+            "Must | Alta | Aprovado |\n"
+            "| RF-03 | Histórico de Preços | GET /api/v1/products/{slug}/history?days=90 retorna JSON "
+            "com data_points[] contendo >=1 entrada por semana nos últimos 90 dias | "
+            "Should | Média | Aprovado |\n"
+            "| RF-04 | Alertas de Queda de Preço | POST /api/v1/alerts com body {email, product_slug, "
+            "target_price} retorna 201. Quando collector detecta price <= target, email enviado em <=5min | "
+            "Should | Alta | Aprovado |\n"
+        ),
+        instruction=(
+            "Consolide RFs do PRD original com status do Review.\n"
+            "Mínimo 8 RFs. IDs sequenciais (RF-01, RF-02, ...).\n"
+            "Critérios de aceite DEVEM incluir:\n"
+            "- Endpoint ou interface clara\n"
+            "- Status HTTP esperado\n"
+            "- Formato de resposta esperada\n"
+            "Cada RF DEVE referenciar o componente responsável."
+        ),
+        min_chars=700,
+        max_output_tokens=2500,
+        input_budget=2500,
+        context_artifacts=["prd", "requirements"],
+    ),
+    # ... outros passes omitidos para brevidade neste arquivo de arquivamento.
+]
+```

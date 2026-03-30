@@ -15,7 +15,7 @@ class TestNexusFinalPasses(unittest.TestCase):
         self.assertEqual(len(NEXUS_FINAL_PASSES), 12)
     
     def test_all_20_sections_covered(self):
-        """Verifica que os 5 passes cobrem todas as 20 seções obrigatórias."""
+        """Verifica que os 12 passes cobrem todas as 20 seções obrigatórias."""
         validator = OutputValidator()
         required = set(validator.REQUIRED_SECTIONS["prd_final"])
         
@@ -57,7 +57,7 @@ class TestNexusFinalPasses(unittest.TestCase):
         for p in NEXUS_FINAL_PASSES:
             self.assertGreaterEqual(p.max_output_tokens, 800,
                                     f"Pass {p.pass_id} ('{', '.join(p.sections)}') max_output_tokens muito baixo: {p.max_output_tokens}")
-            self.assertLessEqual(p.max_output_tokens, 2000,
+            self.assertLessEqual(p.max_output_tokens, 2500,
                                  f"Pass {p.pass_id} max_output_tokens muito alto")
 
 

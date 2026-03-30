@@ -26,7 +26,7 @@ FASE N — FLUXO DE TRABALHO
 
 2. VOCÊ diz à IA:
    "Leia .ai-context, depois docs/CURRENT_STATE.md.
-    Aqui está o blueprint da Fase 9.1.1
+    Aqui está o blueprint da Fase 9.3
     Implemente."
 
 3. IA implementa lendo apenas os arquivos de src/ necessários
