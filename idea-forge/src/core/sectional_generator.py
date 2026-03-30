@@ -785,7 +785,7 @@ NEXUS_FINAL_PASSES = [
             "Mínimo 5 problemas. Cada problema deve ter impacto mensurável e solução técnica concreta.\n"
             "Escreva com profundidade técnica. NÃO use generalidades."
         ),
-        min_chars=600,
+        min_chars=800,
         max_output_tokens=2500,
         input_budget=2500,
         context_artifacts=["prd"],
@@ -846,7 +846,7 @@ NEXUS_FINAL_PASSES = [
             "Princípios: cada um DEVE ter coluna 'Regra Verificável' com texto 'REGRA:'.\n"
             "Diferenciais: compare com concorrentes reais ou abordagem manual atual."
         ),
-        min_chars=700,
+        min_chars=900,
         max_output_tokens=2500,
         input_budget=2500,
         context_artifacts=["prd", "system_design"],
@@ -885,45 +885,86 @@ NEXUS_FINAL_PASSES = [
             "## Requisitos Não-Funcionais\n"
             "| ID | Categoria | Requisito | Métrica | Target |\n"
             "|---|---|---|---|---|\n"
-            "(mínimo 4 RNFs com target NUMÉRICO. Categorias: Performance, SEO, Disponibilidade, Segurança)\n"
+            "(mínimo 8 RNFs cobrindo TODAS estas categorias:\n"
+            "Performance, SEO, Disponibilidade, Segurança, "
+            "Escalabilidade, Compatibilidade, Observabilidade, Usabilidade.)\n"
         ),
         example=(
             "| RNF-01 | Performance | LCP em páginas de produto | p95 Lighthouse | <2.5s |\n"
-            "| RNF-02 | SEO | Indexabilidade | Google Search Console | 100% válidos |\n"
-            "| RNF-03 | Disponibilidade | Uptime do Gateway de Busca | SLA mensal | 99.9% |\n"
-            "| RNF-04 | Segurança | Resposta de erro ofuscada | Penetration Test | 100% sem vazamento |\n"
+            "| RNF-02 | Performance | FID (First Input Delay) | p95 Lighthouse | <100ms |\n"
+            "| RNF-03 | SEO | Indexabilidade de páginas dinâmicas | Google Search Console | 100% válidos |\n"
+            "| RNF-04 | SEO | Meta tags presentes (title, description, og:*) | Teste Playwright | 100% |\n"
+            "| RNF-05 | Disponibilidade | Uptime do frontend e API | UptimeRobot | >=99.9% |\n"
+            "| RNF-06 | Escalabilidade | Concorrência de requisições | Load test k6 | >=1000 req/s |\n"
+            "| RNF-07 | Segurança | Proteção contra XSS em inputs | OWASP ZAP scan | 0 vulnerabilidades HIGH |\n"
+            "| RNF-08 | Observabilidade | Logs estruturados em JSON | Formato verificável | 100% dos serviços |\n"
+            "| RNF-09 | Compatibilidade | Suporte a navegadores | BrowserStack | Chrome 90+, Firefox 90+, Safari 15+ |\n"
+            "| RNF-10 | Usabilidade | Tempo para primeira busca (TTFB) | Teste com 5 usuários | <3 cliques |\n"
         ),
-        instruction="Mínimo 4 RNFs. Target DEVE ser numérico, nunca 'bom' ou 'adequado'.",
-        min_chars=200,
-        max_output_tokens=1000,
-        input_budget=1500,
+        instruction=(
+            "Mínimo 8 RNFs cobrindo TODAS estas categorias:\n"
+            "Performance, SEO, Disponibilidade, Segurança, Escalabilidade, "
+            "Compatibilidade, Observabilidade, Usabilidade.\n"
+            "Target DEVE ser numérico e verificável. Nunca 'bom' ou 'adequado'.\n"
+            "Cada RNF deve ter método de medição implícito na coluna Métrica."
+        ),
+        min_chars=500,
+        max_output_tokens=2000,
+        input_budget=2000,
         context_artifacts=["prd"],
     ),
 
-    # === PASS 6: Arquitetura e Tech Stack ===
+    # === PASS 6: Arquitetura, Tech Stack e ADRs ===
     SectionPass(
         pass_id="final_p06",
         sections=["## Arquitetura e Tech Stack", "## ADRs"],
         template=(
             "## Arquitetura e Tech Stack\n"
             "- **Estilo:** [tipo de arquitetura]\n"
-            "| Camada | Tecnologia | Justificativa |\n"
-            "|---|---|---|\n"
-            "(mínimo 3 camadas)\n\n"
+            "- **Diagrama de componentes:**\n"
+            "```mermaid\ngraph TB\n  [descreva os componentes e conexões]\n```\n\n"
+            "| Camada | Tecnologia | Versão | Justificativa | Alternativa Rejeitada |\n"
+            "|---|---|---|---|---|\n"
+            "(mínimo 4 camadas com versão exata e alternativa rejeitada)\n\n"
             "## ADRs (Decisões Arquiteturais)\n"
-            "| ID | Decisão | Alternativa Rejeitada | Consequências |\n"
-            "|---|---|---|---|\n"
-            "(mínimo 3 ADRs com trade-off real)\n"
+            "Para cada decisão (mínimo 4):\n"
+            "| Campo | Valor |\n"
+            "|---|---|\n"
+            "| ID | ADR-XX |\n"
+            "| Decisão | [o que foi escolhido] |\n"
+            "| Alternativa Rejeitada | [opção descartada com motivo] |\n"
+            "| Consequências | [prós e contras] |\n"
+            "| Mitigação | [como os contras são tratados] |\n"
         ),
         example=(
-            "| Frontend | Next.js 14 + Vercel Edge | SSR/ISR nativo para SEO e Core Web Vitals |\n"
-            "| API Layer | FastAPI (Python) | Alta performance em I/O assíncrono para scraping |\n"
-            "| ADR-01 | ISR | SSR puro | Reduz latência drasticamente; trade-off de dados de até 60s |\n"
-            "| ADR-02 | PostgreSQL | MongoDB | Garantia de integridade referencial para catálogo complexo |\n"
+            "- **Estilo:** Microserviços com Serverless Edge\n"
+            "```mermaid\ngraph TB\n"
+            "  USER[Usuário] -->|HTTPS| CDN[Vercel Edge/CDN]\n"
+            "  CDN -->|ISR/SSR| NEXT[Next.js 14]\n"
+            "  NEXT -->|REST| API[FastAPI]\n"
+            "  API -->|Query| PG[(PostgreSQL 16)]\n"
+            "  API -->|Cache| REDIS[(Redis 7.2)]\n"
+            "  CELERY[Celery Workers] -->|Scrape| MP[Marketplaces]\n"
+            "  CELERY -->|Persist| PG\n"
+            "```\n\n"
+            "| Frontend/Edge | Next.js 14 | 14.2.x | SSR/ISR nativo para SEO | Nuxt.js — menor ecossistema React |\n"
+            "| Backend API | FastAPI | 0.111.x | Async nativo, alto throughput | Flask — bloqueio de async |\n"
+            "| Data Store | PostgreSQL | 16.x | ACID, busca trigram via pg_trgm | MongoDB — dados estruturados |\n"
+            "| Cache | Redis | 7.2.x | In-memory, TTL configurável, pub/sub | Memcached — sem persistência |\n\n"
+            "| Campo | Valor |\n|---|---|\n"
+            "| ID | ADR-01 |\n"
+            "| Decisão | ISR com revalidate: 60 para páginas de produto |\n"
+            "| Alternativa Rejeitada | SSR puro — carga proporcional ao tráfego, custo crescente |\n"
+            "| Consequências | (+) Latência <100ms para cache hit. (+) SEO completo. (-) Dados até 60s de atraso |\n"
+            "| Mitigação | Webhook de revalidação on-demand quando preço muda |\n"
         ),
         instruction=(
-            "Sintetize do System Design. ADRs: incluir trade-off real, não apenas 'melhor opção'.\n"
-            "Mínimo 3 camadas e 3 ADRs."
+            "Gere arquitetura com PROFUNDIDADE REAL.\n"
+            "OBRIGATÓRIO incluir:\n"
+            "- Diagrama Mermaid em bloco ```mermaid com componentes e conexões\n"
+            "- Tabela de tech stack com VERSÃO EXATA e alternativa rejeitada\n"
+            "- Mínimo 4 ADRs no formato ficha (cada um com ID, Decisão, Alternativa, Consequências, Mitigação)\n"
+            "NÃO use tabela simples para ADRs — use formato de ficha com | Campo | Valor |."
         ),
         min_chars=800,
         max_output_tokens=2500,
@@ -964,10 +1005,16 @@ NEXUS_FINAL_PASSES = [
             "**NÃO inclui:** [lista com justificativa técnica para cada exclusão]\n"
         ),
         example=(
-            "**Inclui:**\n- RF-01 (Busca Unificada)\n- RF-02 (Página ISR)\n- RF-03 (Histórico de Preço)\n"
-            "- RF-04 (Autenticação)\n- RF-05 (Favoritos)\n- RF-06 (Alertas)\n\n"
-            "**NÃO inclui:**\n- RF-07 (Checkout) — complexidade de integração exige 8 semanas adicionais\n"
-            "- RF-08 (Marketplace) — modelo de negócio focado em agregação na V1\n"
+            "**Inclui:**\n- RF-01 (Busca "
+            "Unificada)\n- RF-02 (Página ISR)\n- RF-03 "
+            "(Histórico de Preço)\n"
+            "- RF-04 (Autenticação)\n- RF-05 "
+            "(Favoritos)\n- RF-06 (Alertas)\n\n"
+            "**NÃO inclui:**\n- Checkout integrado "
+            "— complexidade de integração exige 8 "
+            "semanas adicionais; dependência de APIs de pagamento\n"
+            "- Marketplace próprio — modelo de "
+            "negócio focado em agregação na V1; requer acordos de revenda\n"
         ),
         instruction="Referencie APENAS RF-IDs da tabela de RFs gerada anteriormente. NÃO invente IDs novos.",
         min_chars=300,
@@ -977,29 +1024,42 @@ NEXUS_FINAL_PASSES = [
         context_artifacts=["prd"],
     ),
 
-    # === PASS 9: Riscos Consolidados e Métricas ===
+    # === PASS 9: Riscos e Métricas ===
     SectionPass(
         pass_id="final_p09",
         sections=["## Riscos Consolidados", "## Métricas de Sucesso"],
         template=(
             "## Riscos Consolidados (PRD + Design + Security)\n"
-            "| ID | Risco | Fonte | Probabilidade | Impacto | Mitigação |\n"
-            "|---|---|---|---|---|---|\n"
-            "(mínimo 4 riscos)\n\n"
+            "| ID | Risco | Fonte | Probabilidade | Impacto | Mitigação | Workaround Atual |\n"
+            "|---|---|---|---|---|---|---|\n"
+            "(mínimo 6 riscos com mitigação E workaround concreto)\n\n"
             "## Métricas de Sucesso\n"
             "| Métrica | Target | Prazo | Como Medir |\n"
             "|---|---|---|---|\n"
-            "(mínimo 4 métricas com target numérico e método concreto de medição)\n"
+            "(mínimo 5 métricas com target numérico e método concreto de medição)\n"
         ),
         example=(
-            "| R-01 | Bloqueio de IP | Security | Alta | Crítico | Proxy rotation + delay 2-5s |\n"
-            "| R-02 | Injeção de Código | Backend | Alta | Sanitização rigorosa com Zod schemas |\n\n"
-            "| LCP | <2.5s | Contínuo | Lighthouse CI no pipeline de CI/CD via GitHub Actions |\n"
-            "| Conversão | >3% | Mensal | Google Analytics 4 com funil de eventos customizados |\n"
+            "| R-01 | Bloqueio de IP por anti-bot | Security | Alta | Crítico | "
+            "Proxy rotation com pool de 20+ IPs + delay 2-5s | "
+            "Cache stale serve dados antigos por até 1h enquanto proxy recupera |\n"
+            "| R-02 | Dados desatualizados (ISR stale) | Design | Média | Alto | "
+            "Webhook de revalidação on-demand + cache TTL curto para itens populares | "
+            "Badge 'Atualizado há X minutos' visível ao usuário |\n"
+            "| R-03 | Layout de marketplace mudou | PRD | Alta | Alto | "
+            "Seletores CSS versionados + alerta Sentry com screenshot | "
+            "Cache stale + badge 'dados podem estar desatualizados' |\n\n"
+            "| LCP (Largest Contentful Paint) | <2.5s | Contínuo | Lighthouse CI no pipeline — "
+            "bloqueia merge se LCP > 2.5s |\n"
+            "| Precisão de Preço | >95% | Contínuo | Auditoria amostral: comparar 50 produtos/semana "
+            "com preço real no marketplace |\n"
+            "| Taxa de Clique em Afiliado (CTR) | >=5% | 3 meses | GA4 com funil de eventos |\n"
         ),
         instruction=(
-            "Consolide riscos de PRD, Design e Security. Mínimo 4 riscos e 4 métricas.\n"
-            "Métricas: 'Como Medir' deve descrever ferramenta E frequência."
+            "Consolide riscos de PRD, Design e Security.\n"
+            "Mínimo 6 riscos e 5 métricas.\n"
+            "Riscos: incluir coluna 'Workaround Atual' — ação concreta que o sistema faz AGORA "
+            "enquanto a mitigação definitiva não está implementada.\n"
+            "Métricas: 'Como Medir' deve descrever ferramenta, frequência e critério de bloqueio."
         ),
         min_chars=600,
         max_output_tokens=2500,
@@ -1037,43 +1097,61 @@ NEXUS_FINAL_PASSES = [
         context_artifacts=["development_plan", "debate_transcript"],
     ),
 
-    # === PASS 11: Constraints + Matriz + Limitações ===
+    # === PASS 11: Constraints + Rastreabilidade + Limitações ===
     SectionPass(
         pass_id="final_p11",
         sections=["## Constraints Técnicos", "## Matriz de Rastreabilidade", "## Limitações Conhecidas"],
         template=(
             "## Constraints Técnicos\n"
-            "- Linguagem: [valor com versão]\n"
-            "- Framework: [valor com versão]\n"
-            "- Banco de dados: [valor]\n"
-            "- Infraestrutura: [provedores]\n"
-            "- Segurança: [lista concreta]\n\n"
+            "- Linguagem: [valor com versão exata]\n"
+            "- Framework: [valor com versão exata]\n"
+            "- Banco de dados: [valor com versão]\n"
+            "- Infraestrutura: [provedores específicos]\n"
+            "- Segurança: [lista concreta de medidas]\n\n"
             "## Matriz de Rastreabilidade\n"
-            "| RF-ID | Componente | Teste Associado | Status |\n"
+            "| RF-ID | Componente/Módulo | Teste Associado | Status |\n"
             "|---|---|---|---|\n"
-            "(cada RF da tabela anterior DEVE aparecer)\n\n"
+            "(OBRIGATÓRIO: usar os MESMOS RF-IDs da tabela de Requisitos Funcionais. "
+            "NÃO invente IDs ou nomes de componentes que não existam. "
+            "Cada RF DEVE aparecer exatamente uma vez.)\n\n"
             "## Limitações Conhecidas\n"
-            "| ID | Limitação | Severidade | Impacto | Workaround | Quando Resolvida |\n"
+            "| ID | Limitação | Severidade | Impacto | Workaround Atual | Quando Resolvida |\n"
             "|---|---|---|---|---|---|\n"
-            "(mínimo 3 limitações com workaround concreto)\n"
+            "(mínimo 4 limitações com workaround concreto e versão de resolução)\n"
         ),
         example=(
-            "- Linguagem: TypeScript 5+ (Strict Mode ativado)\n"
-            "- Framework: Next.js 14 (App Router + Server Components)\n"
-            "- Infraestrutura: Vercel + AWS Lambda (Edge Computing)\n\n"
-            "| RF-01 | SearchModule | Unit (Jest): retorna resultados de >=2 marketplaces | Planejado |\n"
-            "| RF-02 | SearchAPI | Integration (Supertest): GET /api/search return 200 OK | Planejado |\n\n"
-            "| LIM-01 | Bloqueio de IP | Alta | Coleta falha temporariamente | Proxy rotation + cache | v1.1 |\n"
-            "| LIM-02 | Latência de Index | Média | Preço stale por 60s | Badge 'stale data' | v1.2 |\n"
+            "- Linguagem: TypeScript 5.3 (Strict Mode) / Python 3.11\n"
+            "- Framework: Next.js 14.2 (App Router) / FastAPI 0.111.x\n"
+            "- Banco de dados: PostgreSQL 16 + Redis 7.2\n"
+            "- Infraestrutura: Vercel (Frontend/Edge) + Railway (Backend/Workers)\n"
+            "- Segurança: Rate Limiting 60 req/min, CSP Headers, HTTPS obrigatório, JWT auth, LGPD compliance\n\n"
+            "| RF-01 | SearchModule | Unit (Jest): retorna resultados de >=2 marketplaces. "
+            "Integration (Supertest): /api/search retorna 200 | Planejado |\n"
+            "| RF-02 | ProductPage ISR | E2E (Playwright): /produto/slug exibe header x-nextjs-cache | Planejado |\n"
+            "| RF-03 | AlertService | Unit: POST /api/alerts retorna 201 com alertId válido | Planejado |\n"
+            "| RF-04 | SearchFilter | Integration: /api/search?minPrice=X&maxPrice=Y filtra corretamente | Planejado |\n"
+            "| RF-05 | RankingEngine | Unit: /api/search?sort=best retorna ordenado por preço | Planejado |\n"
+            "| RF-06 | HistoryService | Integration: /api/history retorna JSON with data_points | Planejado |\n\n"
+            "| LIM-01 | Bloqueio de IP por anti-bot | Alta | Coleta falha temporariamente | "
+            "Proxy rotation + backoff exponencial + cache stale | v1.1 — Pool Bright Data com 100+ IPs |\n"
+            "| LIM-02 | ISR tem atraso de até 60s | Média | Preço pode estar desatualizado | "
+            "Badge 'Atualizado há X min' + webhook on-demand | v1.5 — SSE para push em tempo real |\n"
+            "| LIM-03 | Busca limitada a trigram | Baixa | 'headphone' não encontra 'fone de ouvido' | "
+            "Usuário deve buscar em português | v2.0 — Elasticsearch com sinônimos |\n"
+            "| LIM-04 | Sem app nativo | Baixa | UX mobile limitada | PWA com manifest.json | Nunca — PWA é definitivo |\n"
         ),
         instruction=(
-            "Constraints: valores CONCRETOS com versão.\n"
-            "Rastreabilidade: cada RF DEVE aparecer exatamente 1 vez.\n"
-            "Limitações: workaround concreto que o sistema já faz, não plano futuro."
+            "IMPORTANTE sobre Rastreabilidade:\n"
+            "- Use os MESMOS RF-IDs (RF-01, RF-02, etc.) da tabela de Requisitos Funcionais.\n"
+            "- NÃO invente IDs novos. NÃO invente nomes de componentes que não existam.\n"
+            "- Se a tabela de RFs tem RF-01 a RF-06, a rastreabilidade DEVE ter RF-01 a RF-06.\n\n"
+            "Constraints: versões EXATAS de cada tecnologia.\n"
+            "Limitações: mínimo 4 com workaround concreto (o que o sistema faz AGORA) "
+            "e versão de resolução (quando será corrigido)."
         ),
-        min_chars=600,
+        min_chars=800,
         max_output_tokens=2500,
-        input_budget=2500,
+        input_budget=3000,
         context_artifacts=["prd", "system_design"],
     ),
 

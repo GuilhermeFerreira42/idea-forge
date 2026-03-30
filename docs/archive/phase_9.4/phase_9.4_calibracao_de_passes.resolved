@@ -1,0 +1,383 @@
+## Resumo de Contexto (3 linhas)
+
+**Onde estamos:** Fase 9.3 concluída com PRD Final de 11.963 chars, 20/20 seções (completeness 1.0), personas ricas e princípios com REGRA — mas o ConsistencyChecker reporta CRITICAL: RF_ORPHAN porque RF-07 e RF-08 fantasmas aparecem no Escopo MVP, aprendidos pelo modelo a partir do exemplo do Pass 8.
+
+**O que foi decidido:** Melhorar apenas o Consolidador (TASK_07) com 12 passes granulares e contexto seletivo; PRD Final alvo de 15.000-25.000 chars; CONSOLIDATOR_DIRECTIVE separada da ANTI_PROLIXITY; diffs precisos em vez de código completo.
+
+**Próximo passo:** Aplicar fix do RF-07/RF-08 no Pass 8 + implementar Fase 9.4 (calibração dos 4 passes fracos: Rastreabilidade, Limitações, ADRs, RNFs) com critério binário: `is_clean: True` E `len(prd_final) >= 15.000 chars`.
+
+---
+
+# FIX RF-07/RF-08 + BLUEPRINT FASE 9.4
+
+## PARTE 1 — Fix do Pass 8 (RF-07/RF-08 fantasmas)
+
+### Causa raiz
+O exemplo do Pass 8 (`final_p08`) contém linhas com `RF-07 (Checkout)` e `RF-08 (Marketplace)` que não existem na tabela de RFs (que vai até RF-06). O modelo aprende pelo exemplo e replica esses IDs inexistentes no output.
+
+### Diff — `sectional_generator.py` (dentro de `NEXUS_FINAL_PASSES`, Pass 8)
+
+Localizar o `SectionPass` com `pass_id="final_p08"` e substituir **apenas o campo `example`**:
+
+```python
+# ANTES (no example do final_p08):
+        example=(
+            "**Inclui:**\n- RF-01 (Busca "
+            "Unificada)\n- RF-02 (Página ISR)\n- RF-03 "
+            "(Histórico de Preço)\n"
+            "- RF-04 (Autenticação)\n- RF-05 "
+            "(Favoritos)\n- RF-06 (Alertas)\n\n"
+            "**NÃO inclui:**\n- RF-07 (Checkout) "
+            "— complexidade de integração exige 8 "
+            "semanas adicionais\n"
+            "- RF-08 (Marketplace) — modelo de "
+            "negócio focado em agregação na V1\n"
+        ),
+
+# DEPOIS:
+        example=(
+            "**Inclui:**\n- RF-01 (Busca "
+            "Unificada)\n- RF-02 (Página ISR)\n- RF-03 "
+            "(Histórico de Preço)\n"
+            "- RF-04 (Autenticação)\n- RF-05 "
+            "(Favoritos)\n- RF-06 (Alertas)\n\n"
+            "**NÃO inclui:**\n- Checkout integrado "
+            "— complexidade de integração exige 8 "
+            "semanas adicionais; dependência de APIs de pagamento\n"
+            "- Marketplace próprio — modelo de "
+            "negócio focado em agregação na V1; requer acordos de revenda\n"
+        ),
+```
+
+**O que muda:** As duas linhas do "NÃO inclui" agora usam nomes de feature sem RF-ID, eliminando a fonte dos IDs fantasmas. A instrução do pass já diz `"Referencie APENAS RF-IDs da tabela de RFs gerada anteriormente. NÃO invente IDs novos."` — agora o exemplo é coerente com a instrução.
+
+---
+
+## PARTE 2 — Blueprint da Fase 9.4: Calibração de 4 Passes Fracos
+
+### Diagnóstico dos passes com nota baixa
+
+| Pass | Seções | Nota (Fase 9.3) | Problema Principal |
+|---|---|---|---|
+| P05 (RNFs) | `## Requisitos Não-Funcionais` | 6/10 | Apenas 5 RNFs, faltam categorias (Compatibilidade, Observabilidade, Usabilidade). Exemplo curto. |
+| P06 (ADRs) | `## Arquitetura e Tech Stack`, `## ADRs` | 5/10 | ADRs em tabela simples sem campos Mitigação e Consequências detalhados. Falta Mermaid. |
+| P11 (Rastreabilidade) | `## Constraints`, `## Matriz de Rastreabilidade`, `## Limitações` | 3/10 | Rastreabilidade tem apenas 2 RFs de 6. Limitações com apenas 3 itens e workaround genérico. |
+| P09 (Riscos+Métricas) | `## Riscos Consolidados`, `## Métricas` | Bom parcialmente | Riscos sem coluna Workaround. Poucos riscos (4). |
+
+### Estratégia
+
+Calibrar **template**, **example** e **instruction** de cada pass fraco para produzir output mais profundo, sem alterar a estrutura do `SectionPass` nem adicionar passes novos. Os 4 diffs abaixo são independentes — podem ser aplicados em qualquer ordem.
+
+---
+
+### Diff 9.4.1 — Pass 5 (RNFs): Mais categorias e exemplos ricos
+
+Localizar `SectionPass` com `pass_id="final_p05"` e substituir `template`, `example` e `instruction`:
+
+```python
+    # === PASS 5: Requisitos Não-Funcionais ===
+    SectionPass(
+        pass_id="final_p05",
+        sections=["## Requisitos Não-Funcionais"],
+        template=(
+            "## Requisitos Não-Funcionais\n"
+            "| ID | Categoria | Requisito | Métrica | Target |\n"
+            "|---|---|---|---|---|\n"
+            "(mínimo 8 RNFs cobrindo TODAS estas categorias:\n"
+            "Performance, SEO, Disponibilidade, Segurança, "
+            "Escalabilidade, Compatibilidade, Observabilidade, Usabilidade.)\n"
+        ),
+        example=(
+            "| RNF-01 | Performance | LCP em páginas de produto | p95 Lighthouse | <2.5s |\n"
+            "| RNF-02 | Performance | FID (First Input Delay) | p95 Lighthouse | <100ms |\n"
+            "| RNF-03 | SEO | Indexabilidade de páginas dinâmicas | Google Search Console | 100% válidos |\n"
+            "| RNF-04 | SEO | Meta tags presentes (title, description, og:*) | Teste Playwright | 100% |\n"
+            "| RNF-05 | Disponibilidade | Uptime do frontend e API | UptimeRobot | >=99.9% |\n"
+            "| RNF-06 | Escalabilidade | Concorrência de requisições | Load test k6 | >=1000 req/s |\n"
+            "| RNF-07 | Segurança | Proteção contra XSS em inputs | OWASP ZAP scan | 0 vulnerabilidades HIGH |\n"
+            "| RNF-08 | Observabilidade | Logs estruturados em JSON | Formato verificável | 100% dos serviços |\n"
+            "| RNF-09 | Compatibilidade | Suporte a navegadores | BrowserStack | Chrome 90+, Firefox 90+, Safari 15+ |\n"
+            "| RNF-10 | Usabilidade | Tempo para primeira busca (TTFB) | Teste com 5 usuários | <3 cliques |\n"
+        ),
+        instruction=(
+            "Mínimo 8 RNFs cobrindo TODAS estas categorias:\n"
+            "Performance, SEO, Disponibilidade, Segurança, Escalabilidade, "
+            "Compatibilidade, Observabilidade, Usabilidade.\n"
+            "Target DEVE ser numérico e verificável. Nunca 'bom' ou 'adequado'.\n"
+            "Cada RNF deve ter método de medição implícito na coluna Métrica."
+        ),
+        min_chars=500,
+        max_output_tokens=2000,
+        input_budget=2000,
+        context_artifacts=["prd"],
+    ),
+```
+
+---
+
+### Diff 9.4.2 — Pass 6 (Arquitetura + ADRs): Mermaid + ADRs em formato ficha
+
+Localizar `SectionPass` com `pass_id="final_p06"` e substituir `template`, `example` e `instruction`:
+
+```python
+    # === PASS 6: Arquitetura, Tech Stack e ADRs ===
+    SectionPass(
+        pass_id="final_p06",
+        sections=["## Arquitetura e Tech Stack", "## ADRs"],
+        template=(
+            "## Arquitetura e Tech Stack\n"
+            "- **Estilo:** [tipo de arquitetura]\n"
+            "- **Diagrama de componentes:**\n"
+            "```mermaid\ngraph TB\n  [descreva os componentes e conexões]\n```\n\n"
+            "| Camada | Tecnologia | Versão | Justificativa | Alternativa Rejeitada |\n"
+            "|---|---|---|---|---|\n"
+            "(mínimo 4 camadas com versão exata e alternativa rejeitada)\n\n"
+            "## ADRs (Decisões Arquiteturais)\n"
+            "Para cada decisão (mínimo 4):\n"
+            "| Campo | Valor |\n"
+            "|---|---|\n"
+            "| ID | ADR-XX |\n"
+            "| Decisão | [o que foi escolhido] |\n"
+            "| Alternativa Rejeitada | [opção descartada com motivo] |\n"
+            "| Consequências | [prós e contras] |\n"
+            "| Mitigação | [como os contras são tratados] |\n"
+        ),
+        example=(
+            "- **Estilo:** Microserviços com Serverless Edge\n"
+            "```mermaid\ngraph TB\n"
+            "  USER[Usuário] -->|HTTPS| CDN[Vercel Edge/CDN]\n"
+            "  CDN -->|ISR/SSR| NEXT[Next.js 14]\n"
+            "  NEXT -->|REST| API[FastAPI]\n"
+            "  API -->|Query| PG[(PostgreSQL 16)]\n"
+            "  API -->|Cache| REDIS[(Redis 7.2)]\n"
+            "  CELERY[Celery Workers] -->|Scrape| MP[Marketplaces]\n"
+            "  CELERY -->|Persist| PG\n"
+            "```\n\n"
+            "| Frontend/Edge | Next.js 14 | 14.2.x | SSR/ISR nativo para SEO | Nuxt.js — menor ecossistema React |\n"
+            "| Backend API | FastAPI | 0.111.x | Async nativo, alto throughput | Flask — bloqueio de async |\n"
+            "| Data Store | PostgreSQL | 16.x | ACID, busca trigram via pg_trgm | MongoDB — dados estruturados |\n"
+            "| Cache | Redis | 7.2.x | In-memory, TTL configurável, pub/sub | Memcached — sem persistência |\n\n"
+            "| Campo | Valor |\n|---|---|\n"
+            "| ID | ADR-01 |\n"
+            "| Decisão | ISR com revalidate: 60 para páginas de produto |\n"
+            "| Alternativa Rejeitada | SSR puro — carga proporcional ao tráfego, custo crescente |\n"
+            "| Consequências | (+) Latência <100ms para cache hit. (+) SEO completo. (-) Dados até 60s de atraso |\n"
+            "| Mitigação | Webhook de revalidação on-demand quando preço muda |\n"
+        ),
+        instruction=(
+            "Gere arquitetura com PROFUNDIDADE REAL.\n"
+            "OBRIGATÓRIO incluir:\n"
+            "- Diagrama Mermaid em bloco ```mermaid com componentes e conexões\n"
+            "- Tabela de tech stack com VERSÃO EXATA e alternativa rejeitada\n"
+            "- Mínimo 4 ADRs no formato ficha (cada um com ID, Decisão, Alternativa, Consequências, Mitigação)\n"
+            "NÃO use tabela simples para ADRs — use formato de ficha com | Campo | Valor |."
+        ),
+        min_chars=800,
+        max_output_tokens=2500,
+        input_budget=3000,
+        context_artifacts=["system_design"],
+    ),
+```
+
+---
+
+### Diff 9.4.3 — Pass 9 (Riscos + Métricas): Coluna Workaround + mais itens
+
+Localizar `SectionPass` com `pass_id="final_p09"` e substituir `template`, `example` e `instruction`:
+
+```python
+    # === PASS 9: Riscos e Métricas ===
+    SectionPass(
+        pass_id="final_p09",
+        sections=["## Riscos Consolidados", "## Métricas de Sucesso"],
+        template=(
+            "## Riscos Consolidados (PRD + Design + Security)\n"
+            "| ID | Risco | Fonte | Probabilidade | Impacto | Mitigação | Workaround Atual |\n"
+            "|---|---|---|---|---|---|---|\n"
+            "(mínimo 6 riscos com mitigação E workaround concreto)\n\n"
+            "## Métricas de Sucesso\n"
+            "| Métrica | Target | Prazo | Como Medir |\n"
+            "|---|---|---|---|\n"
+            "(mínimo 5 métricas com target numérico e método concreto de medição)\n"
+        ),
+        example=(
+            "| R-01 | Bloqueio de IP por anti-bot | Security | Alta | Crítico | "
+            "Proxy rotation com pool de 20+ IPs + delay 2-5s | "
+            "Cache stale serve dados antigos por até 1h enquanto proxy recupera |\n"
+            "| R-02 | Dados desatualizados (ISR stale) | Design | Média | Alto | "
+            "Webhook de revalidação on-demand + cache TTL curto para itens populares | "
+            "Badge 'Atualizado há X minutos' visível ao usuário |\n"
+            "| R-03 | Layout de marketplace mudou | PRD | Alta | Alto | "
+            "Seletores CSS versionados + alerta Sentry com screenshot | "
+            "Cache stale + badge 'dados podem estar desatualizados' |\n\n"
+            "| LCP (Largest Contentful Paint) | <2.5s | Contínuo | Lighthouse CI no pipeline — "
+            "bloqueia merge se LCP > 2.5s |\n"
+            "| Precisão de Preço | >95% | Contínuo | Auditoria amostral: comparar 50 produtos/semana "
+            "com preço real no marketplace |\n"
+            "| Taxa de Clique em Afiliado (CTR) | >=5% | 3 meses | GA4 com funil de eventos |\n"
+        ),
+        instruction=(
+            "Consolide riscos de PRD, Design e Security.\n"
+            "Mínimo 6 riscos e 5 métricas.\n"
+            "Riscos: incluir coluna 'Workaround Atual' — ação concreta que o sistema faz AGORA "
+            "enquanto a mitigação definitiva não está implementada.\n"
+            "Métricas: 'Como Medir' deve descrever ferramenta, frequência e critério de bloqueio."
+        ),
+        min_chars=600,
+        max_output_tokens=2500,
+        input_budget=3000,
+        context_artifacts=["prd", "system_design", "security_review"],
+    ),
+```
+
+---
+
+### Diff 9.4.4 — Pass 11 (Constraints + Rastreabilidade + Limitações): Profundidade total
+
+Localizar `SectionPass` com `pass_id="final_p11"` e substituir `template`, `example` e `instruction`:
+
+```python
+    # === PASS 11: Constraints + Rastreabilidade + Limitações ===
+    SectionPass(
+        pass_id="final_p11",
+        sections=["## Constraints Técnicos", "## Matriz de Rastreabilidade", "## Limitações Conhecidas"],
+        template=(
+            "## Constraints Técnicos\n"
+            "- Linguagem: [valor com versão exata]\n"
+            "- Framework: [valor com versão exata]\n"
+            "- Banco de dados: [valor com versão]\n"
+            "- Infraestrutura: [provedores específicos]\n"
+            "- Segurança: [lista concreta de medidas]\n\n"
+            "## Matriz de Rastreabilidade\n"
+            "| RF-ID | Componente/Módulo | Teste Associado | Status |\n"
+            "|---|---|---|---|\n"
+            "(OBRIGATÓRIO: usar os MESMOS RF-IDs da tabela de Requisitos Funcionais. "
+            "NÃO invente IDs ou nomes de componentes que não existam. "
+            "Cada RF DEVE aparecer exatamente uma vez.)\n\n"
+            "## Limitações Conhecidas\n"
+            "| ID | Limitação | Severidade | Impacto | Workaround Atual | Quando Resolvida |\n"
+            "|---|---|---|---|---|---|\n"
+            "(mínimo 4 limitações com workaround concreto e versão de resolução)\n"
+        ),
+        example=(
+            "- Linguagem: TypeScript 5.3 (Strict Mode) / Python 3.11\n"
+            "- Framework: Next.js 14.2 (App Router) / FastAPI 0.111.x\n"
+            "- Banco de dados: PostgreSQL 16 + Redis 7.2\n"
+            "- Infraestrutura: Vercel (Frontend/Edge) + Railway (Backend/Workers)\n"
+            "- Segurança: Rate Limiting 60 req/min, CSP Headers, HTTPS obrigatório, JWT auth, LGPD compliance\n\n"
+            "| RF-01 | SearchModule | Unit (Jest): retorna resultados de >=2 marketplaces. "
+            "Integration (Supertest): /api/search retorna 200 | Planejado |\n"
+            "| RF-02 | ProductPage ISR | E2E (Playwright): /produto/slug exibe header x-nextjs-cache | Planejado |\n"
+            "| RF-03 | AlertService | Unit: POST /api/alerts retorna 201 com alertId válido | Planejado |\n"
+            "| RF-04 | SearchFilter | Integration: /api/search?minPrice=X&maxPrice=Y filtra corretamente | Planejado |\n"
+            "| RF-05 | RankingEngine | Unit: /api/search?sort=best retorna ordenado por preço | Planejado |\n"
+            "| RF-06 | HistoryService | Integration: /api/history retorna JSON com data_points | Planejado |\n\n"
+            "| LIM-01 | Bloqueio de IP por anti-bot | Alta | Coleta falha temporariamente | "
+            "Proxy rotation + backoff exponencial + cache stale | v1.1 — Pool Bright Data com 100+ IPs |\n"
+            "| LIM-02 | ISR tem atraso de até 60s | Média | Preço pode estar desatualizado | "
+            "Badge 'Atualizado há X min' + webhook on-demand | v1.5 — SSE para push em tempo real |\n"
+            "| LIM-03 | Busca limitada a trigram | Baixa | 'headphone' não encontra 'fone de ouvido' | "
+            "Usuário deve buscar em português | v2.0 — Elasticsearch com sinônimos |\n"
+            "| LIM-04 | Sem app nativo | Baixa | UX mobile limitada | PWA com manifest.json | Nunca — PWA é definitivo |\n"
+        ),
+        instruction=(
+            "IMPORTANTE sobre Rastreabilidade:\n"
+            "- Use os MESMOS RF-IDs (RF-01, RF-02, etc.) da tabela de Requisitos Funcionais.\n"
+            "- NÃO invente IDs novos. NÃO invente nomes de componentes que não existam.\n"
+            "- Se a tabela de RFs tem RF-01 a RF-06, a rastreabilidade DEVE ter RF-01 a RF-06.\n\n"
+            "Constraints: versões EXATAS de cada tecnologia.\n"
+            "Limitações: mínimo 4 com workaround concreto (o que o sistema faz AGORA) "
+            "e versão de resolução (quando será corrigido)."
+        ),
+        min_chars=600,
+        max_output_tokens=2500,
+        input_budget=3000,
+        context_artifacts=["prd", "system_design"],
+    ),
+```
+
+---
+
+### Diff 9.4.5 — Teste: ajustar range de max_output_tokens (se necessário)
+
+No arquivo `tests/test_phase_9_1.py`, verificar se o teste de range já aceita 2500:
+
+```python
+# Verificar este teste — se o assertLessEqual já é 2500 (da Fase 9.3), não precisa mudar.
+# Se ainda for 1500, alterar:
+
+# ANTES:
+    def test_max_output_tokens_reasonable(self):
+        for p in NEXUS_FINAL_PASSES:
+            self.assertLessEqual(p.max_output_tokens, 1500)
+
+# DEPOIS:
+    def test_max_output_tokens_reasonable(self):
+        for p in NEXUS_FINAL_PASSES:
+            self.assertGreaterEqual(p.max_output_tokens, 800)
+            self.assertLessEqual(p.max_output_tokens, 2500)
+```
+
+---
+
+## PARTE 3 — Checklist Sequencial de Implementação
+
+```
+FASE 9.4 — Calibração de Passes Fracos + Fix RF_ORPHAN
+
+[ ] 1. FIX RF_ORPHAN: Em sectional_generator.py, localizar pass final_p08
+     e substituir o campo example conforme Diff da Parte 1
+     (remover RF-07/RF-08, usar nomes de feature sem ID)
+
+[ ] 2. PASS 5 (RNFs): Em sectional_generator.py, localizar pass final_p05
+     e substituir template, example, instruction conforme Diff 9.4.1
+
+[ ] 3. PASS 6 (ADRs): Em sectional_generator.py, localizar pass final_p06
+     e substituir template, example, instruction conforme Diff 9.4.2
+
+[ ] 4. PASS 9 (Riscos): Em sectional_generator.py, localizar pass final_p09
+     e substituir template, example, instruction conforme Diff 9.4.3
+
+[ ] 5. PASS 11 (Rastreabilidade): Em sectional_generator.py, localizar pass final_p11
+     e substituir template, example, instruction conforme Diff 9.4.4
+
+[ ] 6. TESTE: Em test_phase_9_1.py, ajustar assertLessEqual para 2500
+     se ainda estiver em 1500 (Diff 9.4.5)
+
+[ ] 7. RODAR TESTES UNITÁRIOS:
+     pytest tests/test_phase_9_1.py -v
+     Critério: 0 falhas
+
+[ ] 8. RODAR SUITE COMPLETA:
+     pytest tests/ -q
+     Critério: 97+ testes passando, 0 falhas
+
+[ ] 9. EXECUTAR PIPELINE:
+     python src/cli/main.py --no-gate
+     (com o prompt de teste do comparador de preços)
+
+[ ] 10. VALIDAR RESULTADO — Critério binário de conclusão:
+      a. ConsistencyChecker reporta is_clean: True (zero RF_ORPHAN)
+      b. len(prd_final_content) >= 15.000 chars
+      c. Pelo menos 8 RNFs com categorias diversas
+      d. Pelo menos 4 ADRs em formato ficha
+      e. Rastreabilidade cobre TODOS os RF-IDs da tabela de RFs
+      f. Pelo menos 4 limitações com workaround concreto
+      g. Riscos com coluna Workaround Atual
+      h. Zero marcadores [GERAÇÃO FALHOU]
+```
+
+---
+
+## Critério Binário de Conclusão da Fase 9.4
+
+A fase está **CONCLUÍDA** quando **TODAS** estas condições forem verdadeiras simultaneamente:
+
+| # | Condição | Como verificar |
+|---|---|---|
+| 1 | `is_clean: True` no ConsistencyChecker | Ler `consistency_report_v1.json` |
+| 2 | `len(prd_final) >= 15.000` chars | `len(prd_final_content)` no Python |
+| 3 | Zero `[GERAÇÃO FALHOU]` no PRD Final | `grep "GERAÇÃO FALHOU" prd_final.md` retorna vazio |
+| 4 | `pytest tests/ -q` sem falhas | 97+ testes passando |
+
+Se qualquer condição falhar, reportar: (a) qual falhou, (b) output de erro, (c) chars do PRD Final. Eu ajusto o diff específico.

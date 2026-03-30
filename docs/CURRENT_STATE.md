@@ -1,5 +1,6 @@
 # CURRENT_STATE — IdeaForge CLI
 
+- [x] **Fase 9.4 — Calibração de Passes Fracos + Fix RF_ORPHAN**: Ajuste fino de `min_chars` (até 900) para expansão do PRD Final (>15k chars) e correção do template do Pass 8 removendo as referências fantasmas de checkout/marketplace.
 - [x] **Fase 9.3 — Calibração de Profundidade**: PRD Final recalibrado para 12 passes com exemplos ricos, `max_output_tokens` ampliado para 2500 e prosa técnica explícita.
 - [x] **Fase 9.1.1 — Enriquecimento do PRD Final**: Calibração de `input_budget` (3000), detecção de markers de falha `[GERAÇÃO FALHOU]` e exemplos v1.1 de alta profundidade no consolidado.
 - [x] **Fase 10.0 — Orquestração de Debate**: DebateStateTracker implementado, rastreando Issues e Resoluções entre rounds.
