@@ -8,8 +8,9 @@ Antes (desperdiçava tokens)
 → Sobra pouco espaço para raciocinar e implementar
 Depois (otimizado)
 Você diz:
-"Leia docs/CURRENT_STATE.md e o arquivo .ai-context. 
-Depois leia este blueprint da Fase N: [cola ou indica o arquivo].
+"Leia .ai-context, depois docs/CURRENT_STATE.md e docs/BACKLOG_FUTURO.md.
+A próxima fase a implementar é a [Fase 9.X] correspondente à [Onda N] do Backlog.
+Aqui está o blueprint: [cola ou indica o arquivo].
 Implemente."
 
 → IA lê ~2.000 tokens de estado + blueprint da fase
@@ -26,10 +27,12 @@ FASE N — FLUXO DE TRABALHO
 
 1. VOCÊ planeja a fase e escreve o blueprint
 
-2. VOCÊ diz à IA:
-   "Leia .ai-context, depois docs/CURRENT_STATE.md.
-    Aqui está o blueprint da Fase 9.4
+2. 2. VOCÊ diz à IA:
+   "Leia .ai-context, depois docs/CURRENT_STATE.md e docs/BACKLOG_FUTURO.md.
+    A próxima fase é [Fase 9.X] — [Onda N] do Backlog.
+    Aqui está o blueprint: [cola ou indica o arquivo].
     Implemente."
+
 
 3. IA implementa lendo apenas os arquivos de src/ necessários
 
@@ -42,3 +45,5 @@ FASE N — FLUXO DE TRABALHO
 6. IA atualiza CURRENT_STATE + DECISION_LOG + arquiva blueprint
 
 7. Próxima fase começa com contexto limpo
+
+

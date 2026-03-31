@@ -32,13 +32,20 @@ Após a conclusão e validação de cada nova fase do projeto.
   - Schema Enforcement com templates tabulares (F3.1)
   ```
 
-  ### 5. limpeza do projeto
+### 5. limpeza do projeto
 - Mova os scripts de verificação para a pasta adequada
 - elimine os arquivos que não são mais necessários
 - mova o blueprint da fase para a pasta adequada
 - renomeie o arquivo do blueprint para document.resolved
 - copie para a pasta da fase o arquivo walkthrough.md.resolved
 - deixe tudo em pt-br
+
+### 5b. Manutenção do Backlog Estratégico
+- Abrir `docs/BACKLOG_FUTURO.md`
+- Localizar o item da fase recém-concluída
+- Alterar o campo `Status` de `PENDENTE` para `CONCLUÍDO`
+- Se a fase concluída é a última de uma Onda, verificar se a Meta da Onda foi atingida
+- Se novas técnicas foram descobertas durante a fase, adicionar como item novo na Onda apropriada
 
 
 ### 6. Sugira para o usuario um nome de commit para o github
