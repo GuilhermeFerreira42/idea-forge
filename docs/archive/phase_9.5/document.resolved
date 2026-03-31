@@ -1,0 +1,1008 @@
+# BLUEPRINT — FASE 9.5: Onda 1 de Expansão (Exemplar Injection + Word Count Targets + SectionQualityChecker)
+
+## Meta
+- **De:** ~16.000 chars
+- **Para:** 40.000-50.000 chars
+- **Critério binário:** `len(prd_final) >= 40.000` E `is_clean: True` E `SectionQualityChecker passa em todas as seções`
+
+---
+
+## SUB-FASE 9.5.1 — Criação dos Exemplares
+
+### O que fazer
+Criar diretório `idea-forge/src/core/exemplars/` com 12 arquivos Python, um por pass. Cada arquivo exporta uma constante string com o trecho curado do padrão ouro correspondente àquela seção.
+
+### Arquivo novo: `src/core/exemplars/__init__.py`
+
+```python
+"""
+exemplars/ — Trechos do PRD OmniPrice (padrão ouro) usados como referência
+de profundidade por pass no Consolidador.
+
+Cada módulo exporta uma constante EXEMPLAR_PXX com o trecho correspondente.
+Estes trechos são injetados no prompt de cada pass para ensinar ao modelo
+o nível de detalhe esperado.
+"""
+```
+
+### Arquivo novo: `src/core/exemplars/p01_visao_problemas.py`
+
+```python
+EXEMPLAR_P01 = (
+    "REFERÊNCIA DE PROFUNDIDADE (use como guia de densidade, NÃO copie):\n\n"
+    "## Visão do Produto\n"
+    "| Atributo | Valor |\n"
+    "|---|---|\n"
+    "| Codinome interno | OmniPrice Next |\n"
+    "| Versão atual | 0.1.0 (definida em package.json e pyproject.toml) |\n"
+    "| Declaração de visão | Unificar ofertas de Shopee, Magalu, Amazon e Mercado Livre "
+    "utilizando ISR para garantir SEO máximo e performance instantânea ao consumidor brasileiro. |\n\n"
+    "## Problema e Solução\n"
+    "| ID | Problema | Impacto | Como o Sistema Resolve |\n"
+    "|---|---|---|---|\n"
+    "| P-01 | APIs heterogêneas por marketplace (formatos, autenticação, paginação distintos) | "
+    "Dados inconsistentes, falhas na exibição, custo alto de manutenção por integração | "
+    "Pipeline ETL unificado com schema normalizado (NormalizedProduct) que abstrai diferenças |\n"
+    "| P-02 | Latência na atualização de preços entre coleta e exibição | "
+    "Usuário encontra preço divergente no checkout, gerando frustração e perda de confiança | "
+    "Revalidação sob demanda via ISR com revalidate: 60 + webhook de invalidação por evento |\n"
+    "| P-03 | Baixa indexação de conteúdo em SPAs tradicionais (React puro, Vue CSR) | "
+    "Perda de até 70% do tráfego orgânico potencial (SEO) | "
+    "Renderização híbrida (SSR + ISR) no Next.js 14 App Router |\n"
+    "| P-04 | Carregamento lento em redes móveis brasileiras (3G/4G instável) | "
+    "Taxa de rejeição superior a 53% quando LCP > 4s (dados Google) | "
+    "Otimização de imagens via next/image (WebP/AVIF), Code Splitting automático |\n"
+    "| P-05 | Ausência de histórico de preços em comparadores existentes | "
+    "Consumidor não sabe se o preço atual é bom ou inflacionado | "
+    "Snapshots diários de preço com gráfico de tendência dos últimos 90 dias |\n"
+    "| P-06 | Links de afiliado quebrados ou sem rastreabilidade | "
+    "Afiliados perdem comissão, plataforma perde receita | "
+    "Sistema de redirecionamento com tracking de cliques, UTM automático e relatório de conversão |\n\n"
+    "--- FIM DA REFERÊNCIA. Gere com este nível de profundidade para O PROJETO REAL. ---\n"
+)
+```
+
+### Arquivo novo: `src/core/exemplars/p02_publico_alvo.py`
+
+```python
+EXEMPLAR_P02 = (
+    "REFERÊNCIA DE PROFUNDIDADE (use como guia de densidade, NÃO copie):\n\n"
+    "## Público-Alvo\n"
+    "| Segmento | Perfil (nome fictício + dor específica) | Prioridade |\n"
+    "|---|---|---|\n"
+    "| Caçador de Oferta | Marina, 28 anos — Abre 6 abas para comparar preço de um fone "
+    "Bluetooth entre Shopee, Amazon e ML. Gasta 40min por compra e ainda assim não tem "
+    "certeza se encontrou o menor preço. Já perdeu promoções por não monitorar. | P0 |\n"
+    "| Afiliado Digital | Carlos, 34 anos — Cria conteúdo de review no Instagram e precisa de "
+    "links rastreáveis com páginas de carregamento rápido para não perder a conversão do clique. "
+    "Sua taxa de bounce atual em sites lentos é 65%. Perde ~R$800/mês em comissões perdidas. | P0 |\n"
+    "| Comprador Recorrente | Dona Fátima, 52 anos — Compra produtos de limpeza e higiene "
+    "mensalmente. Quer ser avisada quando o preço do produto que ela já conhece cair abaixo "
+    "de um valor aceitável. Já perdeu ofertas de supermercado por não ter monitoramento. | P1 |\n\n"
+    "--- FIM DA REFERÊNCIA ---\n"
+)
+```
+
+### Arquivo novo: `src/core/exemplars/p03_principios_diferenciais.py`
+
+```python
+EXEMPLAR_P03 = (
+    "REFERÊNCIA DE PROFUNDIDADE (use como guia de densidade, NÃO copie):\n\n"
+    "## Princípios Arquiteturais\n"
+    "| Princípio | Descrição Concreta | Implicação Técnica | Decisão Arquitetural Crítica |\n"
+    "|---|---|---|---|\n"
+    "| ISR First | Toda página de produto é pré-renderizada estaticamente e regenerada em "
+    "background a cada 60 segundos | Uso de revalidate: 60 em generateStaticParams do Next.js | "
+    "REGRA: Nenhuma página pode usar force-dynamic. Teste verifica header x-nextjs-cache |\n"
+    "| Normalização de Dados | Toda informação de produto passa por transformação para "
+    "schema único antes de persistência | Camada de domínio (NormalizedProduct) com Pydantic | "
+    "REGRA: Nenhum dado bruto de marketplace é exposto ao frontend |\n"
+    "| Edge Caching | Conteúdo estático distribuído em PoPs próximos ao usuário | "
+    "Deploy em Vercel Edge com Cache-Control: s-maxage=60, stale-while-revalidate=300 | "
+    "REGRA: Toda resposta contém header x-vercel-cache. Teste verifica latência p95 < 200ms |\n"
+    "| Fail Gracefully | Falha em um marketplace não impede exibição dos demais | "
+    "Circuit breaker por collector com fallback para último cache válido | "
+    "REGRA: Se Shopee estiver indisponível, página renderiza com dados dos demais |\n"
+    "| Zero Trust em Scraping | Todo dado coletado é potencialmente malicioso | "
+    "Sanitização HTML, validação de tipo, limites de tamanho | "
+    "REGRA: Nenhum texto coletado renderizado sem DOMPurify |\n"
+    "| Observabilidade Nativa | Todo componente emite métricas, logs e traces desde o dia 1 | "
+    "OpenTelemetry SDK em Next.js e FastAPI, logs em JSON | "
+    "REGRA: Todo request gera trace_id propagado end-to-end |\n\n"
+    "## Diferenciais\n"
+    "| Abordagem Atual | Problema | Como Este Sistema Supera |\n"
+    "|---|---|---|\n"
+    "| Scraping em tempo real (Buscapé) | Lentidão 3-8s por busca e bloqueio de IP | "
+    "Cache ISR: dados pré-renderizados em <100ms; invalidação por webhook |\n"
+    "| Renderização no Cliente (CSR) | SEO inexistente, primeira pintura >4s | "
+    "SSR/ISR de 100% das páginas com LCP alvo <2.5s |\n"
+    "| Comparação estática (blogs) | Dados desatualizados, sem personalização | "
+    "Gráfico de histórico de 90 dias + alertas por email |\n"
+    "| Agregadores sem rastreabilidade | Afiliados não rastreiam conversão | "
+    "Links com UTM automático, dashboard de cliques por afiliado |\n\n"
+    "--- FIM DA REFERÊNCIA ---\n"
+)
+```
+
+### Arquivo novo: `src/core/exemplars/p04_requisitos_funcionais.py`
+
+```python
+EXEMPLAR_P04 = (
+    "REFERÊNCIA DE PROFUNDIDADE (use como guia de densidade, NÃO copie):\n\n"
+    "## Requisitos Funcionais (Consolidados)\n"
+    "| ID | Requisito | Critério de Aceite | Prioridade | Complexidade | Componente |\n"
+    "|---|---|---|---|---|---|\n"
+    "| RF-01 | Busca Unificada Multi-Loja | GET /api/v1/search?q=jbl+510bt retorna JSON com "
+    "campo results[] contendo itens de >=2 marketplaces. Status 200. Tempo p95 < 1000ms | Must | Média | backend-api |\n"
+    "| RF-02 | Página de Produto com ISR | URL /produto/{slug} retorna HTML com status 200. "
+    "Header x-nextjs-cache presente. Revalidação a cada 60s | Must | Alta | frontend-nextjs |\n"
+    "| RF-03 | Histórico de Preços | GET /api/v1/products/{slug}/history?days=90 retorna JSON "
+    "com data_points[] contendo >=1 entrada por semana nos últimos 90 dias | Should | Média | backend-api |\n"
+    "| RF-04 | Alertas de Queda de Preço | POST /api/v1/alerts com body {email, product_slug, "
+    "target_price} retorna 201. Quando preço <= target, email em <=5min | Should | Alta | backend-api |\n"
+    "| RF-05 | Redirecionamento Affiliate | Clique em 'Ver Oferta' registra click em affiliate_clicks "
+    "e abre URL com utm_source=omniprice em nova aba | Must | Baixa | frontend-nextjs |\n"
+    "| RF-07 | Sitemap Dinâmico | GET /sitemap.xml retorna XML válido com todas URLs de produto. "
+    "lastmod reflete updated_at | Must | Baixa | frontend-nextjs |\n"
+    "| RF-08 | Filtragem por Marketplace | GET /api/v1/search?marketplace=amazon retorna apenas "
+    "ofertas da Amazon. Dropdown de filtro funcional | Must | Baixa | backend-api |\n"
+    "| RF-09 | Ordenação de Resultados | GET /api/v1/search?sort=price_asc retorna ordenado. "
+    "Opções: price_asc, price_desc, rating_desc, relevance | Must | Baixa | backend-api |\n"
+    "| RF-11 | Coleta Agendada | Celery Beat dispara tasks a cada 30min para todos os produtos "
+    "ativos. Verificável via logs | Must | Média | collector-service |\n"
+    "| RF-12 | Invalidação de Cache ISR | Após atualização de preço, webhook revalida página. "
+    "Preço atualizado aparece em <=2min | Must | Média | collector-service |\n\n"
+    "NOTA: Cada RF referencia o componente responsável. Critérios incluem endpoint, "
+    "status HTTP e formato de resposta.\n\n"
+    "--- FIM DA REFERÊNCIA ---\n"
+)
+```
+
+### Arquivo novo: `src/core/exemplars/p05_rnfs.py`
+
+```python
+EXEMPLAR_P05 = (
+    "REFERÊNCIA DE PROFUNDIDADE (use como guia de densidade, NÃO copie):\n\n"
+    "## Requisitos Não-Funcionais\n"
+    "| ID | Categoria | Requisito | Métrica | Target |\n"
+    "|---|---|---|---|---|\n"
+    "| RNF-01 | Performance | LCP em páginas de produto | Google Lighthouse p95 | <2.5s |\n"
+    "| RNF-02 | Performance | First Input Delay (FID) | Google Lighthouse p95 | <100ms |\n"
+    "| RNF-03 | Performance | Cumulative Layout Shift (CLS) | Google Lighthouse p95 | <0.1 |\n"
+    "| RNF-04 | Performance | Tempo de resposta API busca | p95 via OpenTelemetry | <500ms |\n"
+    "| RNF-05 | Performance | Tempo de resposta API produto | p95 via OpenTelemetry | <300ms |\n"
+    "| RNF-06 | SEO | Indexabilidade de páginas de produto | Google Search Console | 100% válidos |\n"
+    "| RNF-07 | SEO | Meta tags (title, description, canonical, og:*) | Teste Playwright | 100% |\n"
+    "| RNF-08 | Disponibilidade | Uptime do frontend e API | UptimeRobot | >=99.9% |\n"
+    "| RNF-09 | Escalabilidade | Concorrência frontend | Load test k6 | >=1000 req/s |\n"
+    "| RNF-10 | Escalabilidade | Concorrência API | Load test k6 | >=500 req/s p95 <500ms |\n"
+    "| RNF-11 | Segurança | Proteção XSS | OWASP ZAP scan | 0 vulnerabilidades |\n"
+    "| RNF-12 | Segurança | Headers de segurança | SecurityHeaders.com | Nota A ou superior |\n"
+    "| RNF-13 | Segurança | Dados sensíveis não expostos em logs | Auditoria manual | 0 ocorrências |\n"
+    "| RNF-14 | Compatibilidade | Browsers suportados | Playwright cross-browser | Chrome 90+, Firefox 90+, Safari 15+ |\n"
+    "| RNF-15 | Compatibilidade | Responsividade | Playwright 3 viewports | 375px, 768px, 1440px |\n"
+    "| RNF-16 | Observabilidade | Logs estruturados JSON | Formato verificável | 100% dos serviços |\n"
+    "| RNF-17 | Observabilidade | Traces distribuídos end-to-end | Presença de trace_id | 100% requests |\n"
+    "| RNF-18 | Usabilidade | Tempo para completar busca | User testing | <=3 cliques |\n\n"
+    "NOTA: 18 RNFs cobrindo 8 categorias, todos com target numérico verificável.\n\n"
+    "--- FIM DA REFERÊNCIA ---\n"
+)
+```
+
+### Arquivo novo: `src/core/exemplars/p06_arquitetura_adrs.py`
+
+```python
+EXEMPLAR_P06 = (
+    "REFERÊNCIA DE PROFUNDIDADE (use como guia de densidade, NÃO copie):\n\n"
+    "## Arquitetura e Tech Stack\n"
+    "- **Estilo:** Microserviços com Serverless Edge\n"
+    "```mermaid\ngraph TB\n"
+    "  USER[Usuário] -->|HTTPS| CDN[Vercel Edge/CDN]\n"
+    "  CDN -->|ISR/SSR| NEXT[Next.js 14]\n"
+    "  NEXT -->|REST| API[FastAPI]\n"
+    "  API -->|Query| PG[(PostgreSQL 16)]\n"
+    "  API -->|Cache| REDIS[(Redis 7.2)]\n"
+    "  CELERY[Celery Workers] -->|Scrape| MP[Marketplaces]\n"
+    "  CELERY -->|Persist| PG\n"
+    "  API -->|Alerts| SMTP[SendGrid]\n"
+    "  API -->|Errors| SENTRY[Sentry]\n"
+    "```\n\n"
+    "| Camada | Tecnologia | Versão | Justificativa | Alternativa Rejeitada |\n"
+    "|---|---|---|---|---|\n"
+    "| Frontend/Edge | Next.js 14 | 14.2.x | SSR/ISR nativo para SEO | Nuxt.js — menor ecossistema |\n"
+    "| Backend API | FastAPI | 0.111.x | Async nativo, Pydantic | Flask — bloqueio async |\n"
+    "| Data Store | PostgreSQL | 16.x | ACID, busca trigram pg_trgm | MongoDB — dados estruturados |\n"
+    "| Cache | Redis | 7.2.x | In-memory, TTL, pub/sub | Memcached — sem persistência |\n"
+    "| Scraping | Playwright | 1.44.x | Renderiza SPAs, async | Selenium — mais lento |\n"
+    "| Workers | Celery | 5.4.x | Distribuído, retry, beat | APScheduler — single-process |\n\n"
+    "## ADRs (Decisões Arquiteturais)\n"
+    "Para cada decisão:\n"
+    "| Campo | Valor |\n|---|---|\n"
+    "| ID | ADR-01 |\n"
+    "| Status | ACEITA |\n"
+    "| Contexto | Páginas precisam de SEO forte e dados frescos |\n"
+    "| Decisão | ISR com revalidate: 60 para todas as páginas /produto/[slug] |\n"
+    "| Alternativas Rejeitadas | SSR puro — carga proporcional ao tráfego. "
+    "CSR — SEO inexistente. SSG — rebuild inviável para milhares de produtos |\n"
+    "| Consequências | (+) Latência <100ms cache hit. (+) SEO completo. (-) Até 60s de atraso |\n"
+    "| Mitigação | Webhook de revalidação on-demand. Badge 'Atualizado há X min' |\n\n"
+    "NOTA: 8 ADRs no padrão ouro, cada um com 7 campos. Mínimo 5 para o sistema.\n\n"
+    "--- FIM DA REFERÊNCIA ---\n"
+)
+```
+
+### Arquivo novo: `src/core/exemplars/p07_seguranca.py`
+
+```python
+EXEMPLAR_P07 = (
+    "REFERÊNCIA DE PROFUNDIDADE (use como guia de densidade, NÃO copie):\n\n"
+    "## Análise de Segurança\n"
+    "| ID | Ameaça STRIDE | Componente | Severidade | Mitigação Concreta |\n"
+    "|---|---|---|---|---|\n"
+    "| SEC-01 | Spoofing — Requisições falsificadas | API Gateway | Alta | "
+    "Rate limiting 60 req/min + JWT para endpoints protegidos. Middleware Edge + slowapi |\n"
+    "| SEC-02 | Tampering — Manipulação de preços | Backend | Alta | "
+    "Dados servidos read-only. Arquitetura unidirecional: Collectors → PG → API → Frontend |\n"
+    "| SEC-03 | Information Disclosure — Credenciais em logs | API | Média | "
+    "Filtro de log detecta patterns de API keys e substitui por ***REDACTED*** |\n"
+    "| SEC-04 | DoS — Flood de requisições | Edge | Alta | "
+    "Rate limiting em 3 camadas: Edge, Middleware Next.js, FastAPI @limiter |\n"
+    "| SEC-05 | XSS — Injeção via títulos de produto | Frontend | Alta | "
+    "DOMPurify.sanitize(title) + bleach no backend. Testes injetam <script>alert(1)</script> |\n"
+    "| SEC-06 | SSRF — Collector redirecionado para rede interna | Collector | Média | "
+    "Whitelist de domínios: apenas amazon.com.br, shopee.com.br, magazineluiza.com.br, mercadolivre.com.br |\n\n"
+    "**Dados Sensíveis:**\n"
+    "| Dado | Classificação | Criptografia | Retenção |\n"
+    "|---|---|---|---|\n"
+    "| Email do usuário | PII | AES-256 em repouso | Até exclusão ou 1 ano de inatividade |\n"
+    "| IP do usuário (cliques) | PII | SHA-256 hash, nunca IP raw | 90 dias, depois anonimizado |\n"
+    "| Credenciais de API | Secret | Variáveis de ambiente, nunca em código | Rotação trimestral |\n\n"
+    "--- FIM DA REFERÊNCIA ---\n"
+)
+```
+
+### Arquivo novo: `src/core/exemplars/p08_escopo_mvp.py`
+
+```python
+EXEMPLAR_P08 = (
+    "REFERÊNCIA DE PROFUNDIDADE (use como guia de densidade, NÃO copie):\n\n"
+    "## Escopo MVP\n"
+    "**O QUE ESTÁ NO MVP:**\n"
+    "- RF-01 (Busca Unificada) — Core do produto, sem busca não há comparação\n"
+    "- RF-02 (Página de Produto ISR) — Necessário para SEO e conversão\n"
+    "- RF-05 (Redirecionamento Affiliate) — Fonte de receita principal\n"
+    "- RF-07 (Sitemap) — Obrigatório para indexação Google\n"
+    "- RF-08 (Filtragem por Marketplace) — Usabilidade mínima\n"
+    "- RF-09 (Ordenação) — Usabilidade mínima\n"
+    "- RF-11 (Coleta Agendada) — Sistema não funciona sem dados\n"
+    "- RF-12 (Invalidação ISR) — Dados precisam estar atualizados\n\n"
+    "**O QUE NÃO ESTÁ NO MVP:**\n"
+    "- RF-03 (Histórico de Preços) — Requer >=7 dias de dados coletados. Incluir em v1.5\n"
+    "- RF-04 (Alertas de Preço) — Requer integração SendGrid + JWT. Incluir em v1.5\n"
+    "- RF-06 (Dashboard Admin) — Nice-to-have. Incluir em v1.1\n"
+    "- App mobile nativo — PWA cobre 90% dos casos mobile com 1/5 do custo\n"
+    "- Recomendação por IA — Requer histórico massivo não disponível no lançamento\n\n"
+    "--- FIM DA REFERÊNCIA ---\n"
+)
+```
+
+### Arquivo novo: `src/core/exemplars/p09_riscos_metricas.py`
+
+```python
+EXEMPLAR_P09 = (
+    "REFERÊNCIA DE PROFUNDIDADE (use como guia de densidade, NÃO copie):\n\n"
+    "## Riscos Consolidados\n"
+    "| # | Risco | Probabilidade | Impacto | Mitigação | Workaround Atual |\n"
+    "|---|---|---|---|---|---|\n"
+    "| R-01 | Marketplace altera layout HTML quebrando seletores CSS | Alta (~1x/mês) | Alto | "
+    "Seletores versionados em config/selectors/. Alerta Sentry com screenshot | "
+    "Cache stale serve dados antigos. SLA correção: 24h |\n"
+    "| R-02 | Bloqueio de IP por anti-bot | Alta (Amazon e Shopee) | Médio | "
+    "Proxy rotation pool >=20 IPs brasileiros. Delay 2-5s. User-Agent rotation | "
+    "Coleta degrada mas não para. Cache stale ativo |\n"
+    "| R-03 | API de marketplace deprecada ou breaking change | Média | Alto | "
+    "Monitoramento de changelogs. Collector testa response schema | "
+    "Fallback para scraping se API falhar |\n"
+    "| R-04 | Custo de infraestrutura excede orçamento | Média | Médio | "
+    "Budget alerts na Vercel e Railway. Auto-scaling com limites | "
+    "Cache agressivo reduz requests ao backend |\n"
+    "| R-05 | PostgreSQL atinge limite de armazenamento | Baixa | Alto | "
+    "Monitoramento de disco. Task cleanup_stale_data | "
+    "Upgrade para plano maior se necessário |\n"
+    "| R-06 | Latência ISR causa preço desatualizado | Média | Médio | "
+    "Badge 'Atualizado há X min'. Webhook on-demand | "
+    "Disclaimer legal no footer |\n"
+    "| R-07 | Vulnerabilidade XSS via título injetado | Baixa | Alto | "
+    "Sanitização dupla: bleach + DOMPurify. Testes XSS automáticos | "
+    "CSP header bloqueia inline scripts |\n"
+    "| R-08 | Celery worker em crash loop | Baixa | Alto | "
+    "Health check container. Docker restart on-failure:10 | "
+    "Tasks idempotentes, re-execução segura |\n\n"
+    "## Métricas de Sucesso\n"
+    "| Métrica | Target | Como Medir |\n"
+    "|---|---|---|\n"
+    "| Lighthouse Performance | >=90 | npx lighthouse --output=json → categories.performance.score |\n"
+    "| LCP (p95) | <2.5s | Google Search Console → Core Web Vitals |\n"
+    "| Tempo API busca (p95) | <500ms | OpenTelemetry → http.route=/api/v1/search |\n"
+    "| Uptime mensal | >=99.9% | UptimeRobot check a cada 1min |\n"
+    "| Taxa sucesso coleta | >=90% | SELECT COUNT(*) FILTER (WHERE status='success') |\n"
+    "| Páginas indexadas | 100% | Google Search Console → Válidas vs total slugs |\n"
+    "| CTR afiliado | >=5% | clicks / page_views * 100 |\n"
+    "| Cobertura testes backend | >=80% | pytest --cov → TOTAL |\n\n"
+    "--- FIM DA REFERÊNCIA ---\n"
+)
+```
+
+### Arquivo novo: `src/core/exemplars/p10_plano_debate.py`
+
+```python
+EXEMPLAR_P10 = (
+    "REFERÊNCIA DE PROFUNDIDADE (use como guia de densidade, NÃO copie):\n\n"
+    "## Plano de Implementação\n"
+    "| Fase | Duração | Entregas | Critério de Conclusão | Dependência |\n"
+    "|---|---|---|---|---|\n"
+    "| 1 — Infraestrutura | 2 semanas | PG schema, Redis, Docker Compose, seed, migrations | "
+    "docker-compose up funciona; migrations rodam; seed popula 10 produtos | Nenhuma |\n"
+    "| 2 — Backend API | 2 semanas | Endpoints REST, serviços, rate limiting, health check | "
+    "Todos endpoints retornam respostas válidas; cobertura >=80%; pytest 0 falhas | Fase 1 |\n"
+    "| 3 — Collectors | 3 semanas | 4 collectors, normalizers, Celery, proxy manager | "
+    "Cada collector extrai preço de >=1 produto real; dados no PostgreSQL | Fase 2 |\n"
+    "| 4 — Frontend | 3 semanas | Todas páginas, componentes, ISR, SEO | "
+    "npm run build sem erros; Lighthouse >=90; E2E passam | Fase 2 |\n"
+    "| 5 — Deploy | 2 semanas | Staging, CI/CD, segurança, observabilidade | "
+    "Staging operacional; smoke test passa; OWASP ZAP limpo | Fases 1-4 |\n\n"
+    "**Para cada fase, listar:**\n"
+    "- Arquivos criados/modificados\n"
+    "- Testes obrigatórios\n"
+    "- Critério de aceite binário\n\n"
+    "## Decisões do Debate\n"
+    "| Round | Tipo | Decisão | Justificativa Técnica |\n"
+    "|---|---|---|---|\n"
+    "| R2 | ACEITO | Near Real-Time em vez de Real-Time | "
+    "ISR não garante sincronia milissegundo; 5min é aceitável para comparação |\n"
+    "| R3 | MELHORIA | Implementar stale-while-revalidate no Cache-Control | "
+    "Garante disponibilidade durante regeneração ISR |\n\n"
+    "--- FIM DA REFERÊNCIA ---\n"
+)
+```
+
+### Arquivo novo: `src/core/exemplars/p11_constraints_rastreabilidade.py`
+
+```python
+EXEMPLAR_P11 = (
+    "REFERÊNCIA DE PROFUNDIDADE (use como guia de densidade, NÃO copie):\n\n"
+    "## Constraints Técnicos\n"
+    "- Linguagem: TypeScript 5.3 (Strict Mode) / Python 3.11\n"
+    "- Framework: Next.js 14.2 (App Router) / FastAPI 0.111.x\n"
+    "- Banco de dados: PostgreSQL 16 + Redis 7.2\n"
+    "- Infraestrutura: Vercel (Frontend/Edge) + Railway (Backend/Workers)\n"
+    "- Segurança: Rate Limiting 60 req/min, CSP Headers, HTTPS, JWT auth, LGPD compliance\n\n"
+    "## Matriz de Rastreabilidade\n"
+    "| RF-ID | Componente | Arquivo | Teste que Valida | Critério |\n"
+    "|---|---|---|---|---|\n"
+    "| RF-01 | backend-api | app/api/v1/routes/search.py | "
+    "test_search.py::test_multi_marketplace | results[] com >=2 marketplaces, status 200 |\n"
+    "| RF-02 | frontend-nextjs | app/produto/[slug]/page.tsx | "
+    "test_product_page.spec.ts::test_isr | Header x-nextjs-cache = HIT ou STALE |\n"
+    "| RF-05 | frontend + backend | OfferCard.tsx + clicks.py | "
+    "test_affiliate_click.spec.ts | Click gera registro + nova aba com UTM |\n"
+    "| RF-07 | frontend-nextjs | app/sitemap.ts | "
+    "test_sitemap.spec.ts | XML válido com >=1 URL e lastmod |\n\n"
+    "NOTA: Cada RF deve ter: componente, arquivo, teste específico e critério binário.\n\n"
+    "## Limitações Conhecidas\n"
+    "| ID | Limitação | Severidade | Impacto | Workaround Atual | Quando Resolvida |\n"
+    "|---|---|---|---|---|---|\n"
+    "| LIM-01 | Bloqueio de IP por anti-bot | Alta | Coleta falha temporariamente | "
+    "Proxy rotation + backoff + cache stale serve dados por até 1h | v1.1 — Bright Data 100+ IPs |\n"
+    "| LIM-02 | ISR atraso de até 60s | Média | Preço pode estar desatualizado | "
+    "Badge 'Atualizado há X min' + webhook on-demand | v1.5 — SSE push real-time |\n"
+    "| LIM-03 | Sem app nativo | Baixa | UX mobile limitada | "
+    "PWA com manifest.json | Nunca — PWA é definitivo |\n"
+    "| LIM-04 | Rate limiting de marketplace limita coleta | Média | Coleta lenta para >10k produtos | "
+    "Priorização por visualizações | v2.0 — Coleta distribuída multi-worker |\n"
+    "| LIM-05 | Busca sem sinônimos (pg_trgm) | Baixa | 'headphone' não encontra 'fone' | "
+    "Usuário busca em português | v2.0 — Elasticsearch |\n"
+    "| LIM-06 | Histórico só após >=7 dias | Baixa | Produtos novos sem gráfico | "
+    "Mensagem 'Histórico em breve' | Auto-resolvido com operação |\n"
+    "| LIM-07 | Seletores CSS frágeis (Magalu) | Alta | Layout muda sem aviso | "
+    "Screenshots + alerta Sentry. Correção <24h | v1.1 — Investigar API Magalu |\n"
+    "| LIM-08 | Sem multi-idioma | Baixa | Apenas pt-BR | "
+    "Foco no mercado brasileiro | v3.0 — i18n LATAM |\n\n"
+    "--- FIM DA REFERÊNCIA ---\n"
+)
+```
+
+### Arquivo novo: `src/core/exemplars/p12_guia_clausula.py`
+
+```python
+EXEMPLAR_P12 = (
+    "REFERÊNCIA DE PROFUNDIDADE (use como guia de densidade, NÃO copie):\n\n"
+    "## Guia de Replicação Resumido\n"
+    "### 1. Pré-requisitos\n"
+    "| Ferramenta | Versão Exata | Verificação |\n"
+    "|---|---|---|\n"
+    "| Node.js | 18.17+ (LTS) | node --version retorna v18.17.x |\n"
+    "| Python | 3.11.x | python3 --version retorna 3.11.x |\n"
+    "| Docker | 24.0+ | docker --version |\n"
+    "| Docker Compose | 2.20+ (plugin v2) | docker compose version |\n\n"
+    "### 2. Instalação\n"
+    "```bash\n"
+    "git clone https://github.com/empresa/projeto.git\n"
+    "cd projeto\n"
+    "cp .env.example .env\n"
+    "npm install\n"
+    "cd backend && pip install -e '.[dev]'\n"
+    "```\n\n"
+    "### 3. Infraestrutura\n"
+    "```bash\n"
+    "docker compose up -d postgres redis\n"
+    "docker compose exec postgres pg_isready -U user  # Esperado: accepting connections\n"
+    "docker compose exec redis redis-cli ping  # Esperado: PONG\n"
+    "```\n\n"
+    "### 4. Backend\n"
+    "```bash\n"
+    "cd backend && alembic upgrade head\n"
+    "python ../scripts/seed_db.py\n"
+    "uvicorn app.main:app --reload --port 8000\n"
+    "curl http://localhost:8000/api/v1/health  # {status: healthy}\n"
+    "```\n\n"
+    "### 5. Frontend\n"
+    "```bash\n"
+    "npm run build && npm run dev  # http://localhost:3000\n"
+    "```\n\n"
+    "### 6. Verificação\n"
+    "```bash\n"
+    "curl -s http://localhost:3000/api/v1/health | jq .\n"
+    "# Esperado: {\"status\": \"healthy\", \"database\": \"up\", \"cache\": \"up\"}\n"
+    "```\n\n"
+    "## Cláusula de Integridade\n"
+    "| Item | Status |\n"
+    "|---|---|\n"
+    "| Todos os RF-IDs do Escopo existem na tabela de RFs | ✓/✗ |\n"
+    "| Todos os riscos HIGH possuem mitigação | ✓/✗ |\n"
+    "| Tech Stack consistente entre seções | ✓/✗ |\n"
+    "| Métricas possuem target quantitativo | ✓/✗ |\n"
+    "| Security Review endereça ameaças HIGH | ✓/✗ |\n"
+    "| Nenhuma seção contém 'A DEFINIR' | ✓/✗ |\n"
+    "| Matriz de Rastreabilidade cobre todos os RFs | ✓/✗ |\n"
+    "| Diagramas Mermaid são renderizáveis | ✓/✗ |\n"
+    "| Guia de replicação é autocontido | ✓/✗ |\n\n"
+    "--- FIM DA REFERÊNCIA ---\n"
+)
+```
+
+---
+
+## SUB-FASE 9.5.2 — Injeção dos Exemplares nos Passes
+
+### Diff — `sectional_generator.py`
+
+No início do arquivo, após os imports existentes, adicionar:
+
+```python
+# FASE 9.5: Importar exemplares do padrão ouro
+from src.core.exemplars.p01_visao_problemas import EXEMPLAR_P01
+from src.core.exemplars.p02_publico_alvo import EXEMPLAR_P02
+from src.core.exemplars.p03_principios_diferenciais import EXEMPLAR_P03
+from src.core.exemplars.p04_requisitos_funcionais import EXEMPLAR_P04
+from src.core.exemplars.p05_rnfs import EXEMPLAR_P05
+from src.core.exemplars.p06_arquitetura_adrs import EXEMPLAR_P06
+from src.core.exemplars.p07_seguranca import EXEMPLAR_P07
+from src.core.exemplars.p08_escopo_mvp import EXEMPLAR_P08
+from src.core.exemplars.p09_riscos_metricas import EXEMPLAR_P09
+from src.core.exemplars.p10_plano_debate import EXEMPLAR_P10
+from src.core.exemplars.p11_constraints_rastreabilidade import EXEMPLAR_P11
+from src.core.exemplars.p12_guia_clausula import EXEMPLAR_P12
+```
+
+Em seguida, no `_build_pass_prompt`, **substituir** o bloco que injeta o exemplo:
+
+```python
+# ANTES (no _build_pass_prompt):
+        if section_pass.example:
+            prompt += f"REFERÊNCIA DE FORMATO E PROFUNDIDADE:\n{section_pass.example}\n\n"
+
+# DEPOIS:
+        # FASE 9.5: Injetar exemplar gold-standard se disponível, senão usar example do pass
+        exemplar = self._get_exemplar(section_pass.pass_id)
+        if exemplar:
+            prompt += f"{exemplar}\n\n"
+        elif section_pass.example:
+            prompt += f"REFERÊNCIA DE FORMATO E PROFUNDIDADE:\n{section_pass.example}\n\n"
+```
+
+E adicionar o método `_get_exemplar` na classe `SectionalGenerator`:
+
+```python
+    def _get_exemplar(self, pass_id: str) -> str:
+        """FASE 9.5: Retorna exemplar gold-standard para o pass, ou string vazia."""
+        _EXEMPLAR_MAP = {
+            "final_p01": EXEMPLAR_P01,
+            "final_p02": EXEMPLAR_P02,
+            "final_p03": EXEMPLAR_P03,
+            "final_p04": EXEMPLAR_P04,
+            "final_p05": EXEMPLAR_P05,
+            "final_p06": EXEMPLAR_P06,
+            "final_p07": EXEMPLAR_P07,
+            "final_p08": EXEMPLAR_P08,
+            "final_p09": EXEMPLAR_P09,
+            "final_p10": EXEMPLAR_P10,
+            "final_p11": EXEMPLAR_P11,
+            "final_p12": EXEMPLAR_P12,
+        }
+        return _EXEMPLAR_MAP.get(pass_id, "")
+```
+
+---
+
+## SUB-FASE 9.5.3 — Word Count Targets
+
+### Diff — `sectional_generator.py`
+
+Para cada pass em `NEXUS_FINAL_PASSES`, adicionar à `instruction` uma linha com word count target. Os diffs são nas strings de `instruction` de cada pass:
+
+```python
+# Pass final_p01 — adicionar ao FINAL da instruction:
+        instruction=(
+            # ... instrução existente ...
+            "IMPORTANTE: Esta seção deve ter NO MÍNIMO 800 palavras (~3200 caracteres). "
+            "Inclua pelo menos 6 problemas com impacto mensurável."
+        ),
+
+# Pass final_p02 — adicionar ao FINAL:
+            "IMPORTANTE: Esta seção deve ter NO MÍNIMO 300 palavras. "
+            "Pelo menos 3 personas com narrativa de 2-3 frases cada."
+
+# Pass final_p03 — adicionar ao FINAL:
+            "IMPORTANTE: Esta seção deve ter NO MÍNIMO 800 palavras. "
+            "Pelo menos 6 princípios com REGRA verificável e 4 diferenciais."
+
+# Pass final_p04 — adicionar ao FINAL:
+            "IMPORTANTE: Esta seção deve ter NO MÍNIMO 800 palavras. "
+            "Pelo menos 10 RFs, cada um com endpoint, status HTTP e componente responsável."
+
+# Pass final_p05 — adicionar ao FINAL:
+            "IMPORTANTE: Esta seção deve ter NO MÍNIMO 600 palavras. "
+            "Pelo menos 12 RNFs cobrindo 8 categorias."
+
+# Pass final_p06 — adicionar ao FINAL:
+            "IMPORTANTE: Esta seção deve ter NO MÍNIMO 1000 palavras. "
+            "Incluir diagrama Mermaid funcional, 6 camadas na tech stack, e pelo menos 5 ADRs no formato ficha."
+
+# Pass final_p07 — adicionar ao FINAL:
+            "IMPORTANTE: Esta seção deve ter NO MÍNIMO 600 palavras. "
+            "Pelo menos 6 ameaças STRIDE + tabela de dados sensíveis."
+
+# Pass final_p08 — adicionar ao FINAL:
+            "IMPORTANTE: Esta seção deve ter NO MÍNIMO 400 palavras. "
+            "Justificativa técnica para cada exclusão do MVP."
+
+# Pass final_p09 — adicionar ao FINAL:
+            "IMPORTANTE: Esta seção deve ter NO MÍNIMO 800 palavras. "
+            "Pelo menos 8 riscos com workaround e 8 métricas com método de medição."
+
+# Pass final_p10 — adicionar ao FINAL:
+            "IMPORTANTE: Esta seção deve ter NO MÍNIMO 800 palavras. "
+            "Pelo menos 4 fases com arquivos e testes por fase. Pelo menos 5 decisões do debate."
+
+# Pass final_p11 — adicionar ao FINAL:
+            "IMPORTANTE: Esta seção deve ter NO MÍNIMO 1000 palavras. "
+            "Rastreabilidade COMPLETA (cada RF com arquivo, teste e critério). "
+            "Pelo menos 6 limitações com workaround concreto."
+
+# Pass final_p12 — adicionar ao FINAL:
+            "IMPORTANTE: Esta seção deve ter NO MÍNIMO 600 palavras. "
+            "Guia com 6+ passos com comandos bash copiáveis. Cláusula com 8+ itens verificados."
+```
+
+**Soma dos targets de palavras:** 800+300+800+800+600+1000+600+400+800+800+1000+600 = **8.500 palavras** ≈ **34.000 caracteres** mínimos (apenas os targets). Com overhead de tabelas e formatação, o total projetado é **40.000-50.000 chars**.
+
+---
+
+## SUB-FASE 9.5.4 — SectionQualityChecker
+
+### Arquivo novo: `src/core/section_quality_checker.py`
+
+```python
+"""
+section_quality_checker.py — Verificador programático de qualidade por seção.
+
+FASE 9.5: Extensão do ConsistencyChecker para garantir densidade mínima.
+Opera SEM LLM — verificação puramente programática.
+"""
+import re
+from typing import Dict, List, Tuple
+
+
+class SectionQualityChecker:
+    """Verifica se cada seção do PRD Final atinge os thresholds mínimos de qualidade."""
+
+    SECTION_RULES = {
+        "## Visão do Produto": {
+            "min_chars": 200,
+            "min_items": 0,
+            "item_pattern": None,
+            "required_keywords": ["codinome", "visão"],
+        },
+        "## Problema e Solução": {
+            "min_chars": 1500,
+            "min_items": 5,
+            "item_pattern": r"\|\s*P-\d+\s*\|",
+            "required_keywords": [],
+        },
+        "## Público-Alvo": {
+            "min_chars": 600,
+            "min_items": 3,
+            "item_pattern": r"\|\s*\w+.*\|\s*P[012]\s*\|",
+            "required_keywords": [],
+        },
+        "## Princípios Arquiteturais": {
+            "min_chars": 1200,
+            "min_items": 5,
+            "item_pattern": r"REGRA:",
+            "required_keywords": ["REGRA"],
+        },
+        "## Diferenciais": {
+            "min_chars": 600,
+            "min_items": 3,
+            "item_pattern": r"\|.*\|.*\|.*\|",
+            "required_keywords": [],
+        },
+        "## Requisitos Funcionais": {
+            "min_chars": 1500,
+            "min_items": 8,
+            "item_pattern": r"\|\s*RF-\d+\s*\|",
+            "required_keywords": [],
+        },
+        "## Requisitos Não-Funcionais": {
+            "min_chars": 1000,
+            "min_items": 8,
+            "item_pattern": r"\|\s*RNF-\d+\s*\|",
+            "required_keywords": [],
+        },
+        "## Arquitetura e Tech Stack": {
+            "min_chars": 1500,
+            "min_items": 3,
+            "item_pattern": r"\|.*\|.*\|.*\|",
+            "required_keywords": [],
+        },
+        "## ADRs": {
+            "min_chars": 800,
+            "min_items": 4,
+            "item_pattern": r"ADR-\d+",
+            "required_keywords": ["Alternativa", "Consequências"],
+        },
+        "## Análise de Segurança": {
+            "min_chars": 800,
+            "min_items": 5,
+            "item_pattern": r"\|\s*SEC-\d+\s*\|",
+            "required_keywords": [],
+        },
+        "## Escopo MVP": {
+            "min_chars": 400,
+            "min_items": 0,
+            "item_pattern": None,
+            "required_keywords": ["Inclui", "NÃO"],
+        },
+        "## Riscos Consolidados": {
+            "min_chars": 1200,
+            "min_items": 6,
+            "item_pattern": r"\|\s*R-\d+\s*\|",
+            "required_keywords": ["Workaround"],
+        },
+        "## Métricas de Sucesso": {
+            "min_chars": 600,
+            "min_items": 5,
+            "item_pattern": r"\|.*\|.*\|.*\|",
+            "required_keywords": [],
+        },
+        "## Plano de Implementação": {
+            "min_chars": 800,
+            "min_items": 3,
+            "item_pattern": r"\|\s*\d+\s*\||\|\s*Fase\s",
+            "required_keywords": [],
+        },
+        "## Constraints Técnicos": {
+            "min_chars": 300,
+            "min_items": 0,
+            "item_pattern": None,
+            "required_keywords": ["Linguagem", "Framework"],
+        },
+        "## Matriz de Rastreabilidade": {
+            "min_chars": 400,
+            "min_items": 4,
+            "item_pattern": r"\|\s*RF-\d+\s*\|",
+            "required_keywords": [],
+        },
+        "## Limitações Conhecidas": {
+            "min_chars": 600,
+            "min_items": 4,
+            "item_pattern": r"\|\s*LIM-\d+\s*\|",
+            "required_keywords": ["Workaround"],
+        },
+        "## Guia de Replicação": {
+            "min_chars": 600,
+            "min_items": 0,
+            "item_pattern": None,
+            "required_keywords": [],
+        },
+        "## Cláusula de Integridade": {
+            "min_chars": 200,
+            "min_items": 5,
+            "item_pattern": r"\|.*\|.*\|",
+            "required_keywords": [],
+        },
+    }
+
+    def check_all_sections(self, prd_final: str) -> Dict:
+        """
+        Verifica todas as seções do PRD Final contra as regras definidas.
+        Retorna dict com resultados e feedback por seção.
+        """
+        if not prd_final or len(prd_final.strip()) < 100:
+            return {
+                "passed": False,
+                "total_sections_checked": 0,
+                "failed_sections": [],
+                "feedback": ["PRD insuficiente para auditoria de qualidade."],
+            }
+
+        sections = self._split_sections(prd_final)
+        failed = []
+        all_feedback = []
+
+        for heading, rules in self.SECTION_RULES.items():
+            content = sections.get(heading, "")
+            section_feedback = self._check_section(heading, content, rules)
+            if section_feedback:
+                failed.append(heading)
+                all_feedback.extend(section_feedback)
+
+        return {
+            "passed": len(failed) == 0,
+            "total_sections_checked": len(self.SECTION_RULES),
+            "sections_passed": len(self.SECTION_RULES) - len(failed),
+            "failed_sections": failed,
+            "feedback": all_feedback,
+        }
+
+    def check_section_by_type(self, section_heading: str, content: str) -> List[str]:
+        """
+        Verifica uma seção individual. Retorna lista de feedbacks (vazia = OK).
+        Usado pelo SectionalGenerator no loop de retry.
+        """
+        rules = self.SECTION_RULES.get(section_heading)
+        if not rules:
+            return []
+        return self._check_section(section_heading, content, rules)
+
+    def _check_section(self, heading: str, content: str, rules: Dict) -> List[str]:
+        """Verifica uma seção contra suas regras. Retorna feedbacks."""
+        feedback = []
+
+        if not content.strip():
+            feedback.append(f"{heading}: seção VAZIA ou ausente.")
+            return feedback
+
+        # Check 1: comprimento mínimo
+        if len(content.strip()) < rules["min_chars"]:
+            feedback.append(
+                f"{heading}: apenas {len(content.strip())} chars "
+                f"(mínimo {rules['min_chars']}). Expanda com mais detalhes."
+            )
+
+        # Check 2: contagem de itens
+        if rules["min_items"] > 0 and rules["item_pattern"]:
+            count = len(re.findall(rules["item_pattern"], content, re.IGNORECASE))
+            if count < rules["min_items"]:
+                feedback.append(
+                    f"{heading}: apenas {count} itens encontrados "
+                    f"(mínimo {rules['min_items']}). Adicione mais itens."
+                )
+
+        # Check 3: keywords obrigatórias
+        for kw in rules.get("required_keywords", []):
+            if kw.lower() not in content.lower():
+                feedback.append(
+                    f"{heading}: keyword obrigatória '{kw}' não encontrada."
+                )
+
+        return feedback
+
+    def _split_sections(self, text: str) -> Dict[str, str]:
+        """Divide o PRD Final em seções pelo heading ##."""
+        sections = {}
+        parts = re.split(r'(?=^## )', text, flags=re.MULTILINE)
+        for part in parts:
+            if not part.strip():
+                continue
+            lines = part.strip().splitlines()
+            heading = lines[0].strip()
+            content = "\n".join(lines[1:]).strip()
+            # Normalizar heading para matching
+            for rule_heading in self.SECTION_RULES:
+                if rule_heading.lower() in heading.lower():
+                    sections[rule_heading] = content
+                    break
+            else:
+                sections[heading] = content
+        return sections
+
+    def get_feedback_for_retry(self, section_heading: str, content: str) -> str:
+        """
+        Gera instrução de retry formatada para injeção no prompt do SectionalGenerator.
+        """
+        feedbacks = self.check_section_by_type(section_heading, content)
+        if not feedbacks:
+            return ""
+        instruction = "\n⚠️ QUALIDADE INSUFICIENTE. Corrija:\n"
+        for fb in feedbacks:
+            instruction += f"- {fb}\n"
+        return instruction
+```
+
+---
+
+## SUB-FASE 9.5.5 — Integração do QualityChecker no Loop de Retry
+
+### Diff — `sectional_generator.py`
+
+No método `_execute_pass_with_retry`, **após** a validação estrutural existente e **antes** de retornar o resultado validado, adicionar a verificação de qualidade:
+
+```python
+# ANTES (no _execute_pass_with_retry, após validation["valid"]):
+            if validation["valid"]:
+                if attempt > 1:
+                    self._emit_ok(f"  Pass {pass_number} corrigido na tentativa {attempt}")
+                return result
+
+# DEPOIS:
+            if validation["valid"]:
+                # FASE 9.5: Verificação de qualidade por seção
+                quality_feedback = self._check_section_quality(
+                    section_pass.sections, result
+                )
+                if quality_feedback and attempt <= MAX_RETRIES_PER_PASS:
+                    self._emit_warn(
+                        f"  Pass {pass_number} estrutura OK mas qualidade insuficiente. "
+                        f"Retentando com feedback..."
+                    )
+                    last_fail_reasons = [f"QUALITY: {quality_feedback}"]
+                    continue  # Vai para próxima iteração do loop de retry
+
+                if attempt > 1:
+                    self._emit_ok(f"  Pass {pass_number} corrigido na tentativa {attempt}")
+                return result
+```
+
+E adicionar o método `_check_section_quality` na classe:
+
+```python
+    def _check_section_quality(self, sections: List[str], content: str) -> str:
+        """FASE 9.5: Verifica qualidade via SectionQualityChecker."""
+        from src.core.section_quality_checker import SectionQualityChecker
+        checker = SectionQualityChecker()
+        all_feedback = []
+        for heading in sections:
+            fb = checker.check_section_by_type(heading, content)
+            all_feedback.extend(fb)
+        if all_feedback:
+            return "; ".join(all_feedback[:3])  # Limitar a 3 feedbacks para não estourar prompt
+        return ""
+```
+
+---
+
+## SUB-FASE 9.5.6 — Atualizar min_chars dos Passes para Refletir os Novos Targets
+
+Os `min_chars` atuais nos `SectionPass` são muito baixos para os novos targets. Atualizar para serem coerentes com o word count target:
+
+```python
+# Pass final_p01: min_chars de 800 → 1500
+# Pass final_p02: min_chars de 200 → 600
+# Pass final_p03: min_chars de 700 → 1200
+# Pass final_p04: min_chars de 600 → 1500
+# Pass final_p05: min_chars de 500 → 1000
+# Pass final_p06: min_chars de 800 → 1500
+# Pass final_p07: min_chars de 500 → 800
+# Pass final_p08: min_chars de 300 → 400
+# Pass final_p09: min_chars de 600 → 1200
+# Pass final_p10: min_chars de 600 → 1200
+# Pass final_p11: min_chars de 600 → 1500
+# Pass final_p12: min_chars de 400 → 600
+```
+
+---
+
+## SUB-FASE 9.5.7 — Atualizar Teste de Range
+
+### Diff — `tests/test_phase_9_1.py`
+
+```python
+# ANTES:
+    def test_max_output_tokens_reasonable(self):
+        for p in NEXUS_FINAL_PASSES:
+            self.assertGreaterEqual(p.max_output_tokens, 800)
+            self.assertLessEqual(p.max_output_tokens, 2500)
+
+# DEPOIS:
+    def test_max_output_tokens_reasonable(self):
+        for p in NEXUS_FINAL_PASSES:
+            self.assertGreaterEqual(p.max_output_tokens, 800)
+            self.assertLessEqual(p.max_output_tokens, 2500)
+
+    def test_min_chars_reasonable(self):
+        """FASE 9.5: min_chars deve refletir os word count targets."""
+        for p in NEXUS_FINAL_PASSES:
+            self.assertGreaterEqual(p.min_chars, 400, f"Pass {p.pass_id} min_chars muito baixo")
+            self.assertLessEqual(p.min_chars, 2000, f"Pass {p.pass_id} min_chars muito alto")
+```
+
+---
+
+## CHECKLIST SEQUENCIAL DE IMPLEMENTAÇÃO
+
+```
+FASE 9.5 — Onda 1: Exemplar Injection + Word Count Targets + SectionQualityChecker
+
+SUB-FASE 9.5.1 — Exemplares
+[ ] 1. Criar diretório idea-forge/src/core/exemplars/
+[ ] 2. Criar __init__.py no diretório
+[ ] 3. Criar os 12 arquivos de exemplares (p01 a p12) conforme blueprint
+[ ] 4. Verificar que todos importam corretamente:
+      python -c "from src.core.exemplars.p01_visao_problemas import EXEMPLAR_P01; print(len(EXEMPLAR_P01))"
+
+SUB-FASE 9.5.2 — Injeção
+[ ] 5. Adicionar imports dos exemplares no sectional_generator.py
+[ ] 6. Adicionar método _get_exemplar na classe SectionalGenerator
+[ ] 7. Modificar _build_pass_prompt para usar exemplar quando disponível
+
+SUB-FASE 9.5.3 — Word Count Targets
+[ ] 8. Adicionar linha "IMPORTANTE: Esta seção deve ter NO MÍNIMO X palavras" 
+      na instruction de cada um dos 12 passes
+
+SUB-FASE 9.5.4 — SectionQualityChecker
+[ ] 9. Criar arquivo src/core/section_quality_checker.py conforme blueprint
+[ ] 10. Verificar imports: python -c "from src.core.section_quality_checker import SectionQualityChecker"
+
+SUB-FASE 9.5.5 — Integração
+[ ] 11. Adicionar método _check_section_quality no SectionalGenerator
+[ ] 12. Modificar _execute_pass_with_retry para chamar verificação de qualidade
+
+SUB-FASE 9.5.6 — Ajustar min_chars
+[ ] 13. Atualizar min_chars de todos os 12 passes conforme novos targets
+
+SUB-FASE 9.5.7 — Testes
+[ ] 14. Adicionar test_min_chars_reasonable no test_phase_9_1.py
+[ ] 15. Rodar: pytest tests/test_phase_9_1.py -v
+      Critério: 0 falhas
+[ ] 16. Rodar: pytest tests/ -q
+      Critério: 120+ testes passando, 0 falhas
+
+VALIDAÇÃO FINAL
+[ ] 17. Executar pipeline: python src/cli/main.py --no-gate
+[ ] 18. Verificar resultado:
+      a. ConsistencyChecker: is_clean: True
+      b. len(prd_final) >= 40.000 chars
+      c. SectionQualityChecker: todas as seções passam
+      d. Zero marcadores [GERAÇÃO FALHOU]
+      e. Pelo menos 8 RNFs
+      f. Pelo menos 8 RFs com endpoint
+      g. Pelo menos 5 ADRs
+      h. Pelo menos 6 riscos com workaround
+      i. Pelo menos 6 limitações
+
+SE FALHAR: Reportar qual critério falhou + chars do PRD + output de erro
+```
+
+---
+
+## CRITÉRIO BINÁRIO DE CONCLUSÃO
+
+| # | Condição | Verificação |
+|---|---|---|
+| 1 | `is_clean: True` | ConsistencyChecker |
+| 2 | `len(prd_final) >= 40.000` | Python len() |
+| 3 | SectionQualityChecker passa | Zero seções em failed_sections |
+| 4 | `pytest tests/ -q` sem falhas | 120+ testes |
+| 5 | Zero `[GERAÇÃO FALHOU]` | grep no PRD |

@@ -14,6 +14,20 @@ from src.models.model_provider import ModelProvider
 from src.core.stream_handler import ANSIStyle
 from src.core.output_validator import OutputValidator
 
+# FASE 9.5: Importar exemplares do padrão ouro
+from src.core.exemplars.p01_visao_problemas import EXEMPLAR_P01
+from src.core.exemplars.p02_publico_alvo import EXEMPLAR_P02
+from src.core.exemplars.p03_principios_diferenciais import EXEMPLAR_P03
+from src.core.exemplars.p04_requisitos_funcionais import EXEMPLAR_P04
+from src.core.exemplars.p05_rnfs import EXEMPLAR_P05
+from src.core.exemplars.p06_arquitetura_adrs import EXEMPLAR_P06
+from src.core.exemplars.p07_seguranca import EXEMPLAR_P07
+from src.core.exemplars.p08_escopo_mvp import EXEMPLAR_P08
+from src.core.exemplars.p09_riscos_metricas import EXEMPLAR_P09
+from src.core.exemplars.p10_plano_debate import EXEMPLAR_P10
+from src.core.exemplars.p11_constraints_rastreabilidade import EXEMPLAR_P11
+from src.core.exemplars.p12_guia_clausula import EXEMPLAR_P12
+
 
 MAX_RETRIES_PER_PASS = 2
 
@@ -229,6 +243,18 @@ class SectionalGenerator:
             )
 
             if validation["valid"]:
+                # FASE 9.5: Verificação de qualidade por seção
+                quality_feedback = self._check_section_quality(
+                    section_pass.sections, result
+                )
+                if quality_feedback and attempt <= MAX_RETRIES_PER_PASS:
+                    self._emit_warn(
+                        f"  Pass {pass_number} estrutura OK mas qualidade insuficiente. "
+                        f"Retentando com feedback..."
+                    )
+                    last_fail_reasons = [f"QUALITY: {quality_feedback}"]
+                    continue  # Vai para próxima iteração do loop de retry
+
                 if attempt > 1:
                     self._emit_ok(f"  Pass {pass_number} corrigido na tentativa {attempt}")
                 return result
@@ -244,6 +270,18 @@ class SectionalGenerator:
 
         # Todos os retries falharam
         return None
+
+    def _check_section_quality(self, sections: List[str], content: str) -> str:
+        """FASE 9.5: Verifica qualidade via SectionQualityChecker."""
+        from src.core.section_quality_checker import SectionQualityChecker
+        checker = SectionQualityChecker()
+        all_feedback = []
+        for heading in sections:
+            fb = checker.check_section_by_type(heading, content)
+            all_feedback.extend(fb)
+        if all_feedback:
+            return "; ".join(all_feedback[:3])  # Limitar a 3 feedbacks para não estourar prompt
+        return ""
 
     def _get_role(self, pass_id: str) -> str:
         """Determina o folder do modelo baseado no ID do pass."""
@@ -321,7 +359,11 @@ class SectionalGenerator:
         prompt = f"System: {system}\n\n"
         prompt += f"GERE EXATAMENTE ESTAS SEÇÕES:\n{section_pass.template}\n\n"
 
-        if section_pass.example:
+        # FASE 9.5: Injetar exemplar gold-standard se disponível, senão usar example do pass
+        exemplar = self._get_exemplar(section_pass.pass_id)
+        if exemplar:
+            prompt += f"{exemplar}\n\n"
+        elif section_pass.example:
             prompt += f"REFERÊNCIA DE FORMATO E PROFUNDIDADE:\n{section_pass.example}\n\n"
 
         # FASE 9.1.1: Usar input_budget do pass em vez de 600 fixo
@@ -341,6 +383,24 @@ class SectionalGenerator:
         prompt += f"{section_pass.instruction}\n"
 
         return prompt
+
+    def _get_exemplar(self, pass_id: str) -> str:
+        """FASE 9.5: Retorna exemplar gold-standard para o pass, ou string vazia."""
+        _EXEMPLAR_MAP = {
+            "final_p01": EXEMPLAR_P01,
+            "final_p02": EXEMPLAR_P02,
+            "final_p03": EXEMPLAR_P03,
+            "final_p04": EXEMPLAR_P04,
+            "final_p05": EXEMPLAR_P05,
+            "final_p06": EXEMPLAR_P06,
+            "final_p07": EXEMPLAR_P07,
+            "final_p08": EXEMPLAR_P08,
+            "final_p09": EXEMPLAR_P09,
+            "final_p10": EXEMPLAR_P10,
+            "final_p11": EXEMPLAR_P11,
+            "final_p12": EXEMPLAR_P12,
+        }
+        return _EXEMPLAR_MAP.get(pass_id, "")
 
     def _summarize_previous(self, text: str, max_tokens: int = 500) -> str:
         """Extrai apenas headings e primeiras linhas."""
@@ -667,7 +727,7 @@ DESIGN_PASSES = [
         example=(
             "| Backend | FastAPI | 0.104 | Async nativo | Django | Overhead |\n"
         ),
-        instruction="Gere Arquitetura e Tech Stack com alternativas rejeitadas.",
+        instruction="Gere Arquitetura e Tech Stack with alternativas rejeitadas.",
         min_chars=250,
         max_output_tokens=1200,
     ),
@@ -778,14 +838,16 @@ NEXUS_FINAL_PASSES = [
             "| P-02 | Latência na atualização de preços | Preço divergente no checkout gerando reclamações | ISR com revalidate automático a cada 60s |\n"
             "| P-03 | Falta de histórico de preço | Usuário não sabe se o preço atual é bom | Snapshots diários com gráfico de tendência de 90 dias |\n"
             "| P-04 | Bloqueio por scraping | Interrupção do serviço e perda de receita | Proxy rotation com pool de 100+ IPs e backoff |\n"
-            "| P-05 | SEO ruim em páginas dinâmicas | Perda de tráfego orgânico | SSR/ISR no Next.js com sitemap dinâmico |\n"
+            "| P-05 | SEO ruim em páginas dinâmicas | Perda de tráfego orgânico | SSR/ISR no Next.js with sitemap dinâmico |\n"
         ),
         instruction=(
-            "Sintetize visão e problemas do projeto a partir dos artefatos.\n"
-            "Mínimo 5 problemas. Cada problema deve ter impacto mensurável e solução técnica concreta.\n"
-            "Escreva com profundidade técnica. NÃO use generalidades."
+            "Sintetize visão e problemas do projeto a partir dos artefatos. "
+            "Mínimo 5 problemas. Cada problema deve ter impacto mensurável e solução técnica concreta. "
+            "Escreva com profundidade técnica. NÃO use generalidades. "
+            "IMPORTANTE: Esta seção deve ter NO MÍNIMO 800 palavras (~3200 caracteres). "
+            "Inclua pelo menos 6 problemas com impacto mensurável."
         ),
-        min_chars=800,
+        min_chars=1500,
         max_output_tokens=2500,
         input_budget=2500,
         context_artifacts=["prd"],
@@ -811,10 +873,12 @@ NEXUS_FINAL_PASSES = [
             "quando o preço cair abaixo do valor aceitável. Já perdeu ofertas de supermercado por não ter monitoramento automático. | P1 |\n"
         ),
         instruction=(
-            "Crie personas ricas com nome fictício, idade e narrativa de 1-2 frases sobre a dor real.\n"
-            "NÃO use rótulos genéricos. Mínimo 3 personas."
+            "Crie personas ricas com nome fictício, idade e narrativa de 1-2 frases sobre a dor real. "
+            "NÃO use rótulos genéricos. Mínimo 3 personas. "
+            "IMPORTANTE: Esta seção deve ter NO MÍNIMO 300 palavras. "
+            "Pelo menos 3 personas com narrativa de 2-3 frases cada."
         ),
-        min_chars=200,
+        min_chars=600,
         max_output_tokens=1000,
         input_budget=1500,
         context_artifacts=["prd"],
@@ -843,10 +907,12 @@ NEXUS_FINAL_PASSES = [
             "Cache ISR: dados servidos em <100ms com invalidação por webhook | Supera concorrentes em 40x |\n"
         ),
         instruction=(
-            "Princípios: cada um DEVE ter coluna 'Regra Verificável' com texto 'REGRA:'.\n"
-            "Diferenciais: compare com concorrentes reais ou abordagem manual atual."
+            "Princípios: cada um DEVE ter coluna 'Regra Verificável' com texto 'REGRA:'. "
+            "Diferenciais: compare com concorrentes reais ou abordagem manual atual. "
+            "IMPORTANTE: Esta seção deve ter NO MÍNIMO 800 palavras. "
+            "Pelo menos 6 princípios com REGRA verificável e 4 diferenciais."
         ),
-        min_chars=900,
+        min_chars=1200,
         max_output_tokens=2500,
         input_budget=2500,
         context_artifacts=["prd", "system_design"],
@@ -868,10 +934,12 @@ NEXUS_FINAL_PASSES = [
             "| RF-03 | Alerta de Preço | POST /api/alerts cria registro no DB e retorna 201 Created | Should | High | Aprovado |\n"
         ),
         instruction=(
-            "Consolide RFs do PRD original com status do Review. Mínimo 6 RFs.\n"
-            "Critérios de aceite DEVEM incluir endpoint, status HTTP e formato de resposta."
+            "Consolide RFs do PRD original com status do Review. Mínimo 6 RFs. "
+            "Critérios de aceite DEVEM incluir endpoint, status HTTP e formato de resposta. "
+            "IMPORTANTE: Esta seção deve ter NO MÍNIMO 800 palavras. "
+            "Pelo menos 10 RFs, cada um com endpoint, status HTTP e componente responsável."
         ),
-        min_chars=600,
+        min_chars=1500,
         max_output_tokens=2500,
         input_budget=2500,
         context_artifacts=["prd", "prd_review"],
@@ -902,13 +970,15 @@ NEXUS_FINAL_PASSES = [
             "| RNF-10 | Usabilidade | Tempo para primeira busca (TTFB) | Teste com 5 usuários | <3 cliques |\n"
         ),
         instruction=(
-            "Mínimo 8 RNFs cobrindo TODAS estas categorias:\n"
+            "Mínimo 8 RNFs cobrindo TODAS estas categorias: "
             "Performance, SEO, Disponibilidade, Segurança, Escalabilidade, "
-            "Compatibilidade, Observabilidade, Usabilidade.\n"
-            "Target DEVE ser numérico e verificável. Nunca 'bom' ou 'adequado'.\n"
-            "Cada RNF deve ter método de medição implícito na coluna Métrica."
+            "Compatibilidade, Observabilidade, Usabilidade. "
+            "Target DEVE ser numérico e verificável. Nunca 'bom' ou 'adequado'. "
+            "Cada RNF deve ter método de medição implícito na coluna Métrica. "
+            "IMPORTANTE: Esta seção deve ter NO MÍNIMO 600 palavras. "
+            "Pelo menos 12 RNFs cobrindo 8 categorias."
         ),
-        min_chars=500,
+        min_chars=1000,
         max_output_tokens=2000,
         input_budget=2000,
         context_artifacts=["prd"],
@@ -959,14 +1029,16 @@ NEXUS_FINAL_PASSES = [
             "| Mitigação | Webhook de revalidação on-demand quando preço muda |\n"
         ),
         instruction=(
-            "Gere arquitetura com PROFUNDIDADE REAL.\n"
-            "OBRIGATÓRIO incluir:\n"
-            "- Diagrama Mermaid em bloco ```mermaid com componentes e conexões\n"
-            "- Tabela de tech stack com VERSÃO EXATA e alternativa rejeitada\n"
-            "- Mínimo 4 ADRs no formato ficha (cada um com ID, Decisão, Alternativa, Consequências, Mitigação)\n"
-            "NÃO use tabela simples para ADRs — use formato de ficha com | Campo | Valor |."
+            "Gere arquitetura com PROFUNDIDADE REAL. "
+            "OBRIGATÓRIO incluir: "
+            "- Diagrama Mermaid em bloco ```mermaid com componentes e conexões "
+            "- Tabela de tech stack com VERSÃO EXATA e alternativa rejeitada "
+            "- Mínimo 4 ADRs no formato ficha (cada um com ID, Decisão, Alternativa, Consequências, Mitigação) "
+            "NÃO use tabela simples para ADRs — use formato de ficha com | Campo | Valor |. "
+            "IMPORTANTE: Esta seção deve ter NO MÍNIMO 1000 palavras. "
+            "Incluir diagrama Mermaid funcional, 6 camadas na tech stack, e pelo menos 5 ADRs no formato ficha."
         ),
-        min_chars=800,
+        min_chars=1500,
         max_output_tokens=2500,
         input_budget=3000,
         context_artifacts=["system_design"],
@@ -988,8 +1060,12 @@ NEXUS_FINAL_PASSES = [
             "| SEC-03 | Information Disclosure | Log de Erro | Média | Limpar stacktraces em prod via middleware |\n"
             "| SEC-04 | Denial of Service | Crawler | Alta | Cloudflare WAF + bloqueio de geo-IP suspeito |\n"
         ),
-        instruction="Sintetize do Security Review. Mitigação deve ser ESPECÍFICA com ferramenta/lib mencionada.",
-        min_chars=500,
+        instruction=(
+            "Sintetize do Security Review. Mitigação deve ser ESPECÍFICA com ferramenta/lib mencionada. "
+            "IMPORTANTE: Esta seção deve ter NO MÍNIMO 600 palavras. "
+            "Pelo menos 6 ameaças STRIDE + tabela de dados sensíveis."
+        ),
+        min_chars=800,
         max_output_tokens=2000,
         input_budget=2500,
         context_artifacts=["security_review"],
@@ -1016,8 +1092,12 @@ NEXUS_FINAL_PASSES = [
             "- Marketplace próprio — modelo de "
             "negócio focado em agregação na V1; requer acordos de revenda\n"
         ),
-        instruction="Referencie APENAS RF-IDs da tabela de RFs gerada anteriormente. NÃO invente IDs novos.",
-        min_chars=300,
+        instruction=(
+            "Referencie APENAS RF-IDs da tabela de RFs gerada anteriormente. NÃO invente IDs novos. "
+            "IMPORTANTE: Esta seção deve ter NO MÍNIMO 400 palavras. "
+            "Justificativa técnica para cada exclusão do MVP."
+        ),
+        min_chars=400,
         max_output_tokens=1500,
         input_budget=2000,
         require_table=False,
@@ -1055,13 +1135,15 @@ NEXUS_FINAL_PASSES = [
             "| Taxa de Clique em Afiliado (CTR) | >=5% | 3 meses | GA4 com funil de eventos |\n"
         ),
         instruction=(
-            "Consolide riscos de PRD, Design e Security.\n"
-            "Mínimo 6 riscos e 5 métricas.\n"
+            "Consolide riscos de PRD, Design e Security. "
+            "Mínimo 6 riscos e 5 métricas. "
             "Riscos: incluir coluna 'Workaround Atual' — ação concreta que o sistema faz AGORA "
-            "enquanto a mitigação definitiva não está implementada.\n"
-            "Métricas: 'Como Medir' deve descrever ferramenta, frequência e critério de bloqueio."
+            "enquanto a mitigação definitiva não está implementada. "
+            "Métricas: 'Como Medir' deve descrever ferramenta, frequência e critério de bloqueio. "
+            "IMPORTANTE: Esta seção deve ter NO MÍNIMO 800 palavras. "
+            "Pelo menos 8 riscos com workaround e 8 métricas com método de medição."
         ),
-        min_chars=600,
+        min_chars=1200,
         max_output_tokens=2500,
         input_budget=3000,
         context_artifacts=["prd", "system_design", "security_review"],
@@ -1088,10 +1170,12 @@ NEXUS_FINAL_PASSES = [
             "| R3 | REPROVADO | Auth via Telefone | Complexidade técnica fora do escopo MVP atual |\n"
         ),
         instruction=(
-            "Plano: critério de conclusão VERIFICÁVEL (ex: 'cobertura >=80%').\n"
-            "Decisões: extraia dos Pontos Aceitos e Melhorias do transcript do debate."
+            "Plano: critério de conclusão VERIFICÁVEL (ex: 'cobertura >=80%'). "
+            "Decisões: extraia dos Pontos Aceitos e Melhorias do transcript do debate. "
+            "IMPORTANTE: Esta seção deve ter NO MÍNIMO 800 palavras. "
+            "Pelo menos 4 fases com arquivos e testes por fase. Pelo menos 5 decisões do debate."
         ),
-        min_chars=600,
+        min_chars=1200,
         max_output_tokens=2500,
         input_budget=3000,
         context_artifacts=["development_plan", "debate_transcript"],
@@ -1128,7 +1212,7 @@ NEXUS_FINAL_PASSES = [
             "| RF-01 | SearchModule | Unit (Jest): retorna resultados de >=2 marketplaces. "
             "Integration (Supertest): /api/search retorna 200 | Planejado |\n"
             "| RF-02 | ProductPage ISR | E2E (Playwright): /produto/slug exibe header x-nextjs-cache | Planejado |\n"
-            "| RF-03 | AlertService | Unit: POST /api/alerts retorna 201 com alertId válido | Planejado |\n"
+            "| RF-03 | AlertService | Unit: POST /api/alerts retorna 201 with alertId válido | Planejado |\n"
             "| RF-04 | SearchFilter | Integration: /api/search?minPrice=X&maxPrice=Y filtra corretamente | Planejado |\n"
             "| RF-05 | RankingEngine | Unit: /api/search?sort=best retorna ordenado por preço | Planejado |\n"
             "| RF-06 | HistoryService | Integration: /api/history retorna JSON with data_points | Planejado |\n\n"
@@ -1141,15 +1225,18 @@ NEXUS_FINAL_PASSES = [
             "| LIM-04 | Sem app nativo | Baixa | UX mobile limitada | PWA com manifest.json | Nunca — PWA é definitivo |\n"
         ),
         instruction=(
-            "IMPORTANTE sobre Rastreabilidade:\n"
-            "- Use os MESMOS RF-IDs (RF-01, RF-02, etc.) da tabela de Requisitos Funcionais.\n"
-            "- NÃO invente IDs novos. NÃO invente nomes de componentes que não existam.\n"
-            "- Se a tabela de RFs tem RF-01 a RF-06, a rastreabilidade DEVE ter RF-01 a RF-06.\n\n"
-            "Constraints: versões EXATAS de cada tecnologia.\n"
+            "IMPORTANTE sobre Rastreabilidade: "
+            "- Use os MESMOS RF-IDs (RF-01, RF-02, etc.) da tabela de Requisitos Funcionais. "
+            "- NÃO invente IDs novos. NÃO invente nomes de componentes que não existam. "
+            "- Se a tabela de RFs tem RF-01 a RF-06, a rastreabilidade DEVE ter RF-01 a RF-06. "
+            "Constraints: versões EXATAS de cada tecnologia. "
             "Limitações: mínimo 4 com workaround concreto (o que o sistema faz AGORA) "
-            "e versão de resolução (quando será corrigido)."
+            "e versão de resolução (quando será corrigido). "
+            "IMPORTANTE: Esta seção deve ter NO MÍNIMO 1000 palavras. "
+            "Rastreabilidade COMPLETA (cada RF com arquivo, teste e critério). "
+            "Pelo menos 6 limitações com workaround concreto."
         ),
-        min_chars=800,
+        min_chars=1500,
         max_output_tokens=2500,
         input_budget=3000,
         context_artifacts=["prd", "system_design"],
@@ -1181,10 +1268,12 @@ NEXUS_FINAL_PASSES = [
             "4. **Verificação:** Acessar http://localhost:3000 — header x-nextjs-cache deve ser HIT ou STALE\n"
         ),
         instruction=(
-            "Guia: comandos EXATOS. Inclua URL de verificação.\n"
-            "Cláusula: marque com checkmark ou X baseado no conteúdo REAL gerado nas seções anteriores."
+            "Guia: comandos EXATOS. Inclua URL de verificação. "
+            "Cláusula: marque com checkmark ou X baseado no conteúdo REAL gerado nas seções anteriores. "
+            "IMPORTANTE: Esta seção deve ter NO MÍNIMO 600 palavras. "
+            "Guia com 6+ passos com comandos bash copiáveis. Cláusula com 8+ itens verificados."
         ),
-        min_chars=400,
+        min_chars=600,
         max_output_tokens=2500,
         input_budget=2500,
         require_table=True,

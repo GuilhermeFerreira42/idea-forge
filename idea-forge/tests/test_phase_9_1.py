@@ -49,9 +49,10 @@ class TestNexusFinalPasses(unittest.TestCase):
                             f"Pass {p.pass_id} não começa com 'final'")
     
     def test_min_chars_reasonable(self):
+        """FASE 9.5: min_chars deve refletir os word count targets."""
         for p in NEXUS_FINAL_PASSES:
-            self.assertGreaterEqual(p.min_chars, 150,
-                                    f"Pass {p.pass_id} min_chars muito baixo: {p.min_chars}")
+            self.assertGreaterEqual(p.min_chars, 400, f"Pass {p.pass_id} min_chars muito baixo")
+            self.assertLessEqual(p.min_chars, 2000, f"Pass {p.pass_id} min_chars muito alto")
     
     def test_max_output_tokens_reasonable(self):
         for p in NEXUS_FINAL_PASSES:

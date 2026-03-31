@@ -1,0 +1,16 @@
+EXEMPLAR_P02 = (
+    "REFERÊNCIA DE PROFUNDIDADE (use como guia de densidade, NÃO copie):\n\n"
+    "## Público-Alvo\n"
+    "| Segmento | Perfil (nome fictício + dor específica) | Prioridade |\n"
+    "|---|---|---|\n"
+    "| Caçador de Oferta | Marina, 28 anos — Abre 6 abas para comparar preço de um fone "
+    "Bluetooth entre Shopee, Amazon e ML. Gasta 40min por compra e ainda assim não tem "
+    "certeza se encontrou o menor preço. Já perdeu promoções por não monitorar. | P0 |\n"
+    "| Afiliado Digital | Carlos, 34 anos — Cria conteúdo de review no Instagram e precisa de "
+    "links rastreáveis com páginas de carregamento rápido para não perder a conversão do clique. "
+    "Sua taxa de bounce atual em sites lentos é 65%. Perde ~R$800/mês em comissões perdidas. | P0 |\n"
+    "| Comprador Recorrente | Dona Fátima, 52 anos — Compra produtos de limpeza e higiene "
+    "mensalmente. Quer ser avisada quando o preço do produto que ela já conhece cair abaixo "
+    "de um valor aceitável. Já perdeu ofertas de supermercado por não ter monitoramento. | P1 |\n\n"
+    "--- FIM DA REFERÊNCIA ---\n"
+)

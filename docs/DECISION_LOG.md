@@ -11,3 +11,10 @@ F9.3 | ADD | `generate_sectional_with_inputs` | MÃ©todo novo para combinaÃ§Ã£o d
 - F9.4 | MOD | NEXUS_FINAL_PASSES | Aumentado min_chars nos passes para PRD Final longo | src/core/sectional_generator.py
 - F9.4 | MOD | NEXUS_FINAL_PASSES | Ajustado example do P08 para mitigar fantasma de RF | src/core/sectional_generator.py
 
+
+### Fase 9.5 — Onda 1 de Expansão
+- F9.5 | ADD | src/core/exemplars/ | 12 arquivos com trechos gold-standard para injeção de profundidade | src/core/exemplars/
+- F9.5 | ADD | SectionQualityChecker | Verificador programático de densidade, itens e palavras-chave por seção | src/core/section_quality_checker.py
+- F9.5 | MOD | SectionalGenerator | Integração de exemplares e QualityChecker no loop de retry | src/core/sectional_generator.py
+- F9.5 | MOD | NEXUS_FINAL_PASSES | Word count targets e min_chars agressivos (meta 40k-50k) | src/core/sectional_generator.py
+
