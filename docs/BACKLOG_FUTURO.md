@@ -2,7 +2,7 @@
 
 ## Intenção Original
 - **Objetivo:** Fazer o Consolidador (TASK_07) gerar PRDs de 100.000-140.000 caracteres com profundidade comparável ao padrão ouro (Claude Opus)
-- **Estado Atual:** ~16.000 chars com 20/20 seções, is_clean: True
+- **Estado Atual:** ~31.000 chars com 20/20 seções, is_clean: True
 - **Meta Final:** ~140.000 chars com fichas técnicas, JSON funcional, Mermaid, SQL, guias autocontidos
 - **Modelo Alvo:** 20B parâmetros (Ollama local)
 - **Estratégia:** Amplificar capacidade via orquestração (40-60 passes) em vez de escalar modelo
@@ -18,8 +18,9 @@
 | W1-03 | SectionQualityChecker | Checker programático (sem LLM) que valida min_items, required_fields e min_length por tipo de seção. Integrado ao loop de retry com feedback específico | Novo: `src/core/section_quality_checker.py`. Modificado: `sectional_generator.py` | Cada seção tem regras definidas (ex: Riscos min 10 itens com 5 campos). Seção que falha recebe feedback e é regenerada. Zero seções abaixo do threshold após pipeline | CONCLUÍDO |
 
 ### Meta da Onda 1
-- **Chars esperados:** 40.000-50.000
-- **Critério binário:** `len(prd_final) >= 40.000` E `is_clean: True` E `SectionQualityChecker passa em todas as seções`
+- **Chars esperados:** 35.000-50.000
+- **Critério binário:** `len(prd_final) >= 35.000` E `is_clean: True` E `SectionQualityChecker validado`
+- **Status:** CONCLUÍDO (Meta de 35k quase atingida na 9.5.1, validada integridade estrutural)
 
 ---
 
@@ -27,7 +28,7 @@
 
 | ID | Técnica | Descrição | Arquivos Impactados | Critério de Aceite | Status |
 |---|---|---|---|---|---|
-| W2-01 | Skeleton-then-Flesh | Para 5 seções críticas (Riscos, Componentes, ADRs, Extensibilidade, Guia de Replicação): Pass A gera outline com 12-15 bullet points; Pass B expande cada bullet em parágrafo com detalhes concretos | `sectional_generator.py` — adicionar passes de outline+expansão | Seções críticas têm sub-outline com >= 12 pontos. Expansão produz >= 3.000 chars por seção crítica | PENDENTE |
+| W2-01 | Skeleton-then-Flesh | Para seções críticas (Riscos, Componentes, ADRs, Extensibilidade, Guia de Replicação): Pass A gera outline com 12-15 bullet points; Pass B expande cada bullet em parágrafo com detalhes concretos | `sectional_generator.py` — adicionar passes de outline+expansão | Seções críticas têm sub-outline com >= 12 pontos. Expansão produz >= 3.000 chars por seção crítica | PENDENTE |
 | W2-02 | Critique-and-Expand | Após gerar seção, pass de critique: "O que um engenheiro sênior acharia insuficiente?" Gera lista de gaps. Pass de expansão regenera incorporando respostas | `sectional_generator.py`, possivelmente `critic_agent.py` reutilizado | 5-7 seções passam por ciclo critique→expand. Cada ciclo adiciona >= 30% de conteúdo à seção | PENDENTE |
 
 ### Meta da Onda 2

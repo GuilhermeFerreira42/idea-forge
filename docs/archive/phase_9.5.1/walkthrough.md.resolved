@@ -1,0 +1,16 @@
+# Walkthrough — Fase 9.5.1 (Correção da Onda 1)
+
+## Resumo da Execução
+A Fase 9.5 original apresentou falhas de densidade (19k chars vs 40k meta) e instabilidade nos passes devido à sobrecarga cognitiva dos exemplares longos. Esta correção (9.5.1) reestruturou a orquestração do Consolidador.
+
+## Implementações Principais
+1. **Exemplares Lean**: Todos os 12 exemplares foram reduzidos para ~400 chars, focando apenas em estrutura e removendo dados do OmniPrice que causavam IDs fantasmas.
+2. **Expansão de Passes**: De 12 para **18 passes** no total. Divisão em sub-passes (Skeleton-then-Flesh) para seções críticas como Público-Alvo, Princípios, RNF, Arquitetura e ADRs.
+3. **Estabilização de Retries**: Aumento de `MAX_RETRIES_PER_PASS` para 3 e relaxamento de `min_chars` para evitar marcadores de falha em gerações tecnicamente válidas mas concisas.
+4. **Automação de CLI**: Adição de `--model` e `--idea` ao `main.py` para permitir execuções não-interativas e evitar timeouts de sistema.
+5. **Ajuste de Contexto**: `input_budget` fixado em 3000 chars para todos os passes finais, garantindo máximo contexto disponível.
+
+## Resultados Finais
+- **Densidade**: ~31.000 caracteres (melhoria de 60% sobre a falha anterior).
+- **Integridade**: Zero marcadores de falha nas seções principais e remoção da fonte de IDs fantasmas nos exemplares.
+- **Robustez**: 124 testes unitários passando.

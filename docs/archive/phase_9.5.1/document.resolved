@@ -1,0 +1,658 @@
+## DIAGNÓSTICO DA FALHA — Fase 9.5
+
+Antes de gerar a correção, preciso diagnosticar com precisão o que falhou, baseado nas evidências da pasta `VALIDACAO_FASE_9.5/`:
+
+### Evidências Coletadas
+
+| Evidência | Valor | Análise |
+|---|---|---|
+| `len(prd_final)` | 19.648 chars | **52% abaixo** da meta de 40.000 |
+| `is_clean` | False | CRITICAL: RF_ORPHAN + FAILED_SECTIONS |
+| Testes unitários | 125 passed | Código funciona, **problema é de design de prompt** |
+| Seções [GERAÇÃO FALHOU] | 5 ocorrências | Público-Alvo, Princípios, Diferenciais, Riscos, Métricas |
+| RF fantasmas | RF-11, RF-12 | Exemplar P08 contém RF-11/RF-12 que não existem no PRD gerado |
+| Validação TASK_07 | `PLACEHOLDER_HEAVY` | Modelo gerou muitos placeholders |
+| Tempo TASK_07 | 09:14:20 → 09:21:40 = **7min 20s** | 12 passes geraram output, mas 5 falharam |
+| Passes que funcionaram | P01, P04, P05, P06, P07, P08, P10, P11, P12 | 7/12 passes produziram conteúdo |
+| Passes que falharam | P02, P03, P09 (parcial: Riscos+Métricas) | 3 passes = 5 seções falharam |
+
+### Causa Raiz Identificada
+
+**Sobrecarga cognitiva no contexto do prompt.** Cada pass agora recebe:
+1. **CONSOLIDATOR_DIRECTIVE** (~500 chars de regras)
+2. **Template da seção** (~300-500 chars)
+3. **Exemplar gold-standard** (~1.500-3.000 chars) ← **VILÃO PRINCIPAL**
+4. **Artefato upstream** (~1.000-2.500 chars do input_budget)
+5. **Resumo de seções anteriores** (~500-2.000 chars crescendo)
+6. **Word count target** (~100 chars)
+7. **Instrução** (~200-500 chars)
+
+**Total por pass: ~4.000-9.000 chars de prompt** para um modelo 20B que funciona bem com <8K tokens de contexto total (F-007). 
+
+Os passes que falharam (P02, P03, P09) são justamente os que têm os **exemplares mais longos** (EXEMPLAR_P02 = personas com narrativa extensa, EXEMPLAR_P03 = princípios com 4 colunas + diferenciais, EXEMPLAR_P09 = riscos com 6 colunas + métricas).
+
+O modelo ficou "confuso" com tanto contexto e ou gerou conteúdo que não passou na validação estrutural, ou simplesmente não produziu output suficiente (resultado: None → [GERAÇÃO FALHOU]).
+
+### Problema Secundário: RF Fantasmas
+
+O EXEMPLAR_P08 (`p08_escopo_mvp.py`) contém referências a RF-07, RF-08, RF-09, RF-11, RF-12 do OmniPrice. O modelo local, ao ver esses IDs no exemplar, os copia para o Escopo MVP do PRD real — mas o PRD real pode não ter RF-11 e RF-12, criando RFs órfãos. **Este é exatamente o mesmo padrão do bug de RF fantasmas que corrigimos na Fase 9.4**, mas agora vindo dos exemplares em vez do example do pass.
+
+---
+
+## SOLUÇÃO CORRETIVA — Fase 9.5.1 (Correção)
+
+### Estratégia: "Exemplares Lean + Skeleton-then-Flesh Seletivo"
+
+A solução tem **4 ações simultâneas**:
+
+1. **Reduzir exemplares para ~500 chars cada** (de ~1.500-3.000) — manter APENAS a estrutura/formato, remover dados específicos do OmniPrice
+2. **Eliminar RF-IDs dos exemplares** — neutralizar a fonte de RF fantasmas
+3. **Introduzir Skeleton-then-Flesh nos 3 passes que falharam** (P02, P03, P09) — dividir cada um em 2 sub-passes mais leves
+4. **Reduzir input_budget nos passes mais pesados** — liberar tokens para geração
+
+### Resultado esperado:
+- De 12 passes → **15 passes** (3 passes divididos em 2 sub-passes cada)
+- Prompt por pass: de ~4.000-9.000 chars → **~2.000-4.000 chars**
+- PRD final: de ~19.648 → **~35.000-45.000 chars** (meta: ≥40.000)
+
+---
+
+## DIFFS CORRETIVOS
+
+### DIFF 1: Exemplares Lean (12 arquivos)
+
+Substituir o conteúdo de TODOS os 12 arquivos de exemplares. A ideia é manter a **estrutura da tabela** mas reduzir a **quantidade de linhas de exemplo** para 2-3 no máximo, e **remover dados específicos do OmniPrice** (IDs, nomes de projeto, URLs).
+
+#### `src/core/exemplars/p01_visao_problemas.py`
+```python
+EXEMPLAR_P01 = (
+    "REFERÊNCIA DE FORMATO (use como guia de densidade, NÃO copie dados):\n\n"
+    "## Visão do Produto\n"
+    "| Atributo | Valor |\n"
+    "|---|---|\n"
+    "| Codinome interno | [nome memorável do projeto] |\n"
+    "| Declaração de visão | [1 frase, máx 30 palavras, verbo infinitivo] |\n\n"
+    "## Problema e Solução\n"
+    "| ID | Problema | Impacto | Como o Sistema Resolve |\n"
+    "|---|---|---|---|\n"
+    "| P-01 | [problema técnico concreto] | [impacto mensurável: %, tempo, custo] | "
+    "[solução técnica com tecnologia específica] |\n"
+    "| P-02 | [outro problema] | [impacto com números] | [solução concreta] |\n\n"
+    "REGRA: Mínimo 6 problemas. Cada impacto DEVE ter número (%, segundos, R$).\n"
+    "--- FIM DA REFERÊNCIA ---\n"
+)
+```
+
+#### `src/core/exemplars/p02_publico_alvo.py`
+```python
+EXEMPLAR_P02 = (
+    "REFERÊNCIA DE FORMATO (use como guia de densidade, NÃO copie dados):\n\n"
+    "## Público-Alvo\n"
+    "| Segmento | Perfil (nome fictício + dor específica) | Prioridade |\n"
+    "|---|---|---|\n"
+    "| [Segmento 1] | [Nome], [idade] — [narrativa de 2 frases sobre a dor real "
+    "com números: tempo gasto, dinheiro perdido, frustração específica] | P0 |\n"
+    "| [Segmento 2] | [Nome], [idade] — [narrativa diferente com métricas] | P0 |\n\n"
+    "REGRA: Mínimo 3 personas. Cada uma com nome, idade e narrativa de 2-3 frases.\n"
+    "--- FIM DA REFERÊNCIA ---\n"
+)
+```
+
+#### `src/core/exemplars/p03_principios_diferenciais.py`
+```python
+EXEMPLAR_P03 = (
+    "REFERÊNCIA DE FORMATO (use como guia de densidade, NÃO copie dados):\n\n"
+    "## Princípios Arquiteturais\n"
+    "| Princípio | Descrição Concreta | Implicação Técnica | Decisão Arquitetural Crítica |\n"
+    "|---|---|---|---|\n"
+    "| [Nome do Princípio] | [descrição em 1 frase] | [tecnologia/config específica] | "
+    "REGRA: [regra verificável por teste automatizado] |\n\n"
+    "## Diferenciais\n"
+    "| Abordagem Atual | Problema | Como Este Sistema Supera |\n"
+    "|---|---|---|\n"
+    "| [concorrente/abordagem manual] | [problema concreto com métrica] | "
+    "[como o sistema resolve com tecnologia específica] |\n\n"
+    "REGRA: Mínimo 6 princípios com REGRA: verificável. Mínimo 4 diferenciais.\n"
+    "--- FIM DA REFERÊNCIA ---\n"
+)
+```
+
+#### `src/core/exemplars/p04_requisitos_funcionais.py`
+```python
+EXEMPLAR_P04 = (
+    "REFERÊNCIA DE FORMATO (use como guia de densidade, NÃO copie dados):\n\n"
+    "## Requisitos Funcionais (Consolidados)\n"
+    "| ID | Requisito | Critério de Aceite | Prioridade | Complexidade | Componente |\n"
+    "|---|---|---|---|---|---|\n"
+    "| RF-01 | [nome do requisito] | [endpoint HTTP + status + formato resposta] | Must | Média | [módulo] |\n"
+    "| RF-02 | [outro requisito] | [critério verificável programaticamente] | Must | Alta | [módulo] |\n\n"
+    "REGRA: Mínimo 10 RFs. Critérios incluem endpoint, status HTTP e componente.\n"
+    "REGRA: Use APENAS IDs sequenciais (RF-01, RF-02...) baseados no projeto REAL.\n"
+    "--- FIM DA REFERÊNCIA ---\n"
+)
+```
+
+#### `src/core/exemplars/p05_rnfs.py`
+```python
+EXEMPLAR_P05 = (
+    "REFERÊNCIA DE FORMATO (use como guia de densidade, NÃO copie dados):\n\n"
+    "## Requisitos Não-Funcionais\n"
+    "| ID | Categoria | Requisito | Métrica | Target |\n"
+    "|---|---|---|---|---|\n"
+    "| RNF-01 | Performance | [requisito concreto] | [ferramenta de medição] | [valor numérico] |\n"
+    "| RNF-02 | SEO | [requisito concreto] | [ferramenta] | [valor numérico] |\n\n"
+    "REGRA: Mínimo 12 RNFs cobrindo 8 categorias: Performance, SEO, Disponibilidade, "
+    "Segurança, Escalabilidade, Compatibilidade, Observabilidade, Usabilidade.\n"
+    "REGRA: Target DEVE ser numérico e verificável. Nunca 'bom' ou 'adequado'.\n"
+    "--- FIM DA REFERÊNCIA ---\n"
+)
+```
+
+#### `src/core/exemplars/p06_arquitetura_adrs.py`
+```python
+EXEMPLAR_P06 = (
+    "REFERÊNCIA DE FORMATO (use como guia de densidade, NÃO copie dados):\n\n"
+    "## Arquitetura e Tech Stack\n"
+    "- **Estilo:** [tipo de arquitetura]\n"
+    "```mermaid\ngraph TB\n"
+    "  COMP_A[Componente A] -->|protocolo| COMP_B[Componente B]\n"
+    "  COMP_B -->|protocolo| COMP_C[(Banco de Dados)]\n"
+    "```\n\n"
+    "| Camada | Tecnologia | Versão | Justificativa | Alternativa Rejeitada |\n"
+    "|---|---|---|---|---|\n"
+    "| [camada] | [tech] | [versão exata] | [motivo] | [alternativa — motivo rejeição] |\n\n"
+    "## ADRs (Decisões Arquiteturais)\n"
+    "| Campo | Valor |\n|---|---|\n"
+    "| ID | ADR-01 |\n"
+    "| Decisão | [o que foi escolhido] |\n"
+    "| Alternativa Rejeitada | [opção descartada com motivo] |\n"
+    "| Consequências | [prós e contras] |\n"
+    "| Mitigação | [como os contras são tratados] |\n\n"
+    "REGRA: Mínimo 6 camadas na tech stack. Mínimo 5 ADRs no formato ficha.\n"
+    "--- FIM DA REFERÊNCIA ---\n"
+)
+```
+
+#### `src/core/exemplars/p07_seguranca.py`
+```python
+EXEMPLAR_P07 = (
+    "REFERÊNCIA DE FORMATO (use como guia de densidade, NÃO copie dados):\n\n"
+    "## Análise de Segurança\n"
+    "| ID | Ameaça STRIDE | Componente | Severidade | Mitigação Concreta |\n"
+    "|---|---|---|---|---|\n"
+    "| SEC-01 | [categoria STRIDE] | [componente] | Alta | [mitigação com ferramenta específica] |\n\n"
+    "**Dados Sensíveis:**\n"
+    "| Dado | Classificação | Criptografia | Retenção |\n"
+    "|---|---|---|---|\n"
+    "| [tipo de dado] | PII | [algoritmo] | [período] |\n\n"
+    "REGRA: Mínimo 6 ameaças STRIDE + tabela de dados sensíveis.\n"
+    "--- FIM DA REFERÊNCIA ---\n"
+)
+```
+
+#### `src/core/exemplars/p08_escopo_mvp.py`
+```python
+EXEMPLAR_P08 = (
+    "REFERÊNCIA DE FORMATO (use como guia de densidade, NÃO copie dados):\n\n"
+    "## Escopo MVP\n"
+    "**O QUE ESTÁ NO MVP:**\n"
+    "- RF-01 ([nome]) — [justificativa curta]\n"
+    "- RF-02 ([nome]) — [justificativa curta]\n\n"
+    "**O QUE NÃO ESTÁ NO MVP:**\n"
+    "- [Feature excluída] — [justificativa técnica com prazo: ex 'Incluir em v1.5']\n\n"
+    "REGRA: Referenciar APENAS RF-IDs que existem na tabela de RFs do PROJETO REAL.\n"
+    "REGRA: NÃO invente IDs. NÃO copie IDs desta referência.\n"
+    "--- FIM DA REFERÊNCIA ---\n"
+)
+```
+
+#### `src/core/exemplars/p09_riscos_metricas.py`
+```python
+EXEMPLAR_P09 = (
+    "REFERÊNCIA DE FORMATO (use como guia de densidade, NÃO copie dados):\n\n"
+    "## Riscos Consolidados\n"
+    "| # | Risco | Probabilidade | Impacto | Mitigação | Workaround Atual |\n"
+    "|---|---|---|---|---|---|\n"
+    "| R-01 | [risco técnico concreto] | Alta | Alto | [mitigação definitiva] | "
+    "[ação que o sistema faz AGORA enquanto mitigação não está pronta] |\n\n"
+    "## Métricas de Sucesso\n"
+    "| Métrica | Target | Como Medir |\n"
+    "|---|---|---|\n"
+    "| [métrica concreta] | [valor numérico] | [ferramenta + comando ou query] |\n\n"
+    "REGRA: Mínimo 8 riscos com workaround. Mínimo 8 métricas com método de medição.\n"
+    "--- FIM DA REFERÊNCIA ---\n"
+)
+```
+
+#### `src/core/exemplars/p10_plano_debate.py`
+```python
+EXEMPLAR_P10 = (
+    "REFERÊNCIA DE FORMATO (use como guia de densidade, NÃO copie dados):\n\n"
+    "## Plano de Implementação\n"
+    "| Fase | Duração | Entregas | Critério de Conclusão | Dependência |\n"
+    "|---|---|---|---|---|\n"
+    "| 1 — [nome] | [X semanas] | [entregas concretas] | [critério verificável] | [dep] |\n\n"
+    "## Decisões do Debate\n"
+    "| Round | Tipo | Decisão | Justificativa Técnica |\n"
+    "|---|---|---|---|\n"
+    "| R1 | ACEITO | [decisão] | [justificativa] |\n\n"
+    "REGRA: Mínimo 4 fases. Mínimo 5 decisões do debate.\n"
+    "--- FIM DA REFERÊNCIA ---\n"
+)
+```
+
+#### `src/core/exemplars/p11_constraints_rastreabilidade.py`
+```python
+EXEMPLAR_P11 = (
+    "REFERÊNCIA DE FORMATO (use como guia de densidade, NÃO copie dados):\n\n"
+    "## Constraints Técnicos\n"
+    "- Linguagem: [valor com versão exata]\n"
+    "- Framework: [valor com versão exata]\n"
+    "- Banco de dados: [valor com versão]\n"
+    "- Infraestrutura: [provedores]\n"
+    "- Segurança: [medidas concretas]\n\n"
+    "## Matriz de Rastreabilidade\n"
+    "| RF-ID | Componente | Arquivo | Teste que Valida | Critério |\n"
+    "|---|---|---|---|---|\n"
+    "| RF-01 | [módulo] | [arquivo.py] | [test_file::test_name] | [critério binário] |\n\n"
+    "## Limitações Conhecidas\n"
+    "| ID | Limitação | Severidade | Impacto | Workaround Atual | Quando Resolvida |\n"
+    "|---|---|---|---|---|---|\n"
+    "| LIM-01 | [limitação] | Alta | [impacto] | [workaround concreto] | [versão: v1.1, v2.0, Nunca] |\n\n"
+    "REGRA: Rastreabilidade COMPLETA — usar MESMOS RF-IDs da tabela de RFs. Mínimo 6 limitações.\n"
+    "--- FIM DA REFERÊNCIA ---\n"
+)
+```
+
+#### `src/core/exemplars/p12_guia_clausula.py`
+```python
+EXEMPLAR_P12 = (
+    "REFERÊNCIA DE FORMATO (use como guia de densidade, NÃO copie dados):\n\n"
+    "## Guia de Replicação Resumido\n"
+    "### 1. Pré-requisitos\n"
+    "| Ferramenta | Versão Exata | Verificação |\n"
+    "|---|---|---|\n"
+    "| [ferramenta] | [versão] | [comando --version] |\n\n"
+    "### 2. Instalação\n"
+    "```bash\ngit clone [url]\ncd [projeto]\n[comandos de install]\n```\n\n"
+    "### 3. Execução\n"
+    "```bash\n[comando para rodar]\n```\n\n"
+    "### 4. Verificação\n"
+    "```bash\ncurl [url/health] # Esperado: {resposta}\n```\n\n"
+    "## Cláusula de Integridade\n"
+    "| Item | Status |\n"
+    "|---|---|\n"
+    "| Todos os RF-IDs do Escopo existem na tabela de RFs | ✓/✗ |\n"
+    "| Todos os riscos HIGH possuem mitigação | ✓/✗ |\n\n"
+    "REGRA: Guia com 6+ passos. Cláusula com 8+ itens verificados.\n"
+    "--- FIM DA REFERÊNCIA ---\n"
+)
+```
+
+---
+
+### DIFF 2: Skeleton-then-Flesh para P02, P03 e P09
+
+Nos `NEXUS_FINAL_PASSES` em `sectional_generator.py`, **substituir** os passes `final_p02`, `final_p03` e `final_p09` por pares de sub-passes (skeleton + flesh).
+
+**Localizar** a lista `NEXUS_FINAL_PASSES` e fazer estas substituições:
+
+#### Substituir `final_p02` por `final_p02a` + `final_p02b`:
+
+```python
+    # === PASS 2A: Público-Alvo — SKELETON ===
+    SectionPass(
+        pass_id="final_p02a",
+        sections=["## Público-Alvo"],
+        template=(
+            "## Público-Alvo\n"
+            "Gere APENAS o OUTLINE abaixo (NÃO expanda ainda):\n"
+            "- Persona 1: [Nome], [idade], [segmento], [dor em 1 frase]\n"
+            "- Persona 2: [Nome], [idade], [segmento], [dor em 1 frase]\n"
+            "- Persona 3: [Nome], [idade], [segmento], [dor em 1 frase]\n"
+            "- Persona 4: [Nome], [idade], [segmento], [dor em 1 frase]\n"
+        ),
+        example="",
+        instruction=(
+            "Gere APENAS uma lista de 4 personas com nome, idade, segmento e dor em 1 frase cada. "
+            "NÃO gere tabela ainda. NÃO expanda. Apenas o outline."
+        ),
+        min_chars=200,
+        max_output_tokens=800,
+        input_budget=1500,
+        require_table=False,
+        context_artifacts=["prd"],
+    ),
+    # === PASS 2B: Público-Alvo — FLESH ===
+    SectionPass(
+        pass_id="final_p02b",
+        sections=["## Público-Alvo"],
+        template=(
+            "## Público-Alvo\n"
+            "| Segmento | Perfil (nome fictício + dor específica) | Prioridade |\n"
+            "|---|---|---|\n"
+            "(Expanda CADA persona do outline anterior em narrativa de 2-3 frases)\n"
+        ),
+        example="",
+        instruction=(
+            "Pegue o outline de personas das SEÇÕES JÁ GERADAS e expanda CADA uma em tabela. "
+            "Cada persona DEVE ter: nome, idade, narrativa de 2-3 frases sobre a dor real com números. "
+            "Mínimo 3 personas. Esta seção deve ter NO MÍNIMO 300 palavras."
+        ),
+        min_chars=600,
+        max_output_tokens=1200,
+        input_budget=1000,
+        context_artifacts=["prd"],
+    ),
+```
+
+#### Substituir `final_p03` por `final_p03a` + `final_p03b`:
+
+```python
+    # === PASS 3A: Princípios e Diferenciais — SKELETON ===
+    SectionPass(
+        pass_id="final_p03a",
+        sections=["## Princípios Arquiteturais", "## Diferenciais"],
+        template=(
+            "## Princípios Arquiteturais\n"
+            "Gere APENAS o OUTLINE (NÃO expanda):\n"
+            "- Princípio 1: [nome] — [descrição 1 frase] — REGRA: [regra verificável]\n"
+            "- Princípio 2: [nome] — [descrição 1 frase] — REGRA: [regra verificável]\n"
+            "(mínimo 6 princípios)\n\n"
+            "## Diferenciais\n"
+            "- Diferencial 1: [abordagem atual] vs [como supera]\n"
+            "- Diferencial 2: [abordagem atual] vs [como supera]\n"
+            "(mínimo 4 diferenciais)\n"
+        ),
+        example="",
+        instruction=(
+            "Gere APENAS outlines: 6 princípios com REGRA: verificável e 4 diferenciais. "
+            "Cada item em 1 linha. NÃO gere tabelas ainda."
+        ),
+        min_chars=300,
+        max_output_tokens=1000,
+        input_budget=2000,
+        require_table=False,
+        context_artifacts=["prd", "system_design"],
+    ),
+    # === PASS 3B: Princípios e Diferenciais — FLESH ===
+    SectionPass(
+        pass_id="final_p03b",
+        sections=["## Princípios Arquiteturais", "## Diferenciais"],
+        template=(
+            "## Princípios Arquiteturais\n"
+            "| Princípio | Descrição Concreta | Implicação Técnica | Decisão Arquitetural Crítica |\n"
+            "|---|---|---|---|\n\n"
+            "## Diferenciais\n"
+            "| Abordagem Atual | Problema | Como Este Sistema Supera |\n"
+            "|---|---|---|\n"
+        ),
+        example="",
+        instruction=(
+            "Pegue os outlines de princípios e diferenciais das SEÇÕES JÁ GERADAS e expanda em tabelas. "
+            "Princípios: 4 colunas com REGRA: verificável por teste. "
+            "Diferenciais: compare com concorrentes reais. "
+            "Esta seção deve ter NO MÍNIMO 800 palavras."
+        ),
+        min_chars=1200,
+        max_output_tokens=2500,
+        input_budget=2000,
+        context_artifacts=["prd", "system_design"],
+    ),
+```
+
+#### Substituir `final_p09` por `final_p09a` + `final_p09b`:
+
+```python
+    # === PASS 9A: Riscos — SKELETON + FLESH ===
+    SectionPass(
+        pass_id="final_p09a",
+        sections=["## Riscos Consolidados"],
+        template=(
+            "## Riscos Consolidados (PRD + Design + Security)\n"
+            "| ID | Risco | Fonte | Probabilidade | Impacto | Mitigação | Workaround Atual |\n"
+            "|---|---|---|---|---|---|---|\n"
+            "(mínimo 8 riscos consolidados de PRD, Design e Security)\n"
+        ),
+        example="",
+        instruction=(
+            "Consolide riscos de PRD, Design e Security. Mínimo 8 riscos. "
+            "Cada risco DEVE ter Workaround Atual — ação concreta que o sistema faz AGORA. "
+            "Esta seção deve ter NO MÍNIMO 500 palavras."
+        ),
+        min_chars=800,
+        max_output_tokens=2000,
+        input_budget=2500,
+        context_artifacts=["prd", "system_design", "security_review"],
+    ),
+    # === PASS 9B: Métricas de Sucesso ===
+    SectionPass(
+        pass_id="final_p09b",
+        sections=["## Métricas de Sucesso"],
+        template=(
+            "## Métricas de Sucesso\n"
+            "| Métrica | Target | Como Medir |\n"
+            "|---|---|---|\n"
+            "(mínimo 8 métricas com target numérico e método concreto de medição)\n"
+        ),
+        example="",
+        instruction=(
+            "Gere métricas de sucesso para o projeto. Mínimo 8 métricas. "
+            "Target DEVE ser numérico. 'Como Medir' deve descrever ferramenta e frequência. "
+            "Esta seção deve ter NO MÍNIMO 300 palavras."
+        ),
+        min_chars=400,
+        max_output_tokens=1500,
+        input_budget=2000,
+        context_artifacts=["prd"],
+    ),
+```
+
+---
+
+### DIFF 3: Atualizar o mapa de exemplares no `_get_exemplar`
+
+No método `_get_exemplar` em `sectional_generator.py`, **substituir** o `_EXEMPLAR_MAP` para incluir os novos passes e excluir os antigos:
+
+```python
+    def _get_exemplar(self, pass_id: str) -> str:
+        """FASE 9.5: Retorna exemplar gold-standard para o pass, ou string vazia."""
+        _EXEMPLAR_MAP = {
+            "final_p01": EXEMPLAR_P01,
+            "final_p02a": "",          # Skeleton: sem exemplar (prompt leve)
+            "final_p02b": EXEMPLAR_P02, # Flesh: exemplar lean
+            "final_p03a": "",          # Skeleton: sem exemplar
+            "final_p03b": EXEMPLAR_P03, # Flesh: exemplar lean
+            "final_p04": EXEMPLAR_P04,
+            "final_p05": EXEMPLAR_P05,
+            "final_p06": EXEMPLAR_P06,
+            "final_p07": EXEMPLAR_P07,
+            "final_p08": EXEMPLAR_P08,
+            "final_p09a": EXEMPLAR_P09, # Riscos: exemplar lean
+            "final_p09b": "",          # Métricas: sem exemplar (template suficiente)
+            "final_p10": EXEMPLAR_P10,
+            "final_p11": EXEMPLAR_P11,
+            "final_p12": EXEMPLAR_P12,
+        }
+        return _EXEMPLAR_MAP.get(pass_id, "")
+```
+
+---
+
+### DIFF 4: Reduzir `input_budget` nos passes que não precisam de tanto contexto
+
+Nos passes existentes que **NÃO foram divididos**, reduzir `input_budget` onde possível:
+
+```python
+# Pass final_p01: input_budget de 2500 → 2000
+# Pass final_p04: input_budget de 2500 → 2000
+# Pass final_p05: input_budget de 2000 → 1500
+# Pass final_p06: input_budget de 3000 → 2500
+# Pass final_p07: input_budget de 2500 → 2000
+# Pass final_p08: input_budget de 2000 → 1500
+# Pass final_p10: input_budget de 3000 → 2500
+# Pass final_p11: input_budget de 3000 → 2500
+# Pass final_p12: input_budget de 2500 → 2000
+```
+
+---
+
+### DIFF 5: Reduzir `min_chars` do SectionQualityChecker para seções que agora são divididas
+
+Em `section_quality_checker.py`, as regras para `## Público-Alvo` e `## Princípios Arquiteturais` devem manter seus thresholds (o conteúdo final é a concatenação dos sub-passes), mas o checker é chamado **por pass** — então o pass skeleton vai falhar na validação de qualidade.
+
+**Solução:** No `_check_section_quality`, o skeleton pass (P02a, P03a) **não deve** acionar verificação de qualidade porque ele gera um outline, não a seção final. Adicionar exclusão:
+
+```python
+    def _check_section_quality(self, sections: List[str], content: str) -> str:
+        """FASE 9.5: Verifica qualidade via SectionQualityChecker."""
+        from src.core.section_quality_checker import SectionQualityChecker
+        checker = SectionQualityChecker()
+        all_feedback = []
+        for heading in sections:
+            fb = checker.check_section_by_type(heading, content)
+            all_feedback.extend(fb)
+        if all_feedback:
+            return "; ".join(all_feedback[:3])
+        return ""
+```
+
+**O problema:** Quando o pass `final_p02a` gera o skeleton do Público-Alvo, o `_check_section_quality` vai detectar que `## Público-Alvo` tem poucos chars/items e acionar retry — mas é intencional!
+
+**Correção:** No `_execute_pass_with_retry`, adicionar bypass de quality check para passes skeleton:
+
+No método `_execute_pass_with_retry`, **substituir** o bloco de quality check:
+
+```python
+            if validation["valid"]:
+                # FASE 9.5.1: Skip quality check para passes skeleton
+                is_skeleton_pass = section_pass.pass_id.endswith("a") and any(
+                    section_pass.pass_id.startswith(prefix) 
+                    for prefix in ["final_p02", "final_p03", "final_p09"]
+                )
+                
+                if not is_skeleton_pass:
+                    # FASE 9.5: Verificação de qualidade por seção
+                    quality_feedback = self._check_section_quality(
+                        section_pass.sections, result
+                    )
+                    if quality_feedback and attempt <= MAX_RETRIES_PER_PASS:
+                        self._emit_warn(
+                            f"  Pass {pass_number} estrutura OK mas qualidade insuficiente. "
+                            f"Retentando com feedback..."
+                        )
+                        last_fail_reasons = [f"QUALITY: {quality_feedback}"]
+                        continue
+                
+                if attempt > 1:
+                    self._emit_ok(f"  Pass {pass_number} corrigido na tentativa {attempt}")
+                return result
+```
+
+---
+
+### DIFF 6: Atualizar teste de range para 15 passes
+
+Em `tests/test_phase_9_1.py`, ajustar o teste que conta os passes:
+
+```python
+# ANTES (se existir teste que valida len(NEXUS_FINAL_PASSES) == 12):
+# self.assertEqual(len(NEXUS_FINAL_PASSES), 12)
+
+# DEPOIS:
+# self.assertEqual(len(NEXUS_FINAL_PASSES), 15)
+```
+
+E no `test_min_chars_reasonable`:
+```python
+    def test_min_chars_reasonable(self):
+        """FASE 9.5: min_chars deve refletir os word count targets."""
+        for p in NEXUS_FINAL_PASSES:
+            self.assertGreaterEqual(p.min_chars, 200, f"Pass {p.pass_id} min_chars muito baixo")
+            self.assertLessEqual(p.min_chars, 2000, f"Pass {p.pass_id} min_chars muito alto")
+```
+
+Nota: O lower bound mudou de 400 para 200 para acomodar skeleton passes.
+
+---
+
+## CHECKLIST SEQUENCIAL PARA O AGENTE IMPLEMENTADOR
+
+```
+FASE 9.5.1 — CORREÇÃO: Exemplares Lean + Skeleton-then-Flesh
+
+PRÉ-REQUISITO: Todos os 125 testes passam antes de começar
+
+ETAPA 1 — Substituir Exemplares (12 arquivos)
+[ ] 1. Substituir conteúdo de src/core/exemplars/p01_visao_problemas.py
+[ ] 2. Substituir conteúdo de src/core/exemplars/p02_publico_alvo.py
+[ ] 3. Substituir conteúdo de src/core/exemplars/p03_principios_diferenciais.py
+[ ] 4. Substituir conteúdo de src/core/exemplars/p04_requisitos_funcionais.py
+[ ] 5. Substituir conteúdo de src/core/exemplars/p05_rnfs.py
+[ ] 6. Substituir conteúdo de src/core/exemplars/p06_arquitetura_adrs.py
+[ ] 7. Substituir conteúdo de src/core/exemplars/p07_seguranca.py
+[ ] 8. Substituir conteúdo de src/core/exemplars/p08_escopo_mvp.py
+[ ] 9. Substituir conteúdo de src/core/exemplars/p09_riscos_metricas.py
+[ ] 10. Substituir conteúdo de src/core/exemplars/p10_plano_debate.py
+[ ] 11. Substituir conteúdo de src/core/exemplars/p11_constraints_rastreabilidade.py
+[ ] 12. Substituir conteúdo de src/core/exemplars/p12_guia_clausula.py
+[ ] 13. Verificar imports:
+     python -c "from src.core.exemplars.p01_visao_problemas import EXEMPLAR_P01; print(len(EXEMPLAR_P01))"
+     # Esperado: ~300-500 chars (antes era ~1500-3000)
+
+ETAPA 2 — Dividir Passes (sectional_generator.py)
+[ ] 14. Na lista NEXUS_FINAL_PASSES, SUBSTITUIR final_p02 por final_p02a + final_p02b
+[ ] 15. Na lista NEXUS_FINAL_PASSES, SUBSTITUIR final_p03 por final_p03a + final_p03b
+[ ] 16. Na lista NEXUS_FINAL_PASSES, SUBSTITUIR final_p09 por final_p09a + final_p09b
+[ ] 17. Verificar que NEXUS_FINAL_PASSES agora tem 15 elementos:
+     python -c "from src.core.sectional_generator import NEXUS_FINAL_PASSES; print(len(NEXUS_FINAL_PASSES))"
+     # Esperado: 15
+
+ETAPA 3 — Atualizar _get_exemplar (sectional_generator.py)
+[ ] 18. Substituir _EXEMPLAR_MAP com novas chaves (final_p02a, final_p02b, etc.)
+
+ETAPA 4 — Reduzir input_budget (sectional_generator.py)
+[ ] 19. Ajustar input_budget nos 9 passes conforme DIFF 4
+
+ETAPA 5 — Bypass de quality check para skeletons (sectional_generator.py)
+[ ] 20. Modificar _execute_pass_with_retry para pular quality check em passes skeleton
+
+ETAPA 6 — Ajustar testes (tests/test_phase_9_1.py)
+[ ] 21. Atualizar contagem de passes de 12 para 15 (se existir assertEqual)
+[ ] 22. Ajustar test_min_chars_reasonable lower bound para 200
+
+ETAPA 7 — Validação
+[ ] 23. Rodar: pytest tests/ -q
+     Critério: 125+ testes passando, 0 falhas
+[ ] 24. Executar pipeline: python src/cli/main.py --no-gate
+[ ] 25. Verificar resultado:
+     a. len(prd_final) >= 35.000 chars (meta ideal: ≥40.000)
+     b. Zero marcadores [GERAÇÃO FALHOU]
+     c. ConsistencyChecker: is_clean: True (zero RF_ORPHAN)
+     d. SectionQualityChecker: máximo 2 seções abaixo do threshold
+     e. Pelo menos 3 personas com narrativa
+     f. Pelo menos 6 princípios com REGRA:
+     g. Pelo menos 8 riscos com workaround
+     h. Pelo menos 8 métricas com método
+
+SE FALHAR: Reportar qual critério falhou + chars do PRD + quais passes falharam
+```
+
+---
+
+## CRITÉRIO BINÁRIO DE CONCLUSÃO
+
+| # | Condição | Verificação |
+|---|---|---|
+| 1 | `is_clean: True` | ConsistencyChecker |
+| 2 | `len(prd_final) >= 35.000` | Python len() |
+| 3 | Zero `[GERAÇÃO FALHOU]` | grep no PRD |
+| 4 | Zero RF_ORPHAN | ConsistencyChecker |
+| 5 | `pytest tests/ -q` sem falhas | 125+ testes |
+| 6 | ≥3 personas com narrativa | Inspeção visual |
+
+**Meta relaxada:** O target original era 40.000 chars. Com esta correção, aceitamos **≥35.000** como sucesso da Onda 1 corrigida. Se atingir 35.000+, a Onda 2 (Skeleton-then-Flesh completo + Critique-and-Expand) trará o restante para 70.000+.
+
+---
+
+O agente autônomo pode ajustar `input_budget` e `min_chars` se identificar que os testes de integração (pipeline real) não atingem o target — isso está dentro do escopo permitido. O que ele **NÃO pode alterar**: assinaturas públicas, DAG de 9 tasks, módulos estáveis (C-001).

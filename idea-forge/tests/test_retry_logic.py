@@ -49,8 +49,8 @@ class TestRetryLogic(unittest.TestCase):
         )
         
         self.assertIsNone(res)
-        # 1 original + 2 retries = 3 calls
-        self.assertEqual(self.mock_provider.generate.call_count, 3)
+        # 1 original + 3 retries = 4 calls
+        self.assertEqual(self.mock_provider.generate.call_count, 4)
 
     def test_section_pass_accepts_input_budget(self):
         """FASE 9.1.1: SectionPass deve aceitar input_budget."""

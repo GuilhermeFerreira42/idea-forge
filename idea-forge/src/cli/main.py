@@ -122,11 +122,21 @@ def main():
     parser = argparse.ArgumentParser(description="IdeaForge CLI")
     parser.add_argument("--no-gate", action="store_true",
                       help="Pular HUMAN_GATE (aprovação automática)")
+    parser.add_argument("--model", type=str, help="Nome do modelo a usar")
+    parser.add_argument("--idea", type=str, help="Ideia do projeto")
     args, _ = parser.parse_known_args()
 
-    selected_model, think_preference = select_model()
+    if args.model:
+        selected_model = args.model
+        think_preference = False # Default para auto
+    else:
+        selected_model, think_preference = select_model()
     
-    idea = prompt_idea()
+    if args.idea:
+        idea = args.idea
+    else:
+        idea = prompt_idea()
+        
     if not idea:
         print("Nenhuma ideia inserida. Encerrando.")
         sys.exit(0)

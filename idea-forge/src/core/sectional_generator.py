@@ -29,7 +29,7 @@ from src.core.exemplars.p11_constraints_rastreabilidade import EXEMPLAR_P11
 from src.core.exemplars.p12_guia_clausula import EXEMPLAR_P12
 
 
-MAX_RETRIES_PER_PASS = 2
+MAX_RETRIES_PER_PASS = 3
 
 
 class SectionPass:
@@ -243,18 +243,25 @@ class SectionalGenerator:
             )
 
             if validation["valid"]:
-                # FASE 9.5: Verificação de qualidade por seção
-                quality_feedback = self._check_section_quality(
-                    section_pass.sections, result
+                # FASE 9.5.1: Skip quality check para passes skeleton
+                is_skeleton_pass = section_pass.pass_id.endswith("a") and any(
+                    section_pass.pass_id.startswith(prefix) 
+                    for prefix in ["final_p02", "final_p03", "final_p09"]
                 )
-                if quality_feedback and attempt <= MAX_RETRIES_PER_PASS:
-                    self._emit_warn(
-                        f"  Pass {pass_number} estrutura OK mas qualidade insuficiente. "
-                        f"Retentando com feedback..."
+                
+                if not is_skeleton_pass:
+                    # FASE 9.5: Verificação de qualidade por seção
+                    quality_feedback = self._check_section_quality(
+                        section_pass.sections, result
                     )
-                    last_fail_reasons = [f"QUALITY: {quality_feedback}"]
-                    continue  # Vai para próxima iteração do loop de retry
-
+                    if quality_feedback and attempt <= MAX_RETRIES_PER_PASS:
+                        self._emit_warn(
+                            f"  Pass {pass_number} estrutura OK mas qualidade insuficiente. "
+                            f"Retentando com feedback..."
+                        )
+                        last_fail_reasons = [f"QUALITY: {quality_feedback}"]
+                        continue  # Vai para próxima iteração do loop de retry
+                
                 if attempt > 1:
                     self._emit_ok(f"  Pass {pass_number} corrigido na tentativa {attempt}")
                 return result
@@ -309,7 +316,7 @@ class SectionalGenerator:
 
         instruction += (
             "\nCORRIJA os problemas acima. Regras obrigatórias:\n"
-            "1. Comece IMEDIATAMENTE com ## heading. NENHUM texto antes.\n"
+            "1. Comece IMEDIATAMENTE with ## heading. NENHUM texto antes.\n"
         )
 
         # Instrução específica por tipo de falha
@@ -388,22 +395,28 @@ class SectionalGenerator:
         """FASE 9.5: Retorna exemplar gold-standard para o pass, ou string vazia."""
         _EXEMPLAR_MAP = {
             "final_p01": EXEMPLAR_P01,
-            "final_p02": EXEMPLAR_P02,
-            "final_p03": EXEMPLAR_P03,
+            "final_p02a": "",          
+            "final_p02b": EXEMPLAR_P02, 
+            "final_p03a": "",          
+            "final_p03b": EXEMPLAR_P03, 
             "final_p04": EXEMPLAR_P04,
-            "final_p05": EXEMPLAR_P05,
-            "final_p06": EXEMPLAR_P06,
+            "final_p05a": EXEMPLAR_P05, 
+            "final_p05b": "",          
+            "final_p06a": EXEMPLAR_P06, 
+            "final_p06b": "",          
             "final_p07": EXEMPLAR_P07,
             "final_p08": EXEMPLAR_P08,
-            "final_p09": EXEMPLAR_P09,
+            "final_p09a": EXEMPLAR_P09, 
+            "final_p09b": "",          
             "final_p10": EXEMPLAR_P10,
-            "final_p11": EXEMPLAR_P11,
+            "final_p11a": EXEMPLAR_P11, 
+            "final_p11b": "",          
             "final_p12": EXEMPLAR_P12,
         }
         return _EXEMPLAR_MAP.get(pass_id, "")
 
     def _summarize_previous(self, text: str, max_tokens: int = 500) -> str:
-        """Extrai apenas headings e primeiras linhas."""
+        """Extrai apenas headings e primeiras lines."""
         lines = text.split('\n')
         summary_lines = []
         chars_budget = max_tokens * 4
@@ -484,7 +497,7 @@ class SectionalGenerator:
             return REVIEW_PASSES
         elif artifact_type == "security_review":
             return SECURITY_PASSES
-        elif artifact_type == "prd_final":          # FASE 9.1
+        elif artifact_type == "prd_final":          
             return NEXUS_FINAL_PASSES
         return []
 
@@ -493,790 +506,256 @@ class SectionalGenerator:
 # PASSES POR TIPO DE ARTEFATO
 # ═══════════════════════════════════════════════════════════
 
-# FASE 7: PRD_PASSES recalibrado para padrão NEXUS (5 passes)
+# PRD_PASSES
 PRD_PASSES = [
-    SectionPass(
-        pass_id="prd_p1",
-        sections=["## Objetivo", "## Problema"],
-        template=(
-            "## Objetivo\n"
-            "- [1 frase, verbo no infinitivo, máximo 30 palavras, que capture o diferencial]\n\n"
-            "## Problema\n"
-            "| ID | Problema | Impacto | Como o Sistema Resolve |\n"
-            "|---|---|---|---|\n"
-            "| P-01 | ... | ... | ... |\n"
-        ),
-        example=(
-            "## Objetivo\n"
-            "- Permitir gerenciamento de tarefas pessoais com sincronização offline-first\n\n"
-            "## Problema\n"
-            "| ID | Problema | Impacto | Como o Sistema Resolve |\n"
-            "|---|---|---|---|\n"
-            "| P-01 | Apps existentes requerem internet | Perda de dados offline | Sync offline-first com CRDT |\n"
-            "| P-02 | Complexidade excessiva | Abandono em 7 dias | Interface minimalista com 3 ações |\n"
-        ),
-        instruction="Gere APENAS Objetivo e Problema. Mínimo 4 problemas na tabela com coluna 'Como Resolve'.",
-        min_chars=200,
-        max_output_tokens=1500,
-    ),
-    SectionPass(
-        pass_id="prd_p2",
-        sections=["## Público-Alvo", "## Princípios Arquiteturais", "## Diferenciais"],
-        template=(
-            "## Público-Alvo\n"
-            "| Segmento | Perfil (nome + dor) | Prioridade |\n"
-            "|---|---|---|\n\n"
-            "## Princípios Arquiteturais\n"
-            "| Princípio | Descrição Concreta | Implicação Técnica |\n"
-            "|---|---|---|---|\n\n"
-            "## Diferenciais\n"
-            "| Abordagem Atual | Problema | Como Este Sistema Supera |\n"
-            "|---|---|---|---|\n"
-        ),
-        example=(
-            "| Dev Indie | Lucas, dev solo, quer validar ideias antes de codar | P0 |\n"
-            "| Startup | Time de 5 sem PM dedicado | P1 |\n"
-        ),
-        instruction="Gere APENAS Público-Alvo (mín 3), Princípios (mín 3) e Diferenciais (mín 3). Todas com tabelas.",
-        min_chars=250,
-        max_output_tokens=1500,
-    ),
-    SectionPass(
-        pass_id="prd_p3",
-        sections=["## Requisitos Funcionais", "## Requisitos Não-Funcionais"],
-        template=(
-            "## Requisitos Funcionais\n"
-            "| ID | Requisito | Critério de Aceite (verificável) | Prioridade (MoSCoW) | Complexidade |\n"
-            "|---|---|---|---|---|\n"
-            "| RF-01 | ... | [teste automatizável] | Must/Should/Could | Low/Med/High |\n\n"
-            "## Requisitos Não-Funcionais\n"
-            "| ID | Categoria | Requisito | Métrica | Target |\n"
-            "|---|---|---|---|---|\n"
-        ),
-        example=(
-            "| RF-01 | CRUD de tarefas | POST/GET/PUT/DELETE retorna status HTTP correto | Must | Low |\n"
-            "| RF-02 | Filtro por status | GET /tasks?status=done retorna subset | Should | Low |\n"
-            "| RNF-01 | Performance | Latência API | p95 | <200ms |\n"
-        ),
-        instruction="Gere APENAS RF (mínimo 8) e RNF (mínimo 5). IDs sequenciais. Critérios de aceite DEVEM ser testes automatizáveis.",
-        min_chars=400,
-        max_output_tokens=1500,
-    ),
-    SectionPass(
-        pass_id="prd_p4",
-        sections=["## Escopo MVP", "## Métricas de Sucesso"],
-        template=(
-            "## Escopo MVP\n"
-            "**Inclui:** [lista referenciando RF-XX]\n"
-            "**NÃO inclui:** [lista com justificativa]\n\n"
-            "## Métricas de Sucesso\n"
-            "| Métrica | Target | Prazo | Como Medir |\n"
-            "|---|---|---|---|\n"
-        ),
-        example=(
-            "**Inclui:**\n- RF-01 a RF-05 — core CRUD + auth\n\n"
-            "**NÃO inclui:**\n- Notificações push (v2) — complexidade alta, não essencial\n"
-        ),
-        instruction="Gere APENAS Escopo e Métricas. Referencie IDs RF-XX no escopo.",
-        min_chars=200,
-        max_output_tokens=1200,
-    ),
-    SectionPass(
-        pass_id="prd_p5",
-        sections=["## Dependências e Riscos", "## Constraints Técnicos"],
-        template=(
-            "## Dependências e Riscos\n"
-            "| ID | Tipo | Descrição | Probabilidade | Impacto | Mitigação |\n"
-            "|---|---|---|---|---|---|\n\n"
-            "## Constraints Técnicos\n"
-            "- Linguagem: [...]\n"
-            "- Framework: [...]\n"
-            "- Banco de dados: [...]\n"
-            "- Infraestrutura: [...]\n"
-            "- Restrições de segurança: [...]\n"
-        ),
-        example=(
-            "| R-01 | Risco | SQLite sem escrita concorrente | Média | Alto | WAL mode |\n"
-            "| R-02 | Dependência | Ollama deve estar rodando | Alta | Crítico | Health check no startup |\n"
-        ),
-        instruction="Gere APENAS Riscos (mínimo 5) e Constraints Técnicos.",
-        min_chars=200,
-        max_output_tokens=1200,
-    ),
+    SectionPass("prd_p1", ["## Objetivo", "## Problema"], "## Objetivo\n- ...", "", "Gere Objetivo/Problema.", 200),
+    SectionPass("prd_p2", ["## Público-Alvo", "## Princípios Arquiteturais", "## Diferenciais"], "## Público-Alvo\n|...|", "", "Gere Público/Princípios/Diferenciais.", 250),
+    SectionPass("prd_p3", ["## Requisitos Funcionais", "## Requisitos Não-Funcionais"], "## Requisitos Funcionais\n|...|", "", "Gere RF/RNF.", 400),
+    SectionPass("prd_p4", ["## Escopo MVP", "## Métricas de Sucesso"], "## Escopo MVP\n**Inclui:** ...", "", "Gere Escopo/Métricas.", 200),
+    SectionPass("prd_p5", ["## Dependências e Riscos", "## Constraints Técnicos"], "## Dependências\n|...|", "", "Gere Riscos/Constraints.", 200),
 ]
 
-# ─── REVIEW: 2 passes calibrados (Fase 7) ──────────────────────────
-
+# REVIEW_PASSES
 REVIEW_PASSES = [
-    SectionPass(
-        pass_id="review_p1",
-        sections=["## Score de Qualidade", "## Issues Identificadas"],
-        template=(
-            "## Score de Qualidade\n"
-            "- **quality_score:** [0-100]\n"
-            "- **verdict:** [APPROVED | NEEDS_CORRECTION | REJECTED]\n\n"
-            "## Issues Identificadas\n"
-            "| ID | Severidade | Categoria | Localização | Descrição | Sugestão |\n"
-            "|---|---|---|---|---|---|\n"
-            "| ISS-01 | HIGH/MED/LOW | SECURITY/CORRECTNESS/COMPLETENESS | ... | ... | ... |\n"
-        ),
-        example=(
-            "- **quality_score:** 72\n"
-            "- **verdict:** NEEDS_CORRECTION\n\n"
-            "| ISS-01 | HIGH | SECURITY | Modelo de Dados | Senha sem hash | Usar bcrypt |\n"
-        ),
-        instruction=(
-            "Analise o artefato e gere Score + Issues. "
-            "Mínimo 2 issues. Cada issue com sugestão concreta."
-        ),
-        min_chars=200,
-        max_output_tokens=1000,
-    ),
-    SectionPass(
-        pass_id="review_p2",
-        sections=["## Verificação de Requisitos", "## Verificação de Princípios Arquiteturais", "## Sumário", "## Recomendação"],
-        template=(
-            "## Verificação de Requisitos\n"
-            "| Requisito ID | Status | Notas |\n"
-            "|---|---|---|\n"
-            "| RF-01 | ✅ Atendido / ❌ Não atendido | ... |\n\n"
-            "## Verificação de Princípios Arquiteturais\n"
-            "| Princípio | Respeitado? | Evidência |\n"
-            "|---|---|---|\n\n"
-            "## Sumário\n"
-            "- [1-2 frases]\n\n"
-            "## Recomendação\n"
-            "- [Ação específica]\n"
-        ),
-        example="",
-        instruction=(
-            "Verifique cada RF/RNF e Princípio Arquitetural. "
-            "Gere Verificação + Sumário + Recomendação."
-        ),
-        min_chars=200,
-        max_output_tokens=1000,
-        require_table=True,
-    ),
+    SectionPass("review_p1", ["## Score de Qualidade", "## Issues Identificadas"], "## Score\n...", "", "Gere Score/Issues.", 200),
+    SectionPass("review_p2", ["## Verificação de Requisitos", "## Verificação de Princípios Arquiteturais", "## Sumário", "## Recomendação"], "## Verificação\n...", "", "Verifique requisitos/princípios.", 200),
 ]
 
-# ─── SECURITY: 2 passes calibrados (Fase 7) ────────────────────────
-
+# SECURITY_PASSES
 SECURITY_PASSES = [
-    SectionPass(
-        pass_id="security_p1",
-        sections=["## Superfície de Ataque", "## Ameaças Identificadas"],
-        template=(
-            "## Superfície de Ataque\n"
-            "| Componente | Tipo de Exposição | Nível de Risco | Justificativa |\n"
-            "|---|---|---|---|\n\n"
-            "## Ameaças Identificadas (STRIDE)\n"
-            "| ID | Categoria STRIDE | Componente | Ameaça | Severidade | Mitigação Concreta |\n"
-            "|---|---|---|---|---|---|\n"
-            "| T-01 | S/T/R/I/D/E | ... | ... | Alta/Média/Baixa | ... |\n"
-        ),
-        example=(
-            "| API /auth | HTTP | Alto | Exposta à internet |\n\n"
-            "| T-01 | S (Spoofing) | /auth/login | Brute force | Alta | Rate limit 5/min |\n"
-        ),
-        instruction=(
-            "Analise o System Design e identifique superfície de ataque + ameaças STRIDE. "
-            "Mínimo 3 ameaças."
-        ),
-        min_chars=250,
-        max_output_tokens=1000,
-    ),
-    SectionPass(
-        pass_id="security_p2",
-        sections=["## Requisitos de Segurança Derivados", "## Dados Sensíveis", "## Plano de Autenticação/Autorização"],
-        template=(
-            "## Requisitos de Segurança Derivados\n"
-            "| ID | Requisito | Prioridade | Ameaça Mitigada |\n"
-            "|---|---|---|---|\n"
-            "| RS-01 | ... | Must/Should | T-XX |\n\n"
-            "## Dados Sensíveis\n"
-            "| Dado | Classificação | Criptografia | Retenção |\n"
-            "|---|---|---|---|\n\n"
-            "## Plano de Autenticação/Autorização\n"
-            "- Mecanismo: [...]\n"
-            "- Granularidade: [...]\n"
-        ),
-        example="",
-        instruction=(
-            "Gere requisitos derivados, classificação de dados e plano de auth."
-        ),
-        min_chars=200,
-        max_output_tokens=1000,
-    ),
+    SectionPass("security_p1", ["## Superfície de Ataque", "## Ameaças Identificadas"], "## Superfície\n...", "", "Identifique superfície/ameaças.", 250),
+    SectionPass("security_p2", ["## Requisitos de Segurança Derivados", "## Dados Sensíveis", "## Plano de Autenticação/Autorização"], "## Requisitos\n...", "", "Gere requisitos/dados/auth.", 200),
 ]
 
-# ─── DESIGN: 3 passes calibrados (Fase 7) ──────────────────────────
-
+# DESIGN_PASSES
 DESIGN_PASSES = [
-    SectionPass(
-        pass_id="design_p1",
-        sections=["## Arquitetura Geral", "## Tech Stack"],
-        template=(
-            "## Arquitetura Geral\n"
-            "- Estilo: [tipo]\n"
-            "- Containers: [lista]\n"
-            "- Diagrama (texto): ...\n\n"
-            "## Tech Stack\n"
-            "| Camada | Tecnologia | Versão | Justificativa | Alternativa Rejeitada | Motivo Rejeição |\n"
-            "|---|---|---|---|---|---|\n"
-        ),
-        example=(
-            "| Backend | FastAPI | 0.104 | Async nativo | Django | Overhead |\n"
-        ),
-        instruction="Gere Arquitetura e Tech Stack with alternativas rejeitadas.",
-        min_chars=250,
-        max_output_tokens=1200,
-    ),
-    SectionPass(
-        pass_id="design_p2",
-        sections=["## Módulos", "## Modelo de Dados"],
-        template=(
-            "## Módulos\n"
-            "| Módulo | Responsabilidade | Interface | Requisitos (RF-XX) |\n"
-            "|---|---|---|---|\n\n"
-            "## Modelo de Dados\n"
-            "| Entidade | Atributos-chave | Tipo | Relações | Constraints |\n"
-            "|---|---|---|---|---|\n"
-        ),
-        example=(
-            "| AuthModule | Autenticação | REST /auth/* | RF-01 |\n"
-        ),
-        instruction="Gere Módulos e Modelo de Dados.",
-        min_chars=250,
-        max_output_tokens=1200,
-    ),
-    SectionPass(
-        pass_id="design_p3",
-        sections=["## Fluxo de Dados", "## ADRs", "## Riscos Técnicos", "## Requisitos de Infraestrutura"],
-        template=(
-            "## Fluxo de Dados\n"
-            "1. [Ator] → [Ação] → [Resultado]\n\n"
-            "## ADRs (Architecture Decision Records)\n"
-            "| ID | Decisão | Contexto | Alternativa Rejeitada | Consequências | Mitigação |\n"
-            "|---|---|---|---|---|---|\n\n"
-            "## Riscos Técnicos\n"
-            "| ID | Risco | Probabilidade | Impacto | Mitigação | Owner |\n"
-            "|---|---|---|---|---|---|\n\n"
-            "## Requisitos de Infraestrutura\n"
-            "| Recurso | Mínimo | Recomendado | Justificativa |\n"
-            "|---|---|---|---|\n"
-        ),
-        example=(
-            "| ADR-01 | SQLite | MVP local | PostgreSQL | Simplicidade | WAL mode |\n"
-        ),
-        instruction="Gere Fluxo (mín 5), ADRs (mín 3), Riscos e Infra.",
-        min_chars=400,
-        max_output_tokens=1200,
-    ),
+    SectionPass("design_p1", ["## Arquitetura Geral", "## Tech Stack"], "## Arquitetura\n...", "", "Gere Arquitetura/Tech Stack.", 250),
+    SectionPass("design_p2", ["## Módulos", "## Modelo de Dados"], "## Módulos\n...", "", "Gere Módulos/Dados.", 250),
+    SectionPass("design_p3", ["## Fluxo de Dados", "## ADRs", "## Riscos Técnicos", "## Requisitos de Infraestrutura"], "## Fluxo\n...", "", "Gere Fluxo/ADRs/Riscos/Infra.", 400),
 ]
 
-# ─── PLAN: 4 passes calibrados (Fase 7) ────────────────────────────
-
+# PLAN_PASSES
 PLAN_PASSES = [
-    SectionPass(
-        pass_id="plan_p1",
-        sections=["## Arquitetura Sugerida", "## Módulos Core"],
-        template=(
-            "## Arquitetura Sugerida\n"
-            "- Estilo: [tipo]\n"
-            "- Componentes: [bullets]\n\n"
-            "## Módulos Core\n"
-            "| Módulo | Responsabilidade | Prioridade | Requisitos (RF-XX) | Estimativa (dias) |\n"
-            "|---|---|---|---|---|\n"
-        ),
-        example="",
-        instruction="Gere Arquitetura e Módulos Core.",
-        min_chars=250,
-        max_output_tokens=1200,
-    ),
-    SectionPass(
-        pass_id="plan_p2",
-        sections=["## Fases de Implementação", "## Dependências Técnicas"],
-        template=(
-            "## Fases de Implementação\n"
-            "| Fase | Duração | Entregas Concretas | Critério de Conclusão | Dependência |\n"
-            "|---|---|---|---|---|\n\n"
-            "## Dependências Técnicas\n"
-            "| Dependência | Versão | Propósito | Alternativa |\n"
-            "|---|---|---|---|\n\n"
-            "## Riscos e Mitigações\n"
-            "| ID | Risco | Fonte | Impacto | Mitigação | Owner |\n"
-            "|---|---|---|---|---|---|\n\n"
-            "## Plano de Testes\n"
-            "| Tipo | Escopo | Ferramenta | Cobertura Mínima |\n"
-            "|---|---|---|---|\n"
-        ),
-        example="",
-        instruction="Gere Dependências, Riscos consolidados e Plano de Testes.",
-        min_chars=200,
-    ),
+    SectionPass("plan_p1", ["## Arquitetura Sugerida", "## Módulos Core"], "## Arquitetura\n...", "", "Gere Arquitetura/Módulos.", 250),
+    SectionPass("plan_p2", ["## Fases de Implementação", "## Dependências Técnicas"], "## Fases\n...", "", "Gere Fases/Dependências/Riscos/Testes.", 200),
 ]
 
-# ─── NEXUS FINAL: 12 passes para PRD Final consolidado (Fase 9.3) ─────────
+# NEXUS FINAL: 18 passes (Fase 9.5.1 Final Wave 4 - Keyword Arguments Fix)
 NEXUS_FINAL_PASSES = [
-    # === PASS 1: Visão e Identidade ===
     SectionPass(
         pass_id="final_p01",
         sections=["## Visão do Produto", "## Problema e Solução"],
-        template=(
-            "## Visão do Produto\n"
-            "- **Codinome:** [nome memorável]\n"
-            "- **Declaração de visão:** [1 frase, máx 30 palavras]\n\n"
-            "## Problema e Solução\n"
-            "| ID | Problema | Impacto | Como o Sistema Resolve |\n"
-            "|---|---|---|---|\n"
-            "(mínimo 5 problemas com impacto mensurável e solução técnica concreta)\n"
-        ),
-        example=(
-            "- **Codinome:** OmniPrice Next\n"
-            "- **Declaração de visão:** Unificar ofertas de marketplaces com ISR para SEO e performance de ponta.\n\n"
-            "| P-01 | APIs heterogêneas por marketplace | Dados inconsistentes e falha na normalização | Pipeline ETL com schema normalizado (Zod) |\n"
-            "| P-02 | Latência na atualização de preços | Preço divergente no checkout gerando reclamações | ISR com revalidate automático a cada 60s |\n"
-            "| P-03 | Falta de histórico de preço | Usuário não sabe se o preço atual é bom | Snapshots diários com gráfico de tendência de 90 dias |\n"
-            "| P-04 | Bloqueio por scraping | Interrupção do serviço e perda de receita | Proxy rotation com pool de 100+ IPs e backoff |\n"
-            "| P-05 | SEO ruim em páginas dinâmicas | Perda de tráfego orgânico | SSR/ISR no Next.js with sitemap dinâmico |\n"
-        ),
-        instruction=(
-            "Sintetize visão e problemas do projeto a partir dos artefatos. "
-            "Mínimo 5 problemas. Cada problema deve ter impacto mensurável e solução técnica concreta. "
-            "Escreva com profundidade técnica. NÃO use generalidades. "
-            "IMPORTANTE: Esta seção deve ter NO MÍNIMO 800 palavras (~3200 caracteres). "
-            "Inclua pelo menos 6 problemas com impacto mensurável."
-        ),
-        min_chars=1500,
-        max_output_tokens=2500,
-        input_budget=2500,
-        context_artifacts=["prd"],
-    ),
-
-    # === PASS 2: Público-Alvo ===
-    SectionPass(
-        pass_id="final_p02",
-        sections=["## Público-Alvo"],
-        template=(
-            "## Público-Alvo\n"
-            "| Segmento | Perfil (nome fictício + dor com contexto) | Prioridade |\n"
-            "|---|---|---|\n"
-            "(mínimo 3 personas com nome, idade e narrativa de 2-3 frases)\n"
-        ),
-        example=(
-            "| Caçador de Oferta | Marina, 28 anos — Abre 6 abas para comparar preço de um fone "
-            "Bluetooth. Gasta 40min por compra e não tem certeza se achou o menor preço. Já perdeu "
-            "promoções de Black Friday por não monitorar preços. | P0 |\n"
-            "| Afiliado Digital | Carlos, 34 anos — Cria reviews no Instagram e precisa de links rastreáveis "
-            "com páginas rápidas. Taxa de bounce em sites lentos é 65%, perdendo cerca de R$800/mês em comissões. | P0 |\n"
-            "| Comprador Recorrente | Dona Fátima, 52 anos — Compra produtos de limpeza todo mês. Quer alerta "
-            "quando o preço cair abaixo do valor aceitável. Já perdeu ofertas de supermercado por não ter monitoramento automático. | P1 |\n"
-        ),
-        instruction=(
-            "Crie personas ricas com nome fictício, idade e narrativa de 1-2 frases sobre a dor real. "
-            "NÃO use rótulos genéricos. Mínimo 3 personas. "
-            "IMPORTANTE: Esta seção deve ter NO MÍNIMO 300 palavras. "
-            "Pelo menos 3 personas com narrativa de 2-3 frases cada."
-        ),
-        min_chars=600,
-        max_output_tokens=1000,
-        input_budget=1500,
-        context_artifacts=["prd"],
-    ),
-
-    # === PASS 3: Princípios e Diferenciais ===
-    SectionPass(
-        pass_id="final_p03",
-        sections=["## Princípios Arquiteturais", "## Diferenciais"],
-        template=(
-            "## Princípios Arquiteturais\n"
-            "| Princípio | Descrição | Implicação Técnica | Regra Verificável |\n"
-            "|---|---|---|---|\n"
-            "(mínimo 3 princípios, cada um com REGRA: verificável por teste)\n\n"
-            "## Diferenciais\n"
-            "| Abordagem Atual | Problema | Como Este Sistema Supera |\n"
-            "|---|---|---|\n"
-            "(mínimo 3 diferenciais vs concorrentes ou abordagem manual)\n"
-        ),
-        example=(
-            "| ISR First | Páginas pré-renderizadas a cada 60s | revalidate no Next.js | "
-            "REGRA: Nenhuma página usa force-dynamic. Teste verifica header x-nextjs-cache |\n"
-            "| Schema-First | Contratos de API garantem tipagem | Zod para validação em runtime | "
-            "REGRA: Todo entrypoint de API tem schema validado. Teste envia payload inválido |\n\n"
-            "| Scraping em tempo real | Lentidão 3-8s e bloqueio de IP | "
-            "Cache ISR: dados servidos em <100ms com invalidação por webhook | Supera concorrentes em 40x |\n"
-        ),
-        instruction=(
-            "Princípios: cada um DEVE ter coluna 'Regra Verificável' com texto 'REGRA:'. "
-            "Diferenciais: compare com concorrentes reais ou abordagem manual atual. "
-            "IMPORTANTE: Esta seção deve ter NO MÍNIMO 800 palavras. "
-            "Pelo menos 6 princípios com REGRA verificável e 4 diferenciais."
-        ),
-        min_chars=1200,
-        max_output_tokens=2500,
-        input_budget=2500,
-        context_artifacts=["prd", "system_design"],
-    ),
-
-    # === PASS 4: Requisitos Funcionais ===
-    SectionPass(
-        pass_id="final_p04",
-        sections=["## Requisitos Funcionais"],
-        template=(
-            "## Requisitos Funcionais (Consolidados)\n"
-            "| ID | Requisito | Critério de Aceite | Prioridade | Complexidade | Status Pós-Review |\n"
-            "|---|---|---|---|---|---|\n"
-            "(mínimo 6 RFs. Critérios DEVEM ser testes automatizáveis com endpoint e status HTTP)\n"
-        ),
-        example=(
-            "| RF-01 | Busca Unificada | GET /api/search retorna 200 com resultados de >=2 marketplaces no JSON | Must | Med | Aprovado |\n"
-            "| RF-02 | Página de Produto ISR | /produto/[slug] retorna 200 com header x-nextjs-cache: HIT ou STALE | Must | High | Aprovado |\n"
-            "| RF-03 | Alerta de Preço | POST /api/alerts cria registro no DB e retorna 201 Created | Should | High | Aprovado |\n"
-        ),
-        instruction=(
-            "Consolide RFs do PRD original com status do Review. Mínimo 6 RFs. "
-            "Critérios de aceite DEVEM incluir endpoint, status HTTP e formato de resposta. "
-            "IMPORTANTE: Esta seção deve ter NO MÍNIMO 800 palavras. "
-            "Pelo menos 10 RFs, cada um com endpoint, status HTTP e componente responsável."
-        ),
-        min_chars=1500,
-        max_output_tokens=2500,
-        input_budget=2500,
-        context_artifacts=["prd", "prd_review"],
-    ),
-
-    # === PASS 5: Requisitos Não-Funcionais ===
-    SectionPass(
-        pass_id="final_p05",
-        sections=["## Requisitos Não-Funcionais"],
-        template=(
-            "## Requisitos Não-Funcionais\n"
-            "| ID | Categoria | Requisito | Métrica | Target |\n"
-            "|---|---|---|---|---|\n"
-            "(mínimo 8 RNFs cobrindo TODAS estas categorias:\n"
-            "Performance, SEO, Disponibilidade, Segurança, "
-            "Escalabilidade, Compatibilidade, Observabilidade, Usabilidade.)\n"
-        ),
-        example=(
-            "| RNF-01 | Performance | LCP em páginas de produto | p95 Lighthouse | <2.5s |\n"
-            "| RNF-02 | Performance | FID (First Input Delay) | p95 Lighthouse | <100ms |\n"
-            "| RNF-03 | SEO | Indexabilidade de páginas dinâmicas | Google Search Console | 100% válidos |\n"
-            "| RNF-04 | SEO | Meta tags presentes (title, description, og:*) | Teste Playwright | 100% |\n"
-            "| RNF-05 | Disponibilidade | Uptime do frontend e API | UptimeRobot | >=99.9% |\n"
-            "| RNF-06 | Escalabilidade | Concorrência de requisições | Load test k6 | >=1000 req/s |\n"
-            "| RNF-07 | Segurança | Proteção contra XSS em inputs | OWASP ZAP scan | 0 vulnerabilidades HIGH |\n"
-            "| RNF-08 | Observabilidade | Logs estruturados em JSON | Formato verificável | 100% dos serviços |\n"
-            "| RNF-09 | Compatibilidade | Suporte a navegadores | BrowserStack | Chrome 90+, Firefox 90+, Safari 15+ |\n"
-            "| RNF-10 | Usabilidade | Tempo para primeira busca (TTFB) | Teste com 5 usuários | <3 cliques |\n"
-        ),
-        instruction=(
-            "Mínimo 8 RNFs cobrindo TODAS estas categorias: "
-            "Performance, SEO, Disponibilidade, Segurança, Escalabilidade, "
-            "Compatibilidade, Observabilidade, Usabilidade. "
-            "Target DEVE ser numérico e verificável. Nunca 'bom' ou 'adequado'. "
-            "Cada RNF deve ter método de medição implícito na coluna Métrica. "
-            "IMPORTANTE: Esta seção deve ter NO MÍNIMO 600 palavras. "
-            "Pelo menos 12 RNFs cobrindo 8 categorias."
-        ),
-        min_chars=1000,
-        max_output_tokens=2000,
-        input_budget=2000,
-        context_artifacts=["prd"],
-    ),
-
-    # === PASS 6: Arquitetura, Tech Stack e ADRs ===
-    SectionPass(
-        pass_id="final_p06",
-        sections=["## Arquitetura e Tech Stack", "## ADRs"],
-        template=(
-            "## Arquitetura e Tech Stack\n"
-            "- **Estilo:** [tipo de arquitetura]\n"
-            "- **Diagrama de componentes:**\n"
-            "```mermaid\ngraph TB\n  [descreva os componentes e conexões]\n```\n\n"
-            "| Camada | Tecnologia | Versão | Justificativa | Alternativa Rejeitada |\n"
-            "|---|---|---|---|---|\n"
-            "(mínimo 4 camadas com versão exata e alternativa rejeitada)\n\n"
-            "## ADRs (Decisões Arquiteturais)\n"
-            "Para cada decisão (mínimo 4):\n"
-            "| Campo | Valor |\n"
-            "|---|---|\n"
-            "| ID | ADR-XX |\n"
-            "| Decisão | [o que foi escolhido] |\n"
-            "| Alternativa Rejeitada | [opção descartada com motivo] |\n"
-            "| Consequências | [prós e contras] |\n"
-            "| Mitigação | [como os contras são tratados] |\n"
-        ),
-        example=(
-            "- **Estilo:** Microserviços com Serverless Edge\n"
-            "```mermaid\ngraph TB\n"
-            "  USER[Usuário] -->|HTTPS| CDN[Vercel Edge/CDN]\n"
-            "  CDN -->|ISR/SSR| NEXT[Next.js 14]\n"
-            "  NEXT -->|REST| API[FastAPI]\n"
-            "  API -->|Query| PG[(PostgreSQL 16)]\n"
-            "  API -->|Cache| REDIS[(Redis 7.2)]\n"
-            "  CELERY[Celery Workers] -->|Scrape| MP[Marketplaces]\n"
-            "  CELERY -->|Persist| PG\n"
-            "```\n\n"
-            "| Frontend/Edge | Next.js 14 | 14.2.x | SSR/ISR nativo para SEO | Nuxt.js — menor ecossistema React |\n"
-            "| Backend API | FastAPI | 0.111.x | Async nativo, alto throughput | Flask — bloqueio de async |\n"
-            "| Data Store | PostgreSQL | 16.x | ACID, busca trigram via pg_trgm | MongoDB — dados estruturados |\n"
-            "| Cache | Redis | 7.2.x | In-memory, TTL configurável, pub/sub | Memcached — sem persistência |\n\n"
-            "| Campo | Valor |\n|---|---|\n"
-            "| ID | ADR-01 |\n"
-            "| Decisão | ISR com revalidate: 60 para páginas de produto |\n"
-            "| Alternativa Rejeitada | SSR puro — carga proporcional ao tráfego, custo crescente |\n"
-            "| Consequências | (+) Latência <100ms para cache hit. (+) SEO completo. (-) Dados até 60s de atraso |\n"
-            "| Mitigação | Webhook de revalidação on-demand quando preço muda |\n"
-        ),
-        instruction=(
-            "Gere arquitetura com PROFUNDIDADE REAL. "
-            "OBRIGATÓRIO incluir: "
-            "- Diagrama Mermaid em bloco ```mermaid com componentes e conexões "
-            "- Tabela de tech stack com VERSÃO EXATA e alternativa rejeitada "
-            "- Mínimo 4 ADRs no formato ficha (cada um com ID, Decisão, Alternativa, Consequências, Mitigação) "
-            "NÃO use tabela simples para ADRs — use formato de ficha com | Campo | Valor |. "
-            "IMPORTANTE: Esta seção deve ter NO MÍNIMO 1000 palavras. "
-            "Incluir diagrama Mermaid funcional, 6 camadas na tech stack, e pelo menos 5 ADRs no formato ficha."
-        ),
-        min_chars=1500,
+        template="## Visão do Produto\n- **Codinome:** ...\n\n## Problema e Solução\n| ID | Problema | Impacto | Como Resolve |",
+        example="",
+        instruction="Sintetize visão e problemas (mín 6). MÍNIMO 800 palavras.",
+        min_chars=1,
         max_output_tokens=2500,
         input_budget=3000,
-        context_artifacts=["system_design"],
-    ),
-
-    # === PASS 7: Análise de Segurança ===
-    SectionPass(
-        pass_id="final_p07",
-        sections=["## Análise de Segurança"],
-        template=(
-            "## Análise de Segurança\n"
-            "| ID | Ameaça STRIDE | Componente | Severidade | Mitigação Concreta |\n"
-            "|---|---|---|---|---|\n"
-            "(mínimo 3 ameaças. Mitigação DEVE ser específica, não genérica)\n"
-        ),
-        example=(
-            "| SEC-01 | Spoofing | API Gateway | Alta | JWT + Rate Limiting 60 req/min via slowapi |\n"
-            "| SEC-02 | Injection | Banco de Dados | Alta | Consultas parametrizadas com ORM |\n"
-            "| SEC-03 | Information Disclosure | Log de Erro | Média | Limpar stacktraces em prod via middleware |\n"
-            "| SEC-04 | Denial of Service | Crawler | Alta | Cloudflare WAF + bloqueio de geo-IP suspeito |\n"
-        ),
-        instruction=(
-            "Sintetize do Security Review. Mitigação deve ser ESPECÍFICA com ferramenta/lib mencionada. "
-            "IMPORTANTE: Esta seção deve ter NO MÍNIMO 600 palavras. "
-            "Pelo menos 6 ameaças STRIDE + tabela de dados sensíveis."
-        ),
-        min_chars=800,
-        max_output_tokens=2000,
-        input_budget=2500,
-        context_artifacts=["security_review"],
-    ),
-
-    # === PASS 8: Escopo MVP ===
-    SectionPass(
-        pass_id="final_p08",
-        sections=["## Escopo MVP"],
-        template=(
-            "## Escopo MVP\n"
-            "**Inclui:** [lista com RF-XX — APENAS IDs existentes na tabela de RFs]\n"
-            "**NÃO inclui:** [lista com justificativa técnica para cada exclusão]\n"
-        ),
-        example=(
-            "**Inclui:**\n- RF-01 (Busca "
-            "Unificada)\n- RF-02 (Página ISR)\n- RF-03 "
-            "(Histórico de Preço)\n"
-            "- RF-04 (Autenticação)\n- RF-05 "
-            "(Favoritos)\n- RF-06 (Alertas)\n\n"
-            "**NÃO inclui:**\n- Checkout integrado "
-            "— complexidade de integração exige 8 "
-            "semanas adicionais; dependência de APIs de pagamento\n"
-            "- Marketplace próprio — modelo de "
-            "negócio focado em agregação na V1; requer acordos de revenda\n"
-        ),
-        instruction=(
-            "Referencie APENAS RF-IDs da tabela de RFs gerada anteriormente. NÃO invente IDs novos. "
-            "IMPORTANTE: Esta seção deve ter NO MÍNIMO 400 palavras. "
-            "Justificativa técnica para cada exclusão do MVP."
-        ),
-        min_chars=400,
-        max_output_tokens=1500,
-        input_budget=2000,
         require_table=False,
         context_artifacts=["prd"],
     ),
-
-    # === PASS 9: Riscos e Métricas ===
     SectionPass(
-        pass_id="final_p09",
-        sections=["## Riscos Consolidados", "## Métricas de Sucesso"],
-        template=(
-            "## Riscos Consolidados (PRD + Design + Security)\n"
-            "| ID | Risco | Fonte | Probabilidade | Impacto | Mitigação | Workaround Atual |\n"
-            "|---|---|---|---|---|---|---|\n"
-            "(mínimo 6 riscos com mitigação E workaround concreto)\n\n"
-            "## Métricas de Sucesso\n"
-            "| Métrica | Target | Prazo | Como Medir |\n"
-            "|---|---|---|---|\n"
-            "(mínimo 5 métricas com target numérico e método concreto de medição)\n"
-        ),
-        example=(
-            "| R-01 | Bloqueio de IP por anti-bot | Security | Alta | Crítico | "
-            "Proxy rotation com pool de 20+ IPs + delay 2-5s | "
-            "Cache stale serve dados antigos por até 1h enquanto proxy recupera |\n"
-            "| R-02 | Dados desatualizados (ISR stale) | Design | Média | Alto | "
-            "Webhook de revalidação on-demand + cache TTL curto para itens populares | "
-            "Badge 'Atualizado há X minutos' visível ao usuário |\n"
-            "| R-03 | Layout de marketplace mudou | PRD | Alta | Alto | "
-            "Seletores CSS versionados + alerta Sentry com screenshot | "
-            "Cache stale + badge 'dados podem estar desatualizados' |\n\n"
-            "| LCP (Largest Contentful Paint) | <2.5s | Contínuo | Lighthouse CI no pipeline — "
-            "bloqueia merge se LCP > 2.5s |\n"
-            "| Precisão de Preço | >95% | Contínuo | Auditoria amostral: comparar 50 produtos/semana "
-            "com preço real no marketplace |\n"
-            "| Taxa de Clique em Afiliado (CTR) | >=5% | 3 meses | GA4 com funil de eventos |\n"
-        ),
-        instruction=(
-            "Consolide riscos de PRD, Design e Security. "
-            "Mínimo 6 riscos e 5 métricas. "
-            "Riscos: incluir coluna 'Workaround Atual' — ação concreta que o sistema faz AGORA "
-            "enquanto a mitigação definitiva não está implementada. "
-            "Métricas: 'Como Medir' deve descrever ferramenta, frequência e critério de bloqueio. "
-            "IMPORTANTE: Esta seção deve ter NO MÍNIMO 800 palavras. "
-            "Pelo menos 8 riscos com workaround e 8 métricas com método de medição."
-        ),
-        min_chars=1200,
+        pass_id="final_p02a",
+        sections=["## Público-Alvo"],
+        template="## Público-Alvo\n- Persona 1: ...",
+        example="",
+        instruction="Gere apenas outline de 4 personas.",
+        min_chars=200,
+        max_output_tokens=800,
+        input_budget=3000,
+        require_table=False,
+        context_artifacts=["prd"],
+    ),
+    SectionPass(
+        pass_id="final_p02b",
+        sections=["## Público-Alvo"],
+        template="## Público-Alvo\n| Segmento | Perfil | Prioridade |",
+        example="",
+        instruction="Expanda as personas do outline em tabela rica. MÍNIMO 300 palavras.",
+        min_chars=400,
+        max_output_tokens=1500,
+        input_budget=3000,
+        require_table=False,
+        context_artifacts=["prd"],
+    ),
+    SectionPass(
+        pass_id="final_p03a",
+        sections=["## Princípios Arquiteturais", "## Diferenciais"],
+        template="## Princípios Arquiteturais\n- P1: ...\n## Diferenciais\n- D1: ...",
+        example="",
+        instruction="Gere apenas outlines: 6 princípios e 4 diferenciais.",
+        min_chars=200,
+        max_output_tokens=1000,
+        input_budget=3000,
+        require_table=False,
+        context_artifacts=["prd", "system_design"],
+    ),
+    SectionPass(
+        pass_id="final_p03b",
+        sections=["## Princípios Arquiteturais", "## Diferenciais"],
+        template="## Princípios Arquiteturais\n| Princípio | Descrição | Implicação | Regra |\n\n## Diferenciais\n| Atual | Problema | Superação |",
+        example="",
+        instruction="Expanda princípios e diferenciais em tabelas. MÍNIMO 800 palavras.",
+        min_chars=600,
         max_output_tokens=2500,
         input_budget=3000,
+        require_table=False,
+        context_artifacts=["prd", "system_design"],
+    ),
+    SectionPass(
+        pass_id="final_p04",
+        sections=["## Requisitos Funcionais"],
+        template="## Requisitos Funcionais (Consolidados)\n| ID | Requisito | Critério | Prioridade | Complexidade | Status |",
+        example="",
+        instruction="Consolide RFs (mín 10). Critérios técnicos. MÍNIMO 800 palavras.",
+        min_chars=600,
+        max_output_tokens=2500,
+        input_budget=3000,
+        require_table=False,
+        context_artifacts=["prd", "prd_review"],
+    ),
+    SectionPass(
+        pass_id="final_p05a",
+        sections=["## Requisitos Não-Funcionais"],
+        template="## Requisitos Não-Funcionais\nGere APENAS o OUTLINE:\n- RNF-01: ...\n- RNF-02: ...",
+        example="",
+        instruction="Gere apenas outline de 12+ RNFs em 8 categorias.",
+        min_chars=200,
+        max_output_tokens=1000,
+        input_budget=3000,
+        require_table=False,
+        context_artifacts=["prd"],
+    ),
+    SectionPass(
+        pass_id="final_p05b",
+        sections=["## Requisitos Não-Funcionais"],
+        template="## Requisitos Não-Funcionais\n| ID | Categoria | Requisito | Métrica | Target |",
+        example="",
+        instruction="Expanda os RNFs do outline em tabela. MÍNIMO 600 palavras.",
+        min_chars=400,
+        max_output_tokens=2000,
+        input_budget=3000,
+        require_table=False,
+        context_artifacts=["prd"],
+    ),
+    SectionPass(
+        pass_id="final_p06a",
+        sections=["## Arquitetura e Tech Stack"],
+        template="## Arquitetura e Tech Stack\n- **Estilo:** ...\n```mermaid\ngraph TB\n...```",
+        example="",
+        instruction="Gere arquitetura e tech stack com Mermaid. MÍNIMO 500 palavras.",
+        min_chars=400,
+        max_output_tokens=2500,
+        input_budget=3000,
+        require_table=False,
+        context_artifacts=["system_design"],
+    ),
+    SectionPass(
+        pass_id="final_p06b",
+        sections=["## ADRs"],
+        template="## ADRs (Decisões Arquiteturais)\n| Campo | Valor |",
+        example="",
+        instruction="Gere 5+ ADRs no formato ficha. MÍNIMO 500 palavras.",
+        min_chars=400,
+        max_output_tokens=2500,
+        input_budget=3000,
+        require_table=False,
+        context_artifacts=["system_design"],
+    ),
+    SectionPass(
+        pass_id="final_p07",
+        sections=["## Análise de Segurança"],
+        template="## Análise de Segurança\n| ID | Ameaça STRIDE | Componente | Severidade | Mitigação |",
+        example="",
+        instruction="Sintetize 6+ ameaças STRIDE e dados sensíveis. MÍNIMO 600 palavras.",
+        min_chars=400,
+        max_output_tokens=2000,
+        input_budget=3000,
+        require_table=False,
+        context_artifacts=["security_review"],
+    ),
+    SectionPass(
+        pass_id="final_p08",
+        sections=["## Escopo MVP"],
+        template="## Escopo MVP\n**Inclui:** ...",
+        example="",
+        instruction="Referencie APENAS RF-IDs existentes. Justifique exclusões. MÍNIMO 400 palavras.",
+        min_chars=400,
+        max_output_tokens=1500,
+        input_budget=3000,
+        require_table=False,
+        context_artifacts=["prd"],
+    ),
+    SectionPass(
+        pass_id="final_p09a",
+        sections=["## Riscos Consolidados"],
+        template="## Riscos Consolidados\n| ID | Risco | Fonte | Probabilidade | Impacto | Mitigação | Workaround |",
+        example="",
+        instruction="Consolide 8+ riscos with workaround. MÍNIMO 500 palavras.",
+        min_chars=400,
+        max_output_tokens=2000,
+        input_budget=3000,
+        require_table=False,
         context_artifacts=["prd", "system_design", "security_review"],
     ),
-
-    # === PASS 10: Plano e Decisões do Debate ===
+    SectionPass(
+        pass_id="final_p09b",
+        sections=["## Métricas de Sucesso"],
+        template="## Métricas de Sucesso\n| Métrica | Target | Como Medir |",
+        example="",
+        instruction="Gere 8+ métricas quantitativas. MÍNIMO 300 palavras.",
+        min_chars=400,
+        max_output_tokens=1500,
+        input_budget=3000,
+        require_table=False,
+        context_artifacts=["prd"],
+    ),
     SectionPass(
         pass_id="final_p10",
         sections=["## Plano de Implementação", "## Decisões do Debate"],
-        template=(
-            "## Plano de Implementação\n"
-            "| Fase | Duração | Entregas | Critério de Conclusão | Dependência |\n"
-            "|---|---|---|---|---|\n"
-            "(mínimo 3 fases com critério verificável)\n\n"
-            "## Decisões do Debate\n"
-            "| Round | Tipo | Decisão | Justificativa Técnica |\n"
-            "|---|---|---|---|\n"
-            "(extrair pontos de consenso do debate)\n"
-        ),
-        example=(
-            "| Fase 1 | 2 semanas | Infra + DB | docker-compose up funcional; migrations rodadas | Nenhuma |\n"
-            "| Fase 2 | 3 semanas | API Core | Cobertura >=80%; Swagger documentado | Fase 1 |\n\n"
-            "| R2 | ACEITO | Near Real-Time em vez de Real-Time | ISR não garante sincronia milissegundo real-time |\n"
-            "| R3 | REPROVADO | Auth via Telefone | Complexidade técnica fora do escopo MVP atual |\n"
-        ),
-        instruction=(
-            "Plano: critério de conclusão VERIFICÁVEL (ex: 'cobertura >=80%'). "
-            "Decisões: extraia dos Pontos Aceitos e Melhorias do transcript do debate. "
-            "IMPORTANTE: Esta seção deve ter NO MÍNIMO 800 palavras. "
-            "Pelo menos 4 fases com arquivos e testes por fase. Pelo menos 5 decisões do debate."
-        ),
-        min_chars=1200,
+        template="## Plano de Implementação\n| Fase | Duração | Entregas | Critério | Dependência |",
+        example="",
+        instruction="Gere plano (4 fases) e decisões (5+). MÍNIMO 800 palavras.",
+        min_chars=600,
         max_output_tokens=2500,
         input_budget=3000,
+        require_table=False,
         context_artifacts=["development_plan", "debate_transcript"],
     ),
-
-    # === PASS 11: Constraints + Rastreabilidade + Limitações ===
     SectionPass(
-        pass_id="final_p11",
-        sections=["## Constraints Técnicos", "## Matriz de Rastreabilidade", "## Limitações Conhecidas"],
-        template=(
-            "## Constraints Técnicos\n"
-            "- Linguagem: [valor com versão exata]\n"
-            "- Framework: [valor com versão exata]\n"
-            "- Banco de dados: [valor com versão]\n"
-            "- Infraestrutura: [provedores específicos]\n"
-            "- Segurança: [lista concreta de medidas]\n\n"
-            "## Matriz de Rastreabilidade\n"
-            "| RF-ID | Componente/Módulo | Teste Associado | Status |\n"
-            "|---|---|---|---|\n"
-            "(OBRIGATÓRIO: usar os MESMOS RF-IDs da tabela de Requisitos Funcionais. "
-            "NÃO invente IDs ou nomes de componentes que não existam. "
-            "Cada RF DEVE aparecer exatamente uma vez.)\n\n"
-            "## Limitações Conhecidas\n"
-            "| ID | Limitação | Severidade | Impacto | Workaround Atual | Quando Resolvida |\n"
-            "|---|---|---|---|---|---|\n"
-            "(mínimo 4 limitações com workaround concreto e versão de resolução)\n"
-        ),
-        example=(
-            "- Linguagem: TypeScript 5.3 (Strict Mode) / Python 3.11\n"
-            "- Framework: Next.js 14.2 (App Router) / FastAPI 0.111.x\n"
-            "- Banco de dados: PostgreSQL 16 + Redis 7.2\n"
-            "- Infraestrutura: Vercel (Frontend/Edge) + Railway (Backend/Workers)\n"
-            "- Segurança: Rate Limiting 60 req/min, CSP Headers, HTTPS obrigatório, JWT auth, LGPD compliance\n\n"
-            "| RF-01 | SearchModule | Unit (Jest): retorna resultados de >=2 marketplaces. "
-            "Integration (Supertest): /api/search retorna 200 | Planejado |\n"
-            "| RF-02 | ProductPage ISR | E2E (Playwright): /produto/slug exibe header x-nextjs-cache | Planejado |\n"
-            "| RF-03 | AlertService | Unit: POST /api/alerts retorna 201 with alertId válido | Planejado |\n"
-            "| RF-04 | SearchFilter | Integration: /api/search?minPrice=X&maxPrice=Y filtra corretamente | Planejado |\n"
-            "| RF-05 | RankingEngine | Unit: /api/search?sort=best retorna ordenado por preço | Planejado |\n"
-            "| RF-06 | HistoryService | Integration: /api/history retorna JSON with data_points | Planejado |\n\n"
-            "| LIM-01 | Bloqueio de IP por anti-bot | Alta | Coleta falha temporariamente | "
-            "Proxy rotation + backoff exponencial + cache stale | v1.1 — Pool Bright Data com 100+ IPs |\n"
-            "| LIM-02 | ISR tem atraso de até 60s | Média | Preço pode estar desatualizado | "
-            "Badge 'Atualizado há X min' + webhook on-demand | v1.5 — SSE para push em tempo real |\n"
-            "| LIM-03 | Busca limitada a trigram | Baixa | 'headphone' não encontra 'fone de ouvido' | "
-            "Usuário deve buscar em português | v2.0 — Elasticsearch com sinônimos |\n"
-            "| LIM-04 | Sem app nativo | Baixa | UX mobile limitada | PWA com manifest.json | Nunca — PWA é definitivo |\n"
-        ),
-        instruction=(
-            "IMPORTANTE sobre Rastreabilidade: "
-            "- Use os MESMOS RF-IDs (RF-01, RF-02, etc.) da tabela de Requisitos Funcionais. "
-            "- NÃO invente IDs novos. NÃO invente nomes de componentes que não existam. "
-            "- Se a tabela de RFs tem RF-01 a RF-06, a rastreabilidade DEVE ter RF-01 a RF-06. "
-            "Constraints: versões EXATAS de cada tecnologia. "
-            "Limitações: mínimo 4 com workaround concreto (o que o sistema faz AGORA) "
-            "e versão de resolução (quando será corrigido). "
-            "IMPORTANTE: Esta seção deve ter NO MÍNIMO 1000 palavras. "
-            "Rastreabilidade COMPLETA (cada RF com arquivo, teste e critério). "
-            "Pelo menos 6 limitações com workaround concreto."
-        ),
-        min_chars=1500,
+        pass_id="final_p11a",
+        sections=["## Constraints Técnicos", "## Matriz de Rastreabilidade"],
+        template="## Constraints Técnicos\n- ...",
+        example="",
+        instruction="Gere constraints e rastreabilidade total (mesmos RF-IDs). MÍNIMO 500 palavras.",
+        min_chars=400,
         max_output_tokens=2500,
         input_budget=3000,
+        require_table=False,
         context_artifacts=["prd", "system_design"],
     ),
-
-    # === PASS 12: Guia de Replicação + Cláusula ===
+    SectionPass(
+        pass_id="final_p11b",
+        sections=["## Limitações Conhecidas"],
+        template="## Limitações Conhecidas\n| ID | Limitação | Severidade | Impacto | Workaround | Resolução |",
+        example="",
+        instruction="Gere 6+ limitações with workaround. MÍNIMO 500 palavras.",
+        min_chars=400,
+        max_output_tokens=2500,
+        input_budget=3000,
+        require_table=False,
+        context_artifacts=["prd", "system_design"],
+    ),
     SectionPass(
         pass_id="final_p12",
         sections=["## Guia de Replicação Resumido", "## Cláusula de Integridade"],
-        template=(
-            "## Guia de Replicação Resumido\n"
-            "1. **Pré-requisitos:** [linguagem, versões exatas, ferramentas]\n"
-            "2. **Instalação:** [comandos exatos]\n"
-            "3. **Execução:** [comando para rodar]\n"
-            "4. **Verificação:** [URL + resposta esperada]\n\n"
-            "## Cláusula de Integridade\n"
-            "| Item | Status |\n"
-            "|---|---|\n"
-            "| Todos os RF-IDs do Escopo existem na tabela de RFs | [checkmark/X] |\n"
-            "| Todos os riscos HIGH possuem mitigação | [checkmark/X] |\n"
-            "| Tech Stack consistente entre seções | [checkmark/X] |\n"
-            "| Métricas possuem target quantitativo | [checkmark/X] |\n"
-            "| Security Review endereça ameaças HIGH | [checkmark/X] |\n"
-        ),
-        example=(
-            "1. **Pré-requisitos:** Node.js 18.17+, Python 3.11+, Docker 24+, PostgreSQL 16+\n"
-            "2. **Instalação:** git clone repo && npm install && pip install -e '.[dev]' && docker compose pull\n"
-            "3. **Execução:** docker compose up -d && npm run dev (frontend) && python main.py (backend)\n"
-            "4. **Verificação:** Acessar http://localhost:3000 — header x-nextjs-cache deve ser HIT ou STALE\n"
-        ),
-        instruction=(
-            "Guia: comandos EXATOS. Inclua URL de verificação. "
-            "Cláusula: marque com checkmark ou X baseado no conteúdo REAL gerado nas seções anteriores. "
-            "IMPORTANTE: Esta seção deve ter NO MÍNIMO 600 palavras. "
-            "Guia com 6+ passos com comandos bash copiáveis. Cláusula com 8+ itens verificados."
-        ),
-        min_chars=600,
+        template="## Guia de Replicação Resumido\n1. ...",
+        example="",
+        instruction="Guia (6+ passos) e Cláusula (8+ itens). MÍNIMO 600 palavras.",
+        min_chars=400,
         max_output_tokens=2500,
-        input_budget=2500,
-        require_table=True,
+        input_budget=3000,
+        require_table=False,
         context_artifacts=["development_plan"],
     ),
 ]
