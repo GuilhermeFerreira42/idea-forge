@@ -39,7 +39,7 @@ FASE N — FLUXO DE TRABALHO
 4. VOCÊ valida (testes, execução manual)
 
 5. VOCÊ diz à IA:
-   "Fase 9.4 concluída e validada. 
+   "Fase 9.5 concluída e validada. 
     Execute o protocolo docs/ARCHIVING_PROTOCOL.md."
 
 6. IA atualiza CURRENT_STATE + DECISION_LOG + arquiva blueprint
