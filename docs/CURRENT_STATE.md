@@ -1,44 +1,54 @@
-# CURRENT_STATE — IdeaForge CLI
+# ESTADO ATUAL — IdeaForge CLI
 
-- [x] **Fase 9.5.1 — Onda 1 Corrigida**: Implementação de 18 passes no Consolidador, injeção de Exemplares Lean (estruturais) e automação total da CLI.
-- [x] **Fase 9.5 — Onda 1 de Expansão**: Injeção de exemplares gold-standard e `SectionQualityChecker` (validado e recalibrado na 9.5.1).
-- [x] **Fase 10.0 — Orquestração de Debate**: DebateStateTracker rastreando Issues e Resoluções entre rounds.
-- [x] **Fase 9.1 — PRD Final Completo (Geração Seccional)**: Transição para orquestração sequencial eliminando truncamento.
+**Versão do Sistema:** NEXUS v1.4.3c (Cura de Assembly)  
+**Status Global:** [✅] Fase 9.5.3 Concluída | [ ] Fase 9.6 Próxima (Retry Inteligente)
 
-## Arquitetura NEXUS v1.4 (Integridade Expandida)
-- **Padrão**: Blackboard com Grafo de Artefatos (DAG) de 9 tarefas.
-- **Consolidação**: TASK_07 (Consolidador) utiliza **18 passes granulares** com técnica *Skeleton-then-Flesh* para seções críticas.
-- **Injeção**: Uso de exemplares curados "Lean" (~400 chars) para guiar o formato sem induzir alucinações de IDs ou dados específicos.
-- **Automação**: CLI suporta argumentos `--model` e `--idea`, eliminando interatividade em ambientes de CI/Automação.
-- **Fail-Safe**: `MAX_RETRIES_PER_PASS = 3` com bypass de qualidade em passes tipo *Skeleton*.
-- **Observabilidade**: Logs estruturados em `.forge/logs/` com relatórios de consistência pós-geração.
+---
 
-## Módulos e Contratos Vigentes
-| Módulo | Arquivo | Contrato Público | Versão |
+## 🛠️ Arquitetura NEXUS (V1.4.3c)
+- **Padrão:** Quadro Negro (Blackboard) com Grafo de Tarefas (DAG) de 9 etapas.
+- **Consolidação:** A tarefa TASK_07 utiliza **20 passes granulares** (NEXUS FINAL) com técnicas de *Esqueleto-depois-Conteúdo* (Skeleton-then-Flesh) para seções críticas e calibração de contagem de palavras por passagem.
+- **Micro-Tarefas:** Passagens atômicas configuradas em `sectional_generator.py` com limite de contexto (`input_budget`) restrito a 3000 caracteres para estabilidade.
+- **Fronteira Dinâmica:** O gerador seccional utiliza regras de fronteira dinâmica e filtragem multi-seção para evitar o truncamento em passes que geram múltiplos cabeçalhos `##`.
+
+---
+
+## 🏗️ Módulos e Contratos Vigentes
+
+| Módulo | Arquivo | Responsabilidade | Versão |
 |---|---|---|---|
-| Blackboard | `blackboard.py` | `set_variable`, `get_variable`, `snapshot` | F3 |
-| ArtifactStore | `artifact_store.py` | `write`, `read`, `get_context_for_agent` | F3 |
-| Planner | `planner.py` | `execute_pipeline(user_idea)` | F9 |
-| SectionalGenerator | `sectional_generator.py` | `generate_sectional` (18-pass NEXUS) | F9.5.1 |
-| QualityChecker | `section_quality_checker.py`| `check_section_by_type` | F9.5 |
-| ProductManagerAgent | `product_manager_agent.py` | `consolidate_prd` (18-pass) | F12 |
-| ConsistencyChecker| `consistency_checker_agent.py`| `check_consistency` (Audit sem LLM) | F9 |
-| DebateStateTracker| `debate_state_tracker.py` | `extract_issues`, `extract_resolutions` | F10 |
-| OutputValidator| `output_validator.py`| `validate_pass` (Hard rules: 20 seções) | F9 |
-| ModelProvider | `ollama_provider.py` | `generate(prompt, think, max_tokens)` | F7 |
+| Gerador Seccional | `sectional_generator.py` | Geração multi-pass (20 passes NEXUS) com filtros multi-seção. | F9.5.3c |
+| Verificador de Qualidade | `section_quality_checker.py` | Validação programática de densidade e estrutura (mínimo de palavras/itens). | F9.5 |
+| Agente Gerente de Produto | `product_manager_agent.py` | Orquestração da consolidação final e injeção de artefatos. | F12 |
+| Verificador de Consistência | `consistency_checker_agent.py` | Auditoria estrutural pós-geração (verificação de integridade). | F9 |
+| Planejador | `planner.py` | Orquestração do fluxo principal de tarefas. | F9 |
+| Provedor de Modelo | `ollama_provider.py` | Interface com LLM (separação entre Raciocínio/Conteúdo). | F7 |
 
-## DAG de Tarefas (NEXUS DAG)
-- **TASK_01-06**: Fluxo de geração, crítica, design, segurança e debate.
-- **TASK_07**: PM.consolidate_prd [all_artifacts] → prd_final (18 passes).
-- **TASK_07b**: ConsistencyChecker.check_consistency [prd_final] → audit_report.
+---
 
-## Invariantes e Quality Gates
-1. **Densidade NEXUS**: Meta de 35.000-50.000 caracteres para o PRD Final.
-2. **Quality Gate**: Seções críticas (Riscos, RFs, Arquitetura) exigem sub-passes de expansão.
-3. **Audit Gate**: O PRD Final deve passar no consistency audit (is_clean=True).
-4. **Context Control**: `input_budget` fixo de 3000 chars para máxima precisão no consolidado.
+## 🗺️ Fluxo de Tarefas (Pipeline NEXUS)
+1. **TASK_01**: Geração do PRD inicial (PM).
+2. **TASK_02**: Crítica técnica (Critic).
+3. **TASK_04**: Design de Sistema e Segurança (Designer/Security).
+4. **TASK_05**: Debate estruturado de problemas identificados.
+5. **TASK_06**: Geração do Plano de Desenvolvimento.
+6. **TASK_07**: Consolidação NEXUS (20 passes) → **PRD FINAL**.
+7. **TASK_07b**: Auditoria de Consistência (Audit).
 
-## Testes de Certificação
-- **Regressão**: 124 testes unitários e de integração ativos (`pytest tests/`).
-- **Orquestração**: `tests/test_phase_9_1.py` valida a estrutura de 18 passes.
-- **Resiliência**: `tests/test_retry_logic.py` valida o limite de 3 retries.
+---
+
+## 📉 Invariantes e Restrições de Qualidade
+1. **Densidade Crítica**: Meta de 25.000+ caracteres para o PRD Final Consolidado.
+2. **Integridade Estrutural**: Garantia de 20/20 seções obrigatórias via filtros de montagem.
+3. **Limite de Contexto**: Máximo de 3000 caracteres de contexto injetado por sub-passagem.
+4. **Resiliência**: Limite de 3 tentativas por passagem com fallback automático.
+
+---
+
+## 🧪 Verificação e Testes
+- **Suíte de Unidade:** 120+ testes em `tests/` cobrindo filtros, prompts e provedores.
+- **Certificação Cloud:** Validação recorrente com `gpt-oss:20b-cloud` para profundidade máxima.
+- **Teste de Regressão:** `tests/test_sectional_generator_filters.py` valida as correções da Onda 1c (Montagem).
+
+---
+*Gerado via Protocolo de Arquivamento — 02/04/2026*

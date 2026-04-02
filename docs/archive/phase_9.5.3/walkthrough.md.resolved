@@ -1,0 +1,14 @@
+# Resumo da Certificação — Fase 9.5.3
+
+A Fase 9.5.3 foi certificada com sucesso utilizando o modelo `gpt-oss:20b-cloud`. Os resultados validam a correção definitiva dos bugs de montagem (assembly) e truncamento de seções.
+
+## Métricas de Sucesso
+- **Volume Final**: 26.509 caracteres.
+- **Completude Estrutural**: 20/20 seções (Headers presentes e preservados).
+- **Status**: Bugs de Assembly e Truncamento de passes múltiplos RESOLVIDOS.
+
+## Nota de Qualidade
+Apesar da completude estrutural (presença de todos os headers), o relatório de consistência indicou `is_clean: False` com 7 seções contendo marcadores de falha semântica (`GERAÇÃO FALHOU`). Esta instabilidade de conteúdo é decorrente das limitações do modelo cloud sob thresholds rígidos de profundidade e será tratada na **Fase 9.6 (Orquestração com Retry Inteligente)**.
+
+---
+*Documento gerado como parte do Protocolo de Arquivamento da Onda 1 (F9.5.3).*

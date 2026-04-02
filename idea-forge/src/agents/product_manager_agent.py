@@ -3,6 +3,13 @@ from src.core.prompt_templates import (
     ANTI_PROLIXITY_DIRECTIVE, PRD_TEMPLATE, STYLE_CONTRACT
 )
 from src.core.sectional_generator import SectionalGenerator
+from src.core.context_extractors import (
+    extract_for_arquitetura_tech_stack,
+    extract_for_plano_implementacao,
+    extract_for_decisoes_debate,
+    extract_for_guia_replicacao,
+    generate_clausula_integridade,
+)
 
 # Diretiva adicionada ao system prompt quando em modo direto (sem reasoning)
 DIRECT_MODE_SUFFIX = (
@@ -130,7 +137,19 @@ class ProductManagerAgent:
             for art_name in p.context_artifacts:
                 art_content = parsed.get(art_name.lower())
                 if art_content:
-                    p_input += f"--- {art_name.upper()} ---\n{art_content}\n\n"
+                    # FASE 9.5.3: Aplicação de extratores cirúrgicos por Pass ID
+                    processed_content = art_content
+                    if p.pass_id == "final_p06b" and art_name.lower() == "system_design":
+                        processed_content = extract_for_arquitetura_tech_stack(art_content)
+                    elif p.pass_id == "final_p10":
+                        if art_name.lower() == "development_plan":
+                            processed_content = extract_for_plano_implementacao(art_content)
+                        elif art_name.lower() == "debate_transcript":
+                            processed_content = extract_for_decisoes_debate(art_content)
+                    elif p.pass_id == "final_p12" and art_name.lower() == "development_plan":
+                        processed_content = extract_for_guia_replicacao(art_content)
+                        
+                    p_input += f"--- {art_name.upper()} ---\n{processed_content}\n\n"
                 else:
                     # Fallback: se não achou via parse, tenta injetar do context inteiro
                     # (isso garante que não falte nada se o delimitador falhar)
@@ -145,6 +164,30 @@ class ProductManagerAgent:
             passes=NEXUS_FINAL_PASSES
         )
         
+        if result:
+            # FASE 9.5.3: Adicionar Cláusula de Integridade via template estático
+            from datetime import datetime
+            
+            # Contar falhas
+            count_failed = result.count("[GERAÇÃO FALHOU]")
+            
+            clausula = generate_clausula_integridade(
+                prd_final_chars=len(result),
+                total_sections=20, # Fixo para o pipeline NEXUS
+                failed_sections=count_failed,
+                model_name=getattr(self.provider, "model_name", "Ollama 20B"),
+                generated_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            )
+            
+            # Se a última seção (Guia de Replicação) falhou, podemos anexar a cláusula
+            # Caso contrário, tentamos substituir ou anexar ao final
+            if "## Cláusula de Integridade" in result:
+                # Substituir o placeholder gerado (ou falhado) pela versão estática
+                import re
+                result = re.sub(r"## Cláusula de Integridade.*", clausula, result, flags=re.DOTALL)
+            else:
+                result += "\n\n" + clausula
+
         if result and len(result) > 1000:
             return result
         

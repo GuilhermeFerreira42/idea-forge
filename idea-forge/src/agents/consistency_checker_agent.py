@@ -118,17 +118,20 @@ class ConsistencyCheckerAgent:
 
     def _check_thin_sections(self, text: str) -> Dict | None:
         thin = []
-        # Split por headers ##
-        parts = re.split(r'(?=^##)', text, flags=re.MULTILINE)
+        # Split por headers ## (exige que o próximo caractere não seja outro #)
+        parts = re.split(r'(?=^##\s(?!#))', text, flags=re.MULTILINE)
         for part in parts:
-            if not part.strip(): continue
+            if not part.strip() or not part.startswith("## "):
+                continue
             lines = part.strip().splitlines()
             header = lines[0].strip()
-            content = " ".join(lines[1:]).strip()
-            # Remover marcadores de tabela markdown simples
+            # O conteúdo é tudo após a primeira linha
+            content = "\n".join(lines[1:]).strip()
+            # Remover marcadores de tabela markdown e sub-headers para contagem real de "prosa/dados"
             clean_content = re.sub(r'[|:\-\s]+', ' ', content).strip()
             
-            if len(clean_content) < 10 and header.startswith("## "):
+            # Threshold mínimo de 10 caracteres de conteúdo real
+            if len(clean_content) < 10:
                 thin.append((header, len(clean_content)))
         
         if not thin:

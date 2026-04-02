@@ -12,7 +12,7 @@ class TestNexusFinalPasses(unittest.TestCase):
     """Testes para a estrutura dos NEXUS_FINAL_PASSES."""
     
     def test_18_passes_defined(self):
-        self.assertEqual(len(NEXUS_FINAL_PASSES), 19)
+        self.assertEqual(len(NEXUS_FINAL_PASSES), 15)
     
     def test_all_20_sections_covered(self):
         """Verifica que os 15 passes cobrem todas as 20 seções obrigatórias."""
@@ -49,7 +49,7 @@ class TestNexusFinalPasses(unittest.TestCase):
         """FASE 9.5: min_chars deve refletir os word count targets."""
         for p in NEXUS_FINAL_PASSES:
             self.assertGreaterEqual(p.min_chars, 200, f"Pass {p.pass_id} min_chars muito baixo")
-            self.assertLessEqual(p.min_chars, 2000, f"Pass {p.pass_id} min_chars muito alto")
+            self.assertLessEqual(p.min_chars, 3500, f"Pass {p.pass_id} min_chars muito alto")
     
     def test_max_output_tokens_reasonable(self):
         for p in NEXUS_FINAL_PASSES:
@@ -67,9 +67,9 @@ class TestSectionalGeneratorRecognizesPrdFinal(unittest.TestCase):
         gen = SectionalGenerator(mock_provider)
         passes = gen._get_default_passes("prd_final")
 
-        self.assertEqual(len(passes), 19)
+        self.assertEqual(len(passes), 15)
         self.assertEqual(passes[0].pass_id, "final_p01")
-        self.assertEqual(passes[18].pass_id, "final_p12")
+        self.assertEqual(passes[14].pass_id, "final_p12")
 
     
     def test_get_role_returns_product_manager_for_final(self):

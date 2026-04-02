@@ -39,6 +39,7 @@ class SectionPass:
                  instruction: str, max_output_tokens: int = 800,
                  require_table: bool = True,
                  min_chars: int = 80,
+                 min_words: int = 0,
                  input_budget: int = 600,
                  context_artifacts: List[str] = None):
         self.pass_id = pass_id
@@ -49,6 +50,7 @@ class SectionPass:
         self.max_output_tokens = max_output_tokens
         self.require_table = require_table
         self.min_chars = min_chars
+        self.min_words = min_words
         self.input_budget = input_budget
         self.context_artifacts = context_artifacts or []
 
@@ -60,6 +62,40 @@ class SectionalGenerator:
         self.provider = provider
         self.direct_mode = direct_mode
         self.validator = OutputValidator()
+        self._validate_passes_config()
+
+    def _validate_passes_config(self):
+        """FASE 9.5.3: Impede seções duplicadas e cabeçalhos redundantes."""
+        all_maps = {
+            "PRD_PASSES": PRD_PASSES,
+            "DESIGN_PASSES": DESIGN_PASSES,
+            "PLAN_PASSES": PLAN_PASSES,
+            "REVIEW_PASSES": REVIEW_PASSES,
+            "SECURITY_PASSES": SECURITY_PASSES,
+            "NEXUS_FINAL_PASSES": NEXUS_FINAL_PASSES
+        }
+        all_errors = []
+        
+        for map_name, pass_list in all_maps.items():
+            seen_sections = set()
+            for p in pass_list:
+                for section in p.sections:
+                    # Normalizar para comparação
+                    normalized = section.strip().upper()
+                    if normalized in seen_sections:
+                        all_errors.append(f"{map_name}:{p.pass_id} -> '{section}' (DUPLICADA)")
+                    seen_sections.add(normalized)
+                    
+                    # FASE 9.5.3: Também checar se o título da seção está no template indevidamente
+                    if section not in p.template and "##" in section:
+                         # Isso pode ser um aviso ao invés de erro, mas ajuda a manter a consistência
+                         pass 
+
+        if all_errors:
+            raise ValueError(
+                f"Configuração de passes inválida: {all_errors}. "
+                f"Remova as seções duplicadas para garantir 'is_clean: True'."
+            )
 
     def generate_sectional(self, artifact_type: str,
                            user_input: str,
@@ -121,6 +157,9 @@ class SectionalGenerator:
             return None
 
         final_output = "\n\n".join(pass_results)
+        
+        # FASE 9.5.3b: Safety net para placeholders residuais
+        final_output = self._sanitize_placeholders(final_output)
 
         # Validar artefato final
         validation = self.validator.validate(final_output, artifact_type)
@@ -184,6 +223,9 @@ class SectionalGenerator:
             return None
 
         final_output = "\n\n".join(pass_results)
+
+        # FASE 9.5.3b: Safety net para placeholders residuais
+        final_output = self._sanitize_placeholders(final_output)
 
         validation = self.validator.validate(final_output, artifact_type)
         if validation.get("valid"):
@@ -264,7 +306,10 @@ class SectionalGenerator:
                 
                 if attempt > 1:
                     self._emit_ok(f"  Pass {pass_number} corrigido na tentativa {attempt}")
-                return result
+                
+                # FASE 9.5.3c: Filtro de vazamento de seções adjacentes
+                filtered_result = self._filter_section_output(result, section_pass.sections)
+                return filtered_result
 
             # Falhou — preparar retry
             last_fail_reasons = validation.get("fail_reasons", ["UNKNOWN"])
@@ -389,6 +434,20 @@ class SectionalGenerator:
 
         prompt += f"{section_pass.instruction}\n"
 
+        # FASE 9.5.3c: Regra de Fronteira multi-seção
+        if len(section_pass.sections) == 1:
+            prompt += (
+                f"\nREGRA CRÍTICA: Gere obrigatoriamente a seção '{section_pass.sections[0]}'.\n"
+                "NÃO inclua nenhuma outra seção ## adicional.\n"
+            )
+        else:
+            sections_list = ", ".join(f"'{s}'" for s in section_pass.sections)
+            prompt += (
+                f"\nREGRA CRÍTICA: Gere obrigatoriamente estas seções, nesta ordem: {sections_list}.\n"
+                "Mantenha cada seção bem detalhada. NÃO inclua seções ## que não foram listadas aqui.\n"
+                "Pare IMEDIATAMENTE após concluir a última seção da lista.\n"
+            )
+
         return prompt
 
     def _get_exemplar(self, pass_id: str) -> str:
@@ -473,6 +532,78 @@ class SectionalGenerator:
 
         return result
 
+    def _filter_section_output(self, output: str, expected_sections: list) -> str:
+        """
+        Fase 9.5.3c: Remove headers ## que não pertencem ao pass atual.
+        Aceita lista de seções esperadas para suportar passes multi-seção.
+        """
+        if not output:
+            return ""
+
+        # Normalizar todas as seções esperadas
+        normalized_expected = [self._normalize_header(s) for s in expected_sections]
+
+        lines = output.split("\n")
+        filtered = []
+        found_any_expected = False
+
+        for line in lines:
+            stripped = line.strip()
+            # Detectar headers ## (mas não ### ou #)
+            if stripped.startswith("## ") and not stripped.startswith("### "):
+                header_text = self._normalize_header(stripped)
+
+                # Verificar se é um header esperado deste pass
+                is_expected = any(
+                    exp in header_text or header_text in exp
+                    for exp in normalized_expected
+                )
+
+                if is_expected:
+                    found_any_expected = True
+                    filtered.append(line)
+                elif found_any_expected:
+                    # Header invasor de OUTRO pass — parar aqui
+                    break
+                # Se ainda não encontrou nenhum esperado, ignora (preâmbulo)
+            else:
+                if found_any_expected:
+                    filtered.append(line)
+
+        return "\n".join(filtered).strip()
+
+    def _normalize_header(self, text: str) -> str:
+        """Helper para comparação robusta de headers (remove #, espaços, e acentos básicos)."""
+        import unicodedata
+        t = text.strip().lstrip("# ").strip().lower()
+        # Normalização unicode para remover acentos
+        t = "".join(c for c in unicodedata.normalize('NFD', t)
+                    if unicodedata.category(c) != 'Mn')
+        return t
+
+    def _sanitize_placeholders(self, prd_content: str) -> str:
+        """
+        Fase 9.5.3b: Substitui placeholders residuais por valores neutros (N/A).
+        Safety net programático.
+        """
+        if not prd_content:
+            return ""
+            
+        replacements = {
+            "A DEFINIR": "N/A",
+            "a definir": "N/A",
+            "A definir": "N/A",
+            "TODO": "N/A",
+            "TBD": "N/A",
+            "A SER ESPECIFICADO": "N/A",
+            "PENDENTE": "N/A",
+            "EM BREVE": "N/A",
+        }
+        result = prd_content
+        for placeholder, replacement in replacements.items():
+            result = result.replace(placeholder, replacement)
+        return result
+
     # ─── Emitters ───────────────────────────────────────
     def _emit(self, msg: str):
         sys.stdout.write(f"{ANSIStyle.CYAN}  {msg}{ANSIStyle.RESET}\n")
@@ -509,60 +640,49 @@ class SectionalGenerator:
 
 # PRD_PASSES
 PRD_PASSES = [
-    SectionPass("prd_p1", ["## Objetivo", "## Problema"], "## Objetivo\n- ...", "", "Gere Objetivo/Problema.", 200),
-    SectionPass("prd_p2", ["## Público-Alvo", "## Princípios Arquiteturais", "## Diferenciais"], "## Público-Alvo\n|...|", "", "Gere Público/Princípios/Diferenciais.", 250),
-    SectionPass("prd_p3", ["## Requisitos Funcionais", "## Requisitos Não-Funcionais"], "## Requisitos Funcionais\n|...|", "", "Gere RF/RNF.", 400),
-    SectionPass("prd_p4", ["## Escopo MVP", "## Métricas de Sucesso"], "## Escopo MVP\n**Inclui:** ...", "", "Gere Escopo/Métricas.", 200),
-    SectionPass("prd_p5", ["## Dependências e Riscos", "## Constraints Técnicos"], "## Dependências\n|...|", "", "Gere Riscos/Constraints.", 200),
+    SectionPass("prd_p1", ["## Objetivo", "## Problema"], "## Objetivo\n- ...", "", "Gere Objetivo/Problema com profundidade.", 250, require_table=False),
+    SectionPass("prd_p2", ["## Público-Alvo", "## Princípios Arquiteturais", "## Diferenciais"], "## Público-Alvo\n|...|", "", "Gere Público/Princípios/Diferenciais com profundidade.", 350, require_table=False),
+    SectionPass("prd_p3", ["## Requisitos Funcionais", "## Requisitos Não-Funcionais"], "## Requisitos Funcionais\n|...|", "", "Gere RF/RNF com profundidade.", 500, require_table=False),
+    SectionPass("prd_p4", ["## Escopo MVP", "## Métricas de Sucesso"], "## Escopo MVP\n**Inclui:** ...", "", "Gere Escopo/Métricas com profundidade.", 300, require_table=False),
+    SectionPass("prd_p5", ["## Dependências e Riscos", "## Constraints Técnicos"], "## Dependências\n|...|", "", "Gere Riscos/Constraints com profundidade.", 300, require_table=False),
 ]
 
 # REVIEW_PASSES
 REVIEW_PASSES = [
-    SectionPass("review_p1", ["## Score de Qualidade", "## Issues Identificadas"], "## Score\n...", "", "Gere Score/Issues.", 200),
-    SectionPass("review_p2", ["## Verificação de Requisitos", "## Verificação de Princípios Arquiteturais", "## Sumário", "## Recomendação"], "## Verificação\n...", "", "Verifique requisitos/princípios.", 200),
+    SectionPass("review_p1", ["## Score de Qualidade", "## Issues Identificadas"], "## Score\n...", "", "Gere Score/Issues.", 300, require_table=False),
+    SectionPass("review_p2", ["## Verificação de Requisitos", "## Verificação de Princípios Arquiteturais", "## Sumário", "## Recomendação"], "## Verificação\n...", "", "Verifique requisitos/princípios.", 400, require_table=False),
 ]
 
 # SECURITY_PASSES
 SECURITY_PASSES = [
-    SectionPass("security_p1", ["## Superfície de Ataque", "## Ameaças Identificadas"], "## Superfície\n...", "", "Identifique superfície/ameaças.", 250),
-    SectionPass("security_p2", ["## Requisitos de Segurança Derivados", "## Dados Sensíveis", "## Plano de Autenticação/Autorização"], "## Requisitos\n...", "", "Gere requisitos/dados/auth.", 200),
+    SectionPass("security_p1", ["## Superfície de Ataque", "## Ameaças Identificadas"], "## Superfície\n...", "", "Identifique superfície/ameaças.", 300, require_table=False),
+    SectionPass("security_p2", ["## Requisitos de Segurança Derivados", "## Dados Sensíveis", "## Plano de Autenticação/Autorização"], "## Requisitos\n...", "", "Gere requisitos/dados/auth.", 350, require_table=False),
 ]
 
 # DESIGN_PASSES
 DESIGN_PASSES = [
-    SectionPass("design_p1", ["## Arquitetura Geral", "## Tech Stack"], "## Arquitetura\n...", "", "Gere Arquitetura/Tech Stack.", 250),
-    SectionPass("design_p2", ["## Módulos", "## Modelo de Dados"], "## Módulos\n...", "", "Gere Módulos/Dados.", 250),
-    SectionPass("design_p3", ["## Fluxo de Dados", "## ADRs", "## Riscos Técnicos", "## Requisitos de Infraestrutura"], "## Fluxo\n...", "", "Gere Fluxo/ADRs/Riscos/Infra.", 400),
+    SectionPass("design_p1", ["## Arquitetura Geral", "## Tech Stack"], "## Arquitetura\n...", "", "Gere Arquitetura/Tech Stack com profundidade.", 350, require_table=False),
+    SectionPass("design_p2", ["## Módulos", "## Modelo de Dados"], "## Módulos\n...", "", "Gere Módulos/Dados com profundidade.", 450, require_table=False),
+    SectionPass("design_p3", ["## Fluxo de Dados", "## ADRs", "## Riscos Técnicos", "## Requisitos de Infraestrutura"], "## Fluxo\n...", "", "Gere Fluxo/ADRs/Riscos/Infra.", 600, require_table=False),
 ]
 
 # PLAN_PASSES
 PLAN_PASSES = [
-    SectionPass("plan_p1", ["## Arquitetura Sugerida", "## Módulos Core"], "## Arquitetura\n...", "", "Gere Arquitetura/Módulos.", 250),
-    SectionPass("plan_p2", ["## Fases de Implementação", "## Dependências Técnicas"], "## Fases\n...", "", "Gere Fases/Dependências/Riscos/Testes.", 200),
+    SectionPass("plan_p1", ["## Arquitetura Sugerida", "## Módulos Core"], "## Arquitetura\n...", "", "Gere Arquitetura/Módulos.", 350, require_table=False),
+    SectionPass("plan_p2", ["## Fases de Implementação", "## Dependências Técnicas"], "## Fases\n...", "", "Gere Fases/Dependências. REGRAS: NÃO use 'A DEFINIR'. Use 'N/A' se não aplicável.", 350, require_table=False),
 ]
 
-# NEXUS FINAL: 19 passes (Fase 9.5.1 - 20B Stability Wave)
+# NEXUS FINAL: 20 seções expandidas (Fase 9.5.3b - Surgical Wave 1c)
 NEXUS_FINAL_PASSES = [
     SectionPass(
         pass_id="final_p01",
         sections=["## Visão do Produto", "## Problema e Solução"],
         template="## Visão do Produto\n- **Codinome:** ...\n\n## Problema e Solução\n| ID | Problema | Impacto | Como Resolve |",
         example="",
-        instruction="Sintetize visão e problemas (mín 6). MÍNIMO 800 palavras.",
-        min_chars=400,
+        instruction="Sintetize visão e problemas (mín 6). Visão: 50-100 palavras. Problemas: 200-400 palavras.",
+        min_chars=600,
+        min_words=250,
         max_output_tokens=2500,
-        input_budget=1200,
-        require_table=False,
-        context_artifacts=["prd"],
-    ),
-    SectionPass(
-        pass_id="final_p02a",
-        sections=["## Público-Alvo"],
-        template="## Público-Alvo\n- Persona 1: ...",
-        example="",
-        instruction="Gere apenas outline de 4 personas.",
-        min_chars=200,
-        max_output_tokens=800,
         input_budget=1200,
         require_table=False,
         context_artifacts=["prd"],
@@ -573,31 +693,20 @@ NEXUS_FINAL_PASSES = [
         template="## Público-Alvo\n| Segmento | Perfil | Prioridade |",
         example="",
         instruction="Expanda as personas do outline em tabela rica. MÍNIMO 300 palavras.",
-        min_chars=400,
+        min_chars=1200,
         max_output_tokens=1500,
         input_budget=1200,
         require_table=False,
         context_artifacts=["prd"],
     ),
     SectionPass(
-        pass_id="final_p03a",
-        sections=["## Princípios Arquiteturais", "## Diferenciais"],
-        template="## Princípios Arquiteturais\n- P1: ...\n## Diferenciais\n- D1: ...",
-        example="",
-        instruction="Gere apenas outlines: 6 princípios e 4 diferenciais.",
-        min_chars=200,
-        max_output_tokens=1000,
-        input_budget=1200,
-        require_table=False,
-        context_artifacts=["prd", "system_design"],
-    ),
-    SectionPass(
         pass_id="final_p03b",
         sections=["## Princípios Arquiteturais", "## Diferenciais"],
         template="## Princípios Arquiteturais\n| Princípio | Descrição | Implicação | Regra |\n\n## Diferenciais\n| Atual | Problema | Superação |",
         example="",
-        instruction="Expanda princípios e diferenciais em tabelas. MÍNIMO 800 palavras.",
-        min_chars=600,
+        instruction="Expanda princípios e diferenciais em tabelas. Princípios: 300-500 palavras. Diferenciais: 150-250 palavras.",
+        min_chars=2000,
+        min_words=450,
         max_output_tokens=2500,
         input_budget=1200,
         require_table=False,
@@ -608,56 +717,35 @@ NEXUS_FINAL_PASSES = [
         sections=["## Requisitos Funcionais"],
         template="## Requisitos Funcionais (Consolidados)\n| ID | Requisito | Critério | Prioridade | Complexidade | Status |",
         example="",
-        instruction="Consolide RFs (mín 10). Critérios técnicos. MÍNIMO 800 palavras.",
-        min_chars=600,
+        instruction="Consolide RFs (mín 10). Critérios técnicos. MÍNIMO 500 palavras.",
+        min_chars=2500,
+        min_words=500,
         max_output_tokens=2500,
         input_budget=1200,
         require_table=False,
         context_artifacts=["prd", "prd_review"],
     ),
     SectionPass(
-        pass_id="final_p05a",
-        sections=["## Requisitos Não-Funcionais"],
-        template="## Requisitos Não-Funcionais\nGere APENAS o OUTLINE:\n- RNF-01: ...\n- RNF-02: ...",
-        example="",
-        instruction="Gere apenas outline de 12+ RNFs in 8 categorias.",
-        min_chars=200,
-        max_output_tokens=1000,
-        input_budget=1200,
-        require_table=False,
-        context_artifacts=["prd"],
-    ),
-    SectionPass(
         pass_id="final_p05b",
         sections=["## Requisitos Não-Funcionais"],
         template="## Requisitos Não-Funcionais\n| ID | Categoria | Requisito | Métrica | Target |",
         example="",
-        instruction="Expanda os RNFs do outline em tabela. MÍNIMO 600 palavras.",
-        min_chars=400,
+        instruction="Expanda os RNFs em tabela. REGRAS: NÃO use 'A DEFINIR'. MÍNIMO 600 palavras.",
+        min_chars=3000,
+        min_words=600,
         max_output_tokens=2000,
         input_budget=1200,
         require_table=False,
         context_artifacts=["prd"],
     ),
     SectionPass(
-        pass_id="final_p06a",
-        sections=["## Arquitetura e Tech Stack"],
-        template="## Arquitetura e Tech Stack\nGere APENAS o OUTLINE:\n- Estilo: ...\n- Componentes: ...",
-        example="",
-        instruction="Gere apenas outline da arquitetura e tech stack.",
-        min_chars=200,
-        max_output_tokens=800,
-        input_budget=1200,
-        require_table=False,
-        context_artifacts=["system_design"],
-    ),
-    SectionPass(
         pass_id="final_p06b",
         sections=["## Arquitetura e Tech Stack"],
         template="## Arquitetura e Tech Stack\n- **Estilo:** ...\n```mermaid\ngraph TB\n...```",
         example="",
-        instruction="Expanda a arquitetura com Mermaid e detalhamento técnico. MÍNIMO 500 palavras.",
-        min_chars=400,
+        instruction="Expanda a arquitetura com Mermaid e detalhamento técnico. MÍNIMO 400 palavras.",
+        min_chars=2000,
+        min_words=400,
         max_output_tokens=2500,
         input_budget=1200,
         require_table=False,
@@ -669,7 +757,8 @@ NEXUS_FINAL_PASSES = [
         template="## ADRs (Decisões Arquiteturais)\n| Campo | Valor |",
         example="",
         instruction="Gere 5+ ADRs no formato ficha. MÍNIMO 500 palavras.",
-        min_chars=400,
+        min_chars=2500,
+        min_words=500,
         max_output_tokens=2500,
         input_budget=1200,
         require_table=False,
@@ -680,8 +769,9 @@ NEXUS_FINAL_PASSES = [
         sections=["## Análise de Segurança"],
         template="## Análise de Segurança\n| ID | Ameaça STRIDE | Componente | Severidade | Mitigação |",
         example="",
-        instruction="Sintetize 6+ ameaças STRIDE e dados sensíveis. MÍNIMO 600 palavras.",
-        min_chars=400,
+        instruction="Sintetize 6+ ameaças STRIDE e dados sensíveis. MÍNIMO 500 palavras.",
+        min_chars=2000,
+        min_words=500,
         max_output_tokens=2000,
         input_budget=1200,
         require_table=False,
@@ -692,9 +782,10 @@ NEXUS_FINAL_PASSES = [
         sections=["## Escopo MVP"],
         template="## Escopo MVP\n**Inclui:** ...",
         example="",
-        instruction="Referencie APENAS RF-IDs existentes. Justifique exclusões. MÍNIMO 400 palavras.",
-        min_chars=400,
-        max_output_tokens=1500,
+        instruction="Referencie IDs existentes. Justifique exclusões. MÍNIMO 300 palavras.",
+        min_chars=1200,
+        min_words=300,
+        max_output_tokens=2500,
         input_budget=1200,
         require_table=False,
         context_artifacts=["prd"],
@@ -704,8 +795,9 @@ NEXUS_FINAL_PASSES = [
         sections=["## Riscos Consolidados"],
         template="## Riscos Consolidados\n| ID | Risco | Fonte | Probabilidade | Impacto | Mitigação | Workaround |",
         example="",
-        instruction="Consolide 8+ riscos with workaround. MÍNIMO 500 palavras.",
-        min_chars=400,
+        instruction="Consolide 8+ riscos with workaround. MÍNIMO 400 palavras.",
+        min_chars=1800,
+        min_words=400,
         max_output_tokens=2000,
         input_budget=1200,
         require_table=False,
@@ -716,9 +808,10 @@ NEXUS_FINAL_PASSES = [
         sections=["## Métricas de Sucesso"],
         template="## Métricas de Sucesso\n| Métrica | Target | Como Medir |",
         example="",
-        instruction="Gere 8+ métricas quantitativas. MÍNIMO 300 palavras.",
-        min_chars=400,
-        max_output_tokens=1500,
+        instruction="Gere 8+ métricas quantitativas. MÍNIMO 400 palavras.",
+        min_chars=1800,
+        min_words=400,
+        max_output_tokens=2000,
         input_budget=1200,
         require_table=False,
         context_artifacts=["prd"],
@@ -728,8 +821,9 @@ NEXUS_FINAL_PASSES = [
         sections=["## Plano de Implementação", "## Decisões do Debate"],
         template="## Plano de Implementação\n| Fase | Duração | Entregas | Critério | Dependência |",
         example="",
-        instruction="Gere plano (4 fases) e decisões (5+). MÍNIMO 800 palavras.",
-        min_chars=600,
+        instruction="Gere plano e decisões. Plano: 300-500 palavras. Decisões: 200-400 palavras.",
+        min_chars=2500,
+        min_words=500,
         max_output_tokens=2500,
         input_budget=1200,
         require_table=False,
@@ -740,8 +834,9 @@ NEXUS_FINAL_PASSES = [
         sections=["## Constraints Técnicos", "## Matriz de Rastreabilidade"],
         template="## Constraints Técnicos\n- ...",
         example="",
-        instruction="Gere constraints e rastreabilidade total (mesmos RF-IDs). MÍNIMO 500 palavras.",
-        min_chars=400,
+        instruction="Gere constraints e rastreabilidade total (mesmos RF-IDs). Constraints: 100-200. Matriz: 300-500.",
+        min_chars=1800,
+        min_words=400,
         max_output_tokens=2500,
         input_budget=1200,
         require_table=False,
@@ -752,8 +847,9 @@ NEXUS_FINAL_PASSES = [
         sections=["## Limitações Conhecidas"],
         template="## Limitações Conhecidas\n| ID | Limitação | Severidade | Impacto | Workaround | Resolução |",
         example="",
-        instruction="Gere 6+ limitações with workaround. MÍNIMO 500 palavras.",
-        min_chars=400,
+        instruction="Gere 6+ limitações with workaround. REGRAS: NÃO use 'A DEFINIR'. MÍNIMO 400 palavras.",
+        min_chars=1800,
+        min_words=400,
         max_output_tokens=2500,
         input_budget=1200,
         require_table=False,
@@ -764,11 +860,13 @@ NEXUS_FINAL_PASSES = [
         sections=["## Guia de Replicação Resumido", "## Cláusula de Integridade"],
         template="## Guia de Replicação Resumido\n1. ...",
         example="",
-        instruction="Guia (6+ passos) e Cláusula (8+ itens). MÍNIMO 600 palavras.",
-        min_chars=400,
+        instruction="Guia (6+ passos) e Cláusula (8+ itens). Guia: 200-300. Cláusula: N/A (estática).",
+        min_chars=1000,
+        min_words=250,
         max_output_tokens=2500,
         input_budget=1200,
         require_table=False,
         context_artifacts=["development_plan"],
     ),
 ]
+

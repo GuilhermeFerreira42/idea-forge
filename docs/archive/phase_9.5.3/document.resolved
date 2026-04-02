@@ -1,0 +1,561 @@
+# Blueprint de Correção — Fase 9.5.3 (Micro-Tarefas Cirúrgicas)
+
+## Contexto
+
+Cinco seções do PRD_FINAL falham porque recebem contexto cruzado excessivo. Duas seções aparecem duplicadas. O consistency_checker não conta sub-headers. O PRD_REVIEW falha na validação por mismatch de headers. A validação PLACEHOLDER_HEAVY dispara por campos "A DEFINIR".
+
+O princípio desta fase é cirúrgico: resolver cada falha com a menor alteração possível, sem reescrever a arquitetura. Cada correção é independente e pode ser commitada separadamente.
+
+---
+
+## W1b-01: Extratores de Contexto Mínimo
+
+### Problema
+
+As 5 seções que falham recebem artefatos inteiros como contexto. O modelo 20B não consegue processar e retorna vazio.
+
+### Solução
+
+Criar módulo `src/core/context_extractors.py` com funções que extraem apenas o trecho relevante de cada artefato-fonte, limitado a 400 tokens (~1600 chars).
+
+### Arquivo novo: `src/core/context_extractors.py`
+
+```python
+"""
+Extratores de contexto mínimo para passagens do sectional_generator.
+Cada extrator recebe o conteúdo completo de um artefato e retorna
+apenas o trecho relevante para uma seção específica do PRD_FINAL.
+"""
+import re
+from typing import Optional
+
+
+def _extract_section(content: str, header: str, max_chars: int = 1600) -> str:
+    """Extrai conteúdo sob um header markdown ## ou ###."""
+    pattern = rf"(#{2,3}\s*{re.escape(header)}.*?)(?=\n#{2,3}\s|\Z)"
+    match = re.search(pattern, content, re.DOTALL)
+    if match:
+        text = match.group(1).strip()
+        if len(text) > max_chars:
+            return text[:max_chars] + "\n[...truncado]"
+        return text
+    return ""
+
+
+def _extract_table(content: str, header: str, max_chars: int = 1600) -> str:
+    """Extrai uma tabela markdown que aparece após um header."""
+    section = _extract_section(content, header, max_chars=max_chars * 2)
+    if not section:
+        return ""
+    # Encontrar linhas de tabela (começam com |)
+    lines = section.split("\n")
+    table_lines = [l for l in lines if l.strip().startswith("|")]
+    if table_lines:
+        result = "\n".join(table_lines)
+        if len(result) > max_chars:
+            return result[:max_chars] + "\n[...truncado]"
+        return result
+    return section[:max_chars]
+
+
+def extract_for_arquitetura_tech_stack(system_design: str) -> str:
+    """Extrai Tech Stack e Arquitetura Geral do system_design."""
+    parts = []
+    
+    # Extrair tabela de Tech Stack
+    tech_stack = _extract_table(system_design, "Tech Stack", max_chars=800)
+    if tech_stack:
+        parts.append("## Tech Stack (do System Design)\n" + tech_stack)
+    
+    # Extrair Arquitetura Geral (containers e comunicação)
+    arq = _extract_section(system_design, "Arquitetura Geral", max_chars=600)
+    if arq:
+        parts.append(arq)
+    
+    return "\n\n".join(parts) if parts else "[Nenhum dado de system_design disponível]"
+
+
+def extract_for_plano_implementacao(development_plan: str) -> str:
+    """Extrai Fases de Implementação e Módulos Core do development_plan."""
+    parts = []
+    
+    fases = _extract_table(development_plan, "Fases de Implementa", max_chars=800)
+    if fases:
+        parts.append("## Fases (do Development Plan)\n" + fases)
+    
+    modulos = _extract_table(development_plan, "Módulos Core", max_chars=600)
+    if not modulos:
+        modulos = _extract_table(development_plan, "M\u00f3dulos Core", max_chars=600)
+    if modulos:
+        parts.append("## Módulos Core\n" + modulos)
+    
+    return "\n\n".join(parts) if parts else "[Nenhum dado de development_plan disponível]"
+
+
+def extract_for_decisoes_debate(debate_transcript: str) -> str:
+    """Extrai tabela de Decisões Aplicáveis do debate_transcript."""
+    # Procurar a tabela de síntese no final do transcript
+    decisoes = _extract_table(debate_transcript, "Decisões Aplicáveis", max_chars=1400)
+    if decisoes:
+        return "## Decisões do Debate (síntese)\n" + decisoes
+    
+    # Fallback: procurar por "Decisões" ou "decisões"
+    decisoes = _extract_table(debate_transcript, "Decis", max_chars=1400)
+    if decisoes:
+        return "## Decisões do Debate (síntese)\n" + decisoes
+    
+    return "[Nenhuma tabela de decisões encontrada no debate]"
+
+
+def extract_for_guia_replicacao(development_plan: str) -> str:
+    """Extrai Dependências Técnicas e Configurações de Ambiente."""
+    parts = []
+    
+    deps = _extract_table(development_plan, "Dependências Técnicas", max_chars=600)
+    if not deps:
+        deps = _extract_table(development_plan, "Depend\u00eancias T\u00e9cnicas", max_chars=600)
+    if deps:
+        parts.append("## Dependências\n" + deps)
+    
+    env = _extract_table(development_plan, "Configurações de Ambiente", max_chars=400)
+    if not env:
+        env = _extract_table(development_plan, "Configura\u00e7\u00f5es de Ambiente", max_chars=400)
+    if env:
+        parts.append("## Ambiente\n" + env)
+    
+    guia = _extract_section(development_plan, "Guia de Replicação", max_chars=400)
+    if not guia:
+        guia = _extract_section(development_plan, "Guia de Replica", max_chars=400)
+    if guia:
+        parts.append(guia)
+    
+    return "\n\n".join(parts) if parts else "[Nenhum dado de replicação disponível]"
+
+
+def generate_clausula_integridade(
+    prd_final_chars: int,
+    total_sections: int,
+    failed_sections: int,
+    model_name: str,
+    generated_at: str
+) -> str:
+    """
+    Gera Cláusula de Integridade como template estático.
+    NÃO usa LLM — preenchimento determinístico.
+    """
+    status = "COMPLETO" if failed_sections == 0 else f"INCOMPLETO ({failed_sections} seções falharam)"
+    
+    return f"""## Cláusula de Integridade
+
+| Campo | Valor |
+|---|---|
+| Status do Documento | {status} |
+| Total de Seções | {total_sections} |
+| Seções Geradas | {total_sections - failed_sections} |
+| Seções Falhadas | {failed_sections} |
+| Tamanho Total | {prd_final_chars:,} caracteres |
+| Modelo Utilizado | {model_name} |
+| Gerado em | {generated_at} |
+| Versão do Pipeline | IdeaForge CLI — Fase 9.5.3 |
+
+Este documento foi gerado automaticamente pelo pipeline IdeaForge.
+Todas as seções passaram por validação estrutural via consistency_checker.
+Dados técnicos foram derivados dos artefatos: system_design, security_review,
+debate_transcript e development_plan."""
+```
+
+### Modificação em `sectional_generator.py`
+
+Localizar onde cada passagem que falha é executada e substituir o input completo pelo extrator correspondente.
+
+```python
+# CONCEITUAL — adaptar à estrutura real do código
+
+from src.core.context_extractors import (
+    extract_for_arquitetura_tech_stack,
+    extract_for_plano_implementacao,
+    extract_for_decisoes_debate,
+    extract_for_guia_replicacao,
+    generate_clausula_integridade,
+)
+
+# No mapeamento de passagens ou no método que monta o contexto de cada pass:
+
+# Para a passagem "Arquitetura e Tech Stack":
+# ANTES: context = self.artifacts["system_design"].content  (inteiro, ~4500 chars)
+# DEPOIS:
+context = extract_for_arquitetura_tech_stack(self.artifacts["system_design"].content)
+
+# Para "Plano de Implementação":
+context = extract_for_plano_implementacao(self.artifacts["development_plan"].content)
+
+# Para "Decisões do Debate":
+context = extract_for_decisoes_debate(self.artifacts["debate_transcript"].content)
+
+# Para "Guia de Replicação Resumido":
+context = extract_for_guia_replicacao(self.artifacts["development_plan"].content)
+
+# Para "Cláusula de Integridade":
+# NÃO chamar LLM — usar template direto
+clausula = generate_clausula_integridade(
+    prd_final_chars=len(prd_content),
+    total_sections=total_sections,
+    failed_sections=count_failed,
+    model_name=self.model_name,
+    generated_at=datetime.now().isoformat()
+)
+# Inserir clausula diretamente no PRD_FINAL sem passar pelo modelo
+```
+
+### Testes
+
+```python
+# tests/test_context_extractors.py
+
+from src.core.context_extractors import (
+    extract_for_arquitetura_tech_stack,
+    extract_for_plano_implementacao,
+    extract_for_decisoes_debate,
+    extract_for_guia_replicacao,
+    generate_clausula_integridade,
+)
+
+
+def test_extract_tech_stack_respects_limit():
+    fake_design = "## Arquitetura Geral\n- Estilo: Micro\n" + "x" * 5000
+    fake_design += "\n## Tech Stack\n| Camada | Tech |\n|---|---|\n| App | Node |\n"
+    result = extract_for_arquitetura_tech_stack(fake_design)
+    assert len(result) <= 2000
+    assert "Tech Stack" in result
+
+
+def test_extract_decisoes_debate():
+    fake_debate = "Proponente:\nbla bla\n" + "x" * 10000
+    fake_debate += "\n## Decisões Aplicáveis (Síntese)\n| Round | Tipo |\n|---|---|\n| R1 | ACEITO |\n"
+    result = extract_for_decisoes_debate(fake_debate)
+    assert "R1" in result
+    assert len(result) <= 2000
+
+
+def test_extract_plano_implementacao():
+    fake_plan = "## Módulos Core\n| Mod | Resp |\n|---|---|\n| Auth | JWT |\n"
+    fake_plan += "\n## Fases de Implementação\n| Fase | Duração |\n|---|---|\n| F0 | 5d |\n"
+    result = extract_for_plano_implementacao(fake_plan)
+    assert "Auth" in result
+    assert "F0" in result
+
+
+def test_extract_guia_replicacao():
+    fake_plan = "## Dependências Técnicas\n| Dep | Versão |\n|---|---|\n| Node | 20 |\n"
+    fake_plan += "\n## Configurações de Ambiente\n| Var | Default |\n|---|---|\n| PORT | 8080 |\n"
+    result = extract_for_guia_replicacao(fake_plan)
+    assert "Node" in result
+    assert "8080" in result
+
+
+def test_clausula_integridade_template():
+    result = generate_clausula_integridade(
+        prd_final_chars=30000,
+        total_sections=20,
+        failed_sections=0,
+        model_name="gpt-oss:20b-cloud",
+        generated_at="2026-04-02T12:00:00"
+    )
+    assert "COMPLETO" in result
+    assert "30,000" in result
+    assert "gpt-oss:20b-cloud" in result
+    assert "Cláusula de Integridade" in result
+
+
+def test_clausula_integridade_com_falhas():
+    result = generate_clausula_integridade(
+        prd_final_chars=25000,
+        total_sections=20,
+        failed_sections=3,
+        model_name="test-model",
+        generated_at="2026-04-02"
+    )
+    assert "INCOMPLETO" in result
+    assert "3 seções falharam" in result
+
+
+def test_extract_fallback_when_section_not_found():
+    result = extract_for_arquitetura_tech_stack("conteúdo sem headers relevantes")
+    assert "Nenhum dado" in result or len(result) > 0
+```
+
+### Commit
+
+```
+CORRECAO: EXTRATORES DE CONTEXTO MINIMO PARA 5 SECOES QUE FALHAVAM NO PRD_FINAL
+```
+
+---
+
+## W1b-02: Fix Consistency Checker Sub-Headers
+
+### Problema
+
+O checker conta 0 chars para ADRs porque mede conteúdo entre `## ADRs` e o próximo `##`, ignorando os 7 ADRs que estão sob `### ADR 1:`, `### ADR 2:`, etc.
+
+### Solução
+
+Localizar no consistency_checker o método que mede chars por seção e ajustar para incluir conteúdo sob sub-headers `###`.
+
+```python
+# No consistency_checker.py (ou equivalente)
+# Localizar a função que extrai conteúdo de uma seção para contagem
+
+# ANTES (conceitual):
+def _get_section_content(self, full_text: str, section_header: str) -> str:
+    pattern = rf"## {re.escape(section_header)}\s*\n(.*?)(?=\n## |\Z)"
+    match = re.search(pattern, full_text, re.DOTALL)
+    return match.group(1).strip() if match else ""
+
+# DEPOIS:
+def _get_section_content(self, full_text: str, section_header: str) -> str:
+    """
+    Extrai conteúdo de uma seção, INCLUINDO sub-headers ### e seu conteúdo.
+    Termina apenas quando encontra outro header ## (não ###).
+    """
+    # Escapar o header para regex
+    escaped = re.escape(section_header)
+    # Capturar tudo até o próximo ## (mas NÃO ###)
+    pattern = rf"## {escaped}[^\n]*\n(.*?)(?=\n## (?!#)|\Z)"
+    match = re.search(pattern, full_text, re.DOTALL)
+    return match.group(1).strip() if match else ""
+```
+
+A mudança chave é `(?=\n## (?!#)|\Z)` — o lookahead agora exige que o `##` NÃO seja seguido de outro `#`, ou seja, `### ADR 1:` não termina a seção, mas `## Análise de Segurança` sim.
+
+### Teste
+
+```python
+# tests/test_consistency_checker.py (adicionar)
+
+def test_section_content_includes_sub_headers():
+    """ADRs com sub-headers ### devem ser contados como conteúdo da seção."""
+    fake_prd = """## ADRs (Decisões Arquiteturais)
+
+### ADR 1: Estratégia de Cache
+| Campo | Valor |
+|---|---|
+| ID | ADR-01 |
+| Decisão | Usar Redis |
+
+### ADR 2: Banco de Dados
+| Campo | Valor |
+|---|---|
+| ID | ADR-02 |
+| Decisão | PostgreSQL |
+
+## Análise de Segurança
+| ID | Ameaça |
+"""
+    checker = ConsistencyChecker()  # adaptar construtor
+    content = checker._get_section_content(fake_prd, "ADRs (Decisões Arquiteturais)")
+    assert "ADR-01" in content
+    assert "ADR-02" in content
+    assert "Análise de Segurança" not in content
+    assert len(content) > 100  # não deve ser 0
+```
+
+### Commit
+
+```
+CORRECAO: CONSISTENCY CHECKER CONTA CONTEUDO DE SUB-HEADERS NAS SECOES
+```
+
+---
+
+## W1b-03: Fix PRD_REVIEW Headers
+
+### Problema
+
+O Critic gera formato livre (Pontos Fortes / Lacunas / Veredicto) mas o validator espera headers NEXUS (`## Score de Qualidade`, `## Issues Identificadas`, etc.), resultando em completude 0%.
+
+### Solução
+
+Ajustar o prompt do Critic para gerar os headers esperados.
+
+```python
+# Em critic_agent.py, localizar o prompt template do Critic
+
+# DEPOIS — novo template:
+CRITIC_PROMPT_TEMPLATE = """Você é um revisor técnico sênior de PRDs.
+
+Abaixo está um RESUMO ESTRUTURADO do PRD. Analise e gere sua revisão
+usando EXATAMENTE os headers abaixo, nesta ordem:
+
+## Score de Qualidade
+Nota de 0 a 10 com justificativa em uma linha.
+
+## Issues Identificadas
+Tabela com colunas: | ID | Severidade | Seção | Descrição |
+Liste 5-10 issues encontradas.
+
+## Verificação de Requisitos
+Tabela com colunas: | Requisito | Presente | Completo | Observação |
+Verifique se Público-Alvo, RFs, RNFs, Escopo MVP, Métricas existem.
+
+## Sumário
+3-5 frases resumindo os pontos fortes e fracos do PRD.
+
+## Recomendação
+APROVADO | APROVADO COM RESSALVAS | REPROVADO
+Justificativa em 2-3 frases.
+
+---
+RESUMO DO PRD:
+{prd_summary}
+---
+
+Sua revisão (use os headers exatos acima):"""
+```
+
+### Teste
+
+```python
+# tests/test_critic_agent.py (adicionar)
+
+def test_critic_prompt_contains_required_headers():
+    """Verifica que o template do Critic inclui os headers esperados pelo validator."""
+    from src.agents.critic_agent import CRITIC_PROMPT_TEMPLATE
+    
+    required_headers = [
+        "## Score de Qualidade",
+        "## Issues Identificadas",
+        "## Verificação de Requisitos",
+        "## Sumário",
+        "## Recomendação",
+    ]
+    for header in required_headers:
+        assert header in CRITIC_PROMPT_TEMPLATE, f"Header faltando no template: {header}"
+```
+
+### Commit
+
+```
+CORRECAO: PROMPT DO CRITIC AJUSTADO PARA GERAR HEADERS NEXUS ESPERADOS PELO VALIDATOR
+```
+
+---
+
+## W1b-04: Remoção de Duplicatas Remanescentes
+
+### Problema
+
+"Métricas de Sucesso" e "Limitações Conhecidas" aparecem 2x cada no PRD_FINAL.
+
+### Solução
+
+Inspecionar NEXUS_FINAL_PASSES e remover as passagens redundantes, mantendo a que gera conteúdo mais completo.
+
+```python
+# Em sectional_generator.py
+# Localizar NEXUS_FINAL_PASSES e buscar entradas com:
+#   - "Métricas de Sucesso" (devem existir 2, remover a menos detalhada)
+#   - "Limitações Conhecidas" (devem existir 2, remover a menos detalhada)
+
+# Identificar qual é a passagem curta (tabela simples) e qual é a detalhada
+# Remover a passagem curta
+
+# A guarda _validate_passes_config() da W1-04 já deve pegar isso
+# Se não pegou, é porque os nomes das seções têm variação
+# (ex: "Métricas de Sucesso" vs "Métricas de Sucesso" com conteúdo diferente)
+
+# Solução: além da validação de nome exato, adicionar validação por header de output
+
+def _validate_passes_config(self):
+    seen_sections = set()
+    for pass_entry in NEXUS_FINAL_PASSES:
+        section_name = pass_entry["section"]  # adaptar campo real
+        if section_name in seen_sections:
+            raise ValueError(
+                f"NEXUS_FINAL_PASSES contém seção duplicada: '{section_name}'"
+            )
+        seen_sections.add(section_name)
+    
+    # NOVO: validar headers de output também
+    seen_output_headers = set()
+    for pass_entry in NEXUS_FINAL_PASSES:
+        output_header = pass_entry.get("output_header", pass_entry["section"])
+        if output_header in seen_output_headers:
+            raise ValueError(
+                f"NEXUS_FINAL_PASSES tem output_header duplicado: '{output_header}'"
+            )
+        seen_output_headers.add(output_header)
+```
+
+### Commit
+
+```
+CORRECAO: REMOVER PASSAGENS DUPLICADAS DE METRICAS DE SUCESSO E LIMITACOES CONHECIDAS
+```
+
+---
+
+## W1b-05: Fix PLACEHOLDER_HEAVY
+
+### Problema
+
+A tabela de Dependências Técnicas tem "A DEFINIR" na coluna "Alternativa" para quase todas as linhas.
+
+### Solução
+
+Ajustar o prompt da passagem que gera dependências técnicas para instruir preenchimento ou uso de "N/A".
+
+```python
+# No prompt da passagem de Dependências Técnicas, adicionar instrução:
+
+# ADICIONAR ao final do prompt da passagem relevante:
+"""
+REGRAS:
+- NÃO use "A DEFINIR" em nenhum campo.
+- Se não há alternativa viável, escreva "N/A — padrão de mercado" ou similar.
+- Preencha a coluna Alternativa com uma tecnologia concreta e o motivo da rejeição.
+"""
+```
+
+### Commit
+
+```
+CORRECAO: PROMPT DE DEPENDENCIAS TECNICAS NAO ACEITA A DEFINIR COMO VALOR
+```
+
+---
+
+## Sequência de Execução para o Gemini CLI
+
+```
+ORDEM DE IMPLEMENTAÇÃO:
+
+1. Criar src/core/context_extractors.py (W1b-01)
+2. Rodar: pytest tests/test_context_extractors.py -v
+3. Integrar extratores no sectional_generator.py (W1b-01)
+4. Commit: CORRECAO: EXTRATORES DE CONTEXTO MINIMO PARA 5 SECOES QUE FALHAVAM NO PRD_FINAL
+
+5. Fix consistency_checker para sub-headers (W1b-02)
+6. Rodar: pytest tests/test_consistency_checker.py -v
+7. Commit: CORRECAO: CONSISTENCY CHECKER CONTA CONTEUDO DE SUB-HEADERS NAS SECOES
+
+8. Ajustar prompt do Critic (W1b-03)
+9. Rodar: pytest tests/test_critic_agent.py -v
+10. Commit: CORRECAO: PROMPT DO CRITIC AJUSTADO PARA GERAR HEADERS NEXUS ESPERADOS PELO VALIDATOR
+
+11. Remover passagens duplicadas (W1b-04)
+12. Rodar: pytest tests/test_sectional_generator.py -v  (ou test_phase_9_1.py)
+13. Commit: CORRECAO: REMOVER PASSAGENS DUPLICADAS DE METRICAS DE SUCESSO E LIMITACOES CONHECIDAS
+
+14. Fix prompt de dependências (W1b-05)
+15. Commit: CORRECAO: PROMPT DE DEPENDENCIAS TECNICAS NAO ACEITA A DEFINIR COMO VALOR
+
+16. Rodar pipeline completo: python -m src.main
+17. Verificar consistency_report → is_clean: True
+18. Se is_clean: True → Onda 1 FECHADA, atualizar backlog
+19. Se is_clean: False → capturar relatório e retornar ao Claude
+```
+
+---
+
+Guilherme, blueprint pronto com 5 correções independentes, cada uma com commit próprio. Entrega ao Gemini CLI na ordem indicada.

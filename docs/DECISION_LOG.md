@@ -23,3 +23,7 @@ F9.3 | ADD | `generate_sectional_with_inputs` | Método novo para combinação d
 - F9.5.1 | MOD | `SectionalGenerator` | Aumento de MAX_RETRIES_PER_PASS para 3 e bypass de qualidade em skeletons | `src/core/sectional_generator.py`
 - F9.5.1 | MOD | `src/cli/main.py` | Adição de argumentos --model e --idea para automação de testes/execução | `src/cli/main.py`
 - F9.5.1 | MOD | `SectionPass` | Migração para keyword arguments e input_budget fixo de 3000 para estabilidade | `src/core/sectional_generator.py`
+
+### Fase 9.5.3 — Onda 1 Concluída (Cura de Assembly)
+- F9.5.3b | MOD | Calibração de Word Count | Evitar falhas de prompt e garantir densidade | src/core/sectional_generator.py
+- F9.5.3c | MOD | Filtros Multi-Seção | Resolver bug de assembly e garantir 20 seções | src/core/sectional_generator.py

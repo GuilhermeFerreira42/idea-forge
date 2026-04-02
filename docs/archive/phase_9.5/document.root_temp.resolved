@@ -1,0 +1,311 @@
+# Blueprint de Correção — IdeaForge Fase 9.5
+
+## Bug 1: Seções Duplicadas no `sectional_generator.py` (O-001)
+
+### Diagnóstico
+
+O mapeamento `NEXUS_FINAL_PASSES` dispara seções como "Visão do Produto" e "Problema e Solução" duas vezes. A primeira instância chega com contexto insuficiente e falha. A segunda instância gera conteúdo válido, mas o consistency_report já registrou a falha da primeira.
+
+### Correção
+
+**Arquivo:** `src/core/sectional_generator.py`
+
+**Ação 1 — Identificar entradas duplicadas:**
+
+```
+Abrir sectional_generator.py e localizar a estrutura NEXUS_FINAL_PASSES 
+(pode ser lista de dicts, lista de tuplas, ou dict aninhado).
+
+Procurar por entradas onde o campo de nome/id da seção aparece mais de uma vez.
+Seções confirmadas como duplicadas:
+  - "Visão do Produto"
+  - "Problema e Solução"
+  
+Verificar se há outras duplicatas além dessas duas.
+```
+
+**Ação 2 — Remover a primeira ocorrência (a que falha):**
+
+```python
+# ANTES (exemplo conceitual — adaptar à estrutura real):
+NEXUS_FINAL_PASSES = [
+    {"section": "Visão do Produto", "context_requires": [...], "pass_order": 1},
+    # ... outras seções ...
+    {"section": "Visão do Produto", "context_requires": [...], "pass_order": 7},
+]
+
+# DEPOIS:
+# Manter APENAS a ocorrência que tem context_requires completo 
+# (geralmente a de pass_order mais alto).
+# Remover a ocorrência com contexto insuficiente.
+NEXUS_FINAL_PASSES = [
+    # ... outras seções ...
+    {"section": "Visão do Produto", "context_requires": [...], "pass_order": 7},
+]
+```
+
+**Ação 3 — Adicionar guarda contra duplicatas futuras:**
+
+```python
+# Adicionar no início do método que processa NEXUS_FINAL_PASSES:
+def _validate_passes(self):
+    seen_sections = set()
+    for pass_entry in NEXUS_FINAL_PASSES:
+        section_name = pass_entry["section"]  # adaptar ao campo real
+        if section_name in seen_sections:
+            raise ValueError(
+                f"NEXUS_FINAL_PASSES contém seção duplicada: '{section_name}'. "
+                f"Remova a entrada redundante."
+            )
+        seen_sections.add(section_name)
+```
+
+**Ação 4 — Chamar a validação no `__init__` ou no início do `generate`:**
+
+```python
+def generate(self, ...):
+    self._validate_passes()
+    # ... resto do fluxo
+```
+
+### Teste
+
+```python
+# Adicionar em tests/test_sectional_generator.py:
+
+def test_no_duplicate_sections_in_passes():
+    """Garante que NEXUS_FINAL_PASSES não contém seções duplicadas."""
+    from src.core.sectional_generator import NEXUS_FINAL_PASSES
+    section_names = [p["section"] for p in NEXUS_FINAL_PASSES]  # adaptar campo
+    assert len(section_names) == len(set(section_names)), \
+        f"Seções duplicadas encontradas: {[s for s in section_names if section_names.count(s) > 1]}"
+
+def test_validate_passes_raises_on_duplicate():
+    """Garante que _validate_passes levanta erro em duplicata."""
+    generator = SectionalGenerator(...)  # adaptar construtor
+    # Injetar duplicata para teste
+    original = NEXUS_FINAL_PASSES.copy()
+    NEXUS_FINAL_PASSES.append(NEXUS_FINAL_PASSES[0])
+    with pytest.raises(ValueError, match="duplicada"):
+        generator._validate_passes()
+    # Restaurar
+    NEXUS_FINAL_PASSES.clear()
+    NEXUS_FINAL_PASSES.extend(original)
+```
+
+### Commit
+
+```
+CORRECAO: REMOVER SECOES DUPLICADAS NO NEXUS_FINAL_PASSES E ADICIONAR GUARDA DE VALIDACAO
+```
+
+---
+
+## Bug 2: Critic com Input Excessivo (O-002)
+
+### Diagnóstico
+
+O `critic_agent.py` recebe o PRD completo (~35k chars) como input. O modelo 20B não sustenta análise crítica desse volume em passagem única, retornando EMPTY_CONTENT.
+
+### Correção
+
+**Arquivo:** `src/agents/critic_agent.py`
+
+**Ação 1 — Criar função de sumarização do PRD:**
+
+```python
+# Adicionar no critic_agent.py (ou em src/utils/summarizer.py se preferir modularidade):
+
+def _summarize_prd_for_critic(prd_content: str, max_tokens: int = 800) -> str:
+    """
+    Extrai resumo estruturado do PRD para o Critic.
+    Não usa LLM — extração determinística por seções-chave.
+    """
+    summary_parts = []
+    
+    # Seções prioritárias para o Critic avaliar
+    priority_sections = [
+        "Visão do Produto",
+        "Problema e Solução", 
+        "Escopo (MVP)",
+        "Requisitos Funcionais",
+        "Requisitos Não-Funcionais",
+        "Riscos",
+        "Métricas de Sucesso",
+    ]
+    
+    for section_name in priority_sections:
+        # Extrair conteúdo da seção (adaptar regex ao formato real do PRD)
+        import re
+        pattern = rf"##\s*{re.escape(section_name)}\s*\n(.*?)(?=\n##\s|\Z)"
+        match = re.search(pattern, prd_content, re.DOTALL)
+        if match:
+            section_text = match.group(1).strip()
+            # Truncar cada seção proporcionalmente
+            max_per_section = max_tokens // len(priority_sections)
+            # Converter tokens aproximado: 1 token ≈ 4 chars em português
+            max_chars = max_per_section * 4
+            if len(section_text) > max_chars:
+                section_text = section_text[:max_chars] + "..."
+            summary_parts.append(f"## {section_name}\n{section_text}")
+    
+    summary = "\n\n".join(summary_parts)
+    
+    # Fallback: se nenhuma seção foi encontrada, pegar início do PRD
+    if not summary_parts:
+        max_chars = max_tokens * 4
+        summary = prd_content[:max_chars] + "\n\n[RESUMO TRUNCADO — seções não detectadas]"
+    
+    return summary
+```
+
+**Ação 2 — Modificar o ponto de chamada do Critic:**
+
+```python
+# Localizar onde o critic_agent recebe o PRD como input.
+# Adaptar ao padrão real do código.
+
+# ANTES (conceitual):
+def run_critic(self, prd_content: str, ...) -> str:
+    prompt = self._build_critic_prompt(prd_content)
+    response = self.llm.generate(prompt)
+    return response
+
+# DEPOIS:
+def run_critic(self, prd_content: str, ...) -> str:
+    prd_summary = _summarize_prd_for_critic(prd_content, max_tokens=800)
+    prompt = self._build_critic_prompt(prd_summary)
+    response = self.llm.generate(prompt)
+    return response
+```
+
+**Ação 3 — Atualizar o prompt do Critic para refletir que recebe resumo:**
+
+```python
+# No método _build_critic_prompt (ou equivalente), ajustar a instrução:
+
+# ANTES:
+# "Analise o PRD completo abaixo e forneça feedback crítico..."
+
+# DEPOIS:
+CRITIC_PROMPT_TEMPLATE = """Você é um revisor técnico sênior de PRDs.
+
+Abaixo está um RESUMO ESTRUTURADO do PRD (seções-chave extraídas).
+Com base neste resumo, forneça:
+
+1. **Pontos Fortes** (3-5 itens)
+2. **Lacunas ou Riscos** (3-5 itens) 
+3. **Recomendações de Melhoria** (3-5 itens)
+4. **Veredicto**: APROVADO | APROVADO COM RESSALVAS | REPROVADO
+
+Seja específico e referência as seções pelo nome.
+
+---
+RESUMO DO PRD:
+{prd_summary}
+---
+
+Sua análise crítica:"""
+```
+
+**Ação 4 — Adicionar log para diagnóstico:**
+
+```python
+import logging
+logger = logging.getLogger(__name__)
+
+def run_critic(self, prd_content: str, ...) -> str:
+    prd_summary = _summarize_prd_for_critic(prd_content, max_tokens=800)
+    logger.info(f"Critic input: {len(prd_summary)} chars (resumo de {len(prd_content)} chars)")
+    
+    prompt = self._build_critic_prompt(prd_summary)
+    response = self.llm.generate(prompt)
+    
+    if not response or len(response.strip()) < 50:
+        logger.error(f"Critic retornou resposta insuficiente: {len(response)} chars")
+        # Não silenciar — propagar para consistency_report
+    
+    return response
+```
+
+### Teste
+
+```python
+# Adicionar em tests/test_critic_agent.py:
+
+def test_summarize_prd_respects_token_limit():
+    """Garante que o resumo não excede o limite de tokens."""
+    from src.agents.critic_agent import _summarize_prd_for_critic
+    
+    # PRD fake de 35k chars
+    fake_prd = "## Visão do Produto\n" + "x" * 10000 + "\n"
+    fake_prd += "## Problema e Solução\n" + "y" * 10000 + "\n"
+    fake_prd += "## Escopo (MVP)\n" + "z" * 10000 + "\n"
+    
+    summary = _summarize_prd_for_critic(fake_prd, max_tokens=800)
+    
+    # 800 tokens ≈ 3200 chars (margem de 20% para headers)
+    assert len(summary) <= 4000, f"Resumo muito longo: {len(summary)} chars"
+    assert len(summary) > 100, "Resumo muito curto — extração falhou"
+
+def test_summarize_prd_fallback_on_no_sections():
+    """Garante fallback quando seções não são detectadas."""
+    from src.agents.critic_agent import _summarize_prd_for_critic
+    
+    plain_text = "Este é um PRD sem formatação markdown de seções. " * 500
+    summary = _summarize_prd_for_critic(plain_text, max_tokens=800)
+    
+    assert "RESUMO TRUNCADO" in summary
+    assert len(summary) <= 4000
+
+def test_critic_receives_summary_not_full_prd():
+    """Garante que o Critic não recebe mais de 4000 chars de input."""
+    # Adaptar ao padrão de mock do projeto
+    # Verificar que o prompt construído tem tamanho controlado
+    pass
+```
+
+### Commit
+
+```
+CORRECAO: CRITIC RECEBE RESUMO DE 800 TOKENS DO PRD EM VEZ DO DOCUMENTO COMPLETO
+```
+
+---
+
+## Sequência de Execução para o Gemini CLI
+
+```
+1. Abrir src/core/sectional_generator.py
+2. Localizar NEXUS_FINAL_PASSES
+3. Identificar e remover seções duplicadas (manter a com contexto completo)
+4. Adicionar método _validate_passes() com guarda contra duplicatas
+5. Adicionar testes em tests/test_sectional_generator.py
+6. Rodar: pytest tests/test_sectional_generator.py -v
+7. Commit: CORRECAO: REMOVER SECOES DUPLICADAS NO NEXUS_FINAL_PASSES E ADICIONAR GUARDA DE VALIDACAO
+
+8. Abrir src/agents/critic_agent.py
+9. Adicionar função _summarize_prd_for_critic()
+10. Modificar run_critic() para usar resumo
+11. Atualizar prompt template do Critic
+12. Adicionar logging de diagnóstico
+13. Adicionar testes em tests/test_critic_agent.py
+14. Rodar: pytest tests/test_critic_agent.py -v
+15. Commit: CORRECAO: CRITIC RECEBE RESUMO DE 800 TOKENS DO PRD EM VEZ DO DOCUMENTO COMPLETO
+
+16. Rodar pipeline completo: python -m src.main (ou comando equivalente)
+17. Verificar consistency_report → is_clean deve ser True
+18. Se is_clean: False, capturar o relatório e retornar ao Claude
+```
+
+---
+
+## Nota sobre O-003 (DEVELOPMENT_PLAN)
+
+O DEVELOPMENT_PLAN provavelmente continuará com EMPTY_CONTENT após essas duas correções. Isso é esperado — ele precisa de **Skeleton-then-Flesh (W2-01)** da Onda 2. Não é blocker para `is_clean: True` se o consistency_report tratar DEVELOPMENT_PLAN como artefato opcional ou de Onda 2.
+
+Se o consistency_report exigir DEVELOPMENT_PLAN válido para `is_clean: True`, avisa que precisamos ajustar os critérios ou implementar W2-01 antes.
+
+---
+
+Guilherme, blueprint pronto. Entrega ao Gemini CLI e me retorna o resultado do pipeline.

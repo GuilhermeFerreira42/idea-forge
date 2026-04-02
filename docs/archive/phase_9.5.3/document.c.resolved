@@ -1,0 +1,264 @@
+# Blueprint de Correção — Fase 9.5.3c (Assembly Bug Fix)
+
+## Contexto
+
+Última execução (20260402_150928): PRD_FINAL salvo com 7.572 chars (deveria ~25.000).
+`is_clean: True` mas completude 55% (11/20 seções). 9 seções descartadas por bug de assembly.
+
+A Fase 9.5.3b implementou `_filter_section_output` para evitar vazamento de headers entre passes.
+O filtro funciona para passes com 1 seção, mas **trunca passes com 2+ seções** porque:
+1. Recebe apenas `sections[0]` como âncora (linha 311)
+2. Quando encontra o header da segunda seção legítima do mesmo pass, trata como "invasor" e dá `break`
+
+Adicionalmente, a **Regra Crítica de Fronteira** no prompt (linhas 437-443) diz ao modelo
+"Gere APENAS a seção X" mesmo quando o pass espera 2 seções — sabotando a geração da segunda.
+
+## Passes multi-seção afetados (5 passes = 9 seções perdidas)
+
+| Pass | Seções | Segunda seção perdida |
+|------|--------|----------------------|
+| `final_p01` | `## Visão do Produto` + `## Problema e Solução` | `## Problema e Solução` |
+| `final_p03b` | `## Princípios Arquiteturais` + `## Diferenciais` | `## Diferenciais` |
+| `final_p10` | `## Plano de Implementação` + `## Decisões do Debate` | `## Decisões do Debate` |
+| `final_p11a` | `## Constraints Técnicos` + `## Matriz de Rastreabilidade` | `## Matriz de Rastreabilidade` |
+| `final_p12` | `## Guia de Replicação Resumido` + `## Cláusula de Integridade` | `## Cláusula de Integridade` |
+
+## Bug adicional: max_output_tokens do final_p08
+
+`final_p08` (Escopo MVP) tem `max_output_tokens=1500` (linha 782).
+Modelo trunca conteúdo no meio de RF-06 por estouro de limite quando gera justificativas detalhadas.
+
+---
+
+## Correções — Ordem de Execução
+
+### Correção 1: Regra de Fronteira no prompt (CRÍTICA — fazer primeiro)
+
+**Arquivo:** `src/core/sectional_generator.py`
+**Linhas:** 437-443 (método `_build_pass_prompt`)
+
+**Código atual (BUGADO):**
+```python
+# FASE 9.5.3b: Regra Crítica de Fronteira
+expected_main = section_pass.sections[0]
+prompt += (
+    f"\nREGRA CRÍTICA: Gere APENAS a seção '{expected_main}'.\n"
+    f"NÃO gere nenhum outro header '##' além deste.\n"
+    f"Pare IMEDIATAMENTE após concluir esta seção.\n"
+)
+```
+
+**Código corrigido:**
+```python
+# FASE 9.5.3c: Regra de Fronteira multi-seção
+if len(section_pass.sections) == 1:
+    prompt += (
+        f"\nREGRA CRÍTICA: Gere APENAS a seção '{section_pass.sections[0]}'.\n"
+        f"NÃO gere nenhum outro header '##' além deste.\n"
+        f"Pare IMEDIATAMENTE após concluir esta seção.\n"
+    )
+else:
+    sections_list = ", ".join(f"'{s}'" for s in section_pass.sections)
+    prompt += (
+        f"\nREGRA CRÍTICA: Gere APENAS estas seções, nesta ordem: {sections_list}.\n"
+        f"NÃO gere nenhum header '##' que não esteja nesta lista.\n"
+        f"Pare IMEDIATAMENTE após concluir a última seção da lista.\n"
+    )
+```
+
+**Commit:** `CORRECAO: REGRA DE FRONTEIRA MULTI-SECAO NO PROMPT DO PASS`
+
+---
+
+### Correção 2: `_filter_section_output` aceita lista de seções (CRÍTICA)
+
+**Arquivo:** `src/core/sectional_generator.py`
+
+**Parte A — Mudar assinatura e lógica (linhas 529-567):**
+
+**Código atual (BUGADO):**
+```python
+def _filter_section_output(self, output: str, expected_header: str) -> str:
+```
+
+**Código corrigido:**
+```python
+def _filter_section_output(self, output: str, expected_sections: list) -> str:
+    """
+    Fase 9.5.3c: Remove headers ## que não pertencem ao pass atual.
+    Aceita lista de seções esperadas para suportar passes multi-seção.
+    """
+    if not output:
+        return ""
+
+    # Normalizar todas as seções esperadas
+    normalized_expected = [self._normalize_header(s) for s in expected_sections]
+
+    lines = output.split("\n")
+    filtered = []
+    found_any_expected = False
+
+    for line in lines:
+        stripped = line.strip()
+        # Detectar headers ## (mas não ### ou #)
+        if stripped.startswith("## ") and not stripped.startswith("### "):
+            header_text = self._normalize_header(stripped)
+
+            # Verificar se é um header esperado deste pass
+            is_expected = any(
+                exp in header_text or header_text in exp
+                for exp in normalized_expected
+            )
+
+            if is_expected:
+                found_any_expected = True
+                filtered.append(line)
+            elif found_any_expected:
+                # Header invasor de OUTRO pass — parar aqui
+                break
+            # Se ainda não encontrou nenhum esperado, ignora (preâmbulo)
+        else:
+            if found_any_expected:
+                filtered.append(line)
+
+    return "\n".join(filtered).strip()
+```
+
+**Parte B — Atualizar chamada (linha 311):**
+
+**Código atual:**
+```python
+filtered_result = self._filter_section_output(result, section_pass.sections[0])
+```
+
+**Código corrigido:**
+```python
+filtered_result = self._filter_section_output(result, section_pass.sections)
+```
+
+**Commit:** `CORRECAO: FILTRO DE SECAO ACEITA LISTA DE SECOES ESPERADAS POR PASS`
+
+---
+
+### Correção 3: Aumentar max_output_tokens do final_p08
+
+**Arquivo:** `src/core/sectional_generator.py`
+**Linha:** 782
+
+**Atual:** `max_output_tokens=1500`
+**Corrigido:** `max_output_tokens=2500`
+
+Também revisar `final_p09b` (Métricas de Sucesso, linha 808): `1500` → `2000`
+
+**Commit:** `CORRECAO: BUFFER DE TOKENS PARA SECOES CRITICAS COM TABELAS LONGAS`
+
+---
+
+## Testes a Atualizar
+
+**Arquivo:** `tests/test_sectional_generator_filters.py`
+
+Os 3 testes existentes usam a assinatura antiga `(output, "## Header")`.
+Devem ser atualizados para `(output, ["## Header"])` (lista com 1 elemento).
+
+### Teste 1 — `test_filter_section_output_leaking_header` (linha 10)
+**Antes:** `generator._filter_section_output(output, "## Visão do Produto")`
+**Depois:** `generator._filter_section_output(output, ["## Visão do Produto"])`
+
+### Teste 2 — `test_filter_section_output_preamble_ignored` (linha 21)
+**Antes:** `generator._filter_section_output(output, "## Visão do Produto")`
+**Depois:** `generator._filter_section_output(output, ["## Visão do Produto"])`
+
+### Teste 3 — `test_filter_section_output_case_and_accent_insensitive` (linha 42)
+**Antes:** `generator._filter_section_output(output, "## Visão do Produto")`
+**Depois:** `generator._filter_section_output(output, ["## Visão do Produto"])`
+
+### Teste NOVO — `test_filter_multi_section_pass` (ADICIONAR)
+```python
+def test_filter_multi_section_pass():
+    """Fase 9.5.3c: Filtro NÃO deve truncar segunda seção de pass multi-seção."""
+    generator = SectionalGenerator(MockProvider())
+
+    output = (
+        "## Visão do Produto\nTexto da visão.\n"
+        "## Problema e Solução\nTexto do problema.\n"
+        "## Público-Alvo\nTexto invasor de outro pass."
+    )
+    filtered = generator._filter_section_output(
+        output, ["## Visão do Produto", "## Problema e Solução"]
+    )
+    assert "## Visão do Produto" in filtered
+    assert "Texto da visão." in filtered
+    assert "## Problema e Solução" in filtered
+    assert "Texto do problema." in filtered
+    # Header de OUTRO pass deve ser removido
+    assert "## Público-Alvo" not in filtered
+    assert "Texto invasor" not in filtered
+```
+
+### Teste NOVO — `test_filter_multi_section_no_invasor`
+```python
+def test_filter_multi_section_no_invasor():
+    """Fase 9.5.3c: Pass multi-seção sem invasor mantém tudo."""
+    generator = SectionalGenerator(MockProvider())
+
+    output = (
+        "## Constraints Técnicos\n- Constraint 1\n"
+        "## Matriz de Rastreabilidade\n| RF | Seção |\n|---|---|\n| RF-01 | MVP |"
+    )
+    filtered = generator._filter_section_output(
+        output, ["## Constraints Técnicos", "## Matriz de Rastreabilidade"]
+    )
+    assert "## Constraints Técnicos" in filtered
+    assert "## Matriz de Rastreabilidade" in filtered
+    assert "RF-01" in filtered
+```
+
+---
+
+## Validação Pós-Correção
+
+### 1. Rodar testes unitários
+```bash
+cd idea-forge
+python -m pytest tests/test_sectional_generator_filters.py -v
+python -m pytest tests/ -v
+```
+Todos devem passar. Zero regressões.
+
+### 2. Rodar pipeline completo
+```bash
+python -m src.main
+```
+
+### 3. Critérios de aceite (TODOS devem ser verdadeiros)
+- [ ] `is_clean: True` no consistency_report
+- [ ] Completude >= 95% (19 ou 20 de 20 seções presentes)
+- [ ] PRD_FINAL com >= 20.000 chars
+- [ ] Zero ocorrências de truncamento em passes multi-seção
+- [ ] Seções "Problema e Solução", "Diferenciais", "Decisões do Debate", "Matriz de Rastreabilidade" e "Cláusula de Integridade" todas presentes
+- [ ] "Escopo MVP" sem corte no meio de RF-ID
+
+### 4. Se validado
+Fase 9.5.3c FECHADA. Solicitar blueprint da Fase 9.6 (Retry Inteligente).
+
+---
+
+## Resumo Visual das Mudanças
+
+```
+sectional_generator.py:
+  L311:  sections[0] → section_pass.sections  (chamada do filtro)
+  L437-443: Regra de fronteira → condicional mono/multi seção
+  L529-567: _filter_section_output → aceita List[str], normaliza lista
+  L782:  max_output_tokens 1500 → 2500 (final_p08)
+  L808:  max_output_tokens 1500 → 2000 (final_p09b)
+
+test_sectional_generator_filters.py:
+  L15,26,46: "## Header" → ["## Header"]  (3 testes existentes)
+  +2 testes novos: multi_section_pass, multi_section_no_invasor
+```
+
+## Regras de Commit
+- Mensagens em português, MAIÚSCULAS, prefixadas com `CORRECAO:`
+- Um commit por correção (3 commits total)

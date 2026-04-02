@@ -1,14 +1,88 @@
+import logging
+import re
 from src.models.model_provider import ModelProvider
 from src.conversation.conversation_manager import ConversationManager
 from src.core.prompt_templates import (
     ANTI_PROLIXITY_DIRECTIVE, REVIEW_TEMPLATE, STYLE_CONTRACT
 )
 
+logger = logging.getLogger(__name__)
+
 # Diretiva adicionada ao system prompt quando em modo direto (sem reasoning)
 DIRECT_MODE_SUFFIX = (
     "\n\nIMPORTANT: Respond directly without internal reasoning blocks. "
     "Do NOT use <think> tags. Go straight to your critique."
 )
+
+CRITIC_PROMPT_TEMPLATE = """Você é um revisor técnico sênior de PRDs.
+
+Abaixo está um RESUMO ESTRUTURADO do PRD. Analise e gere sua revisão usando EXATAMENTE os headers abaixo, nesta ordem:
+
+## Score de Qualidade
+Nota de 0 a 10 com justificativa em uma linha.
+
+## Issues Identificadas
+Tabela com colunas: | ID | Severidade | Seção | Descrição |
+Liste 5-10 issues encontradas.
+
+## Verificação de Requisitos
+Tabela com colunas: | Requisito | Presente | Completo | Observação |
+Verifique se Público-Alvo, RFs, RNFs, Escopo MVP, Métricas existem.
+
+## Sumário
+3-5 frases resumindo os pontos fortes e fracos do PRD.
+
+## Recomendação
+APROVADO | APROVADO COM RESSALVAS | REPROVADO
+Justificativa em 2-3 frases.
+
+---
+RESUMO DO PRD:
+{prd_summary}
+---
+
+Sua análise crítica (use os headers exatos acima):"""
+
+def _summarize_prd_for_critic(prd_content: str, max_tokens: int = 800) -> str:
+    """
+    Extrai resumo estruturado do PRD para o Critic.
+    Não usa LLM — extração determinística por seções-chave.
+    """
+    summary_parts = []
+    
+    # Seções prioritárias para o Critic avaliar
+    priority_sections = [
+        "Visão do Produto",
+        "Problema e Solução", 
+        "Escopo (MVP)",
+        "Requisitos Funcionais",
+        "Requisitos Não-Funcionais",
+        "Riscos",
+        "Métricas de Sucesso",
+    ]
+    
+    for section_name in priority_sections:
+        # Extrair conteúdo da seção (adaptar regex ao formato real do PRD)
+        pattern = rf"##\s*{re.escape(section_name)}\s*\n(.*?)(?=\n##\s|\Z)"
+        match = re.search(pattern, prd_content, re.DOTALL)
+        if match:
+            section_text = match.group(1).strip()
+            # Truncar cada seção proporcionalmente
+            max_per_section = max_tokens // len(priority_sections)
+            # Converter tokens aproximado: 1 token ≈ 4 chars em português
+            max_chars = max_per_section * 4
+            if len(section_text) > max_chars:
+                section_text = section_text[:max_chars] + "..."
+            summary_parts.append(f"## {section_name}\n{section_text}")
+    
+    summary = "\n\n".join(summary_parts)
+    
+    # Fallback: se nenhuma seção foi encontrada, pegar início do PRD
+    if not summary_parts:
+        max_chars = max_tokens * 4
+        summary = prd_content[:max_chars] + "\n\n[RESUMO TRUNCADO — seções não detectadas]"
+    
+    return summary
 
 
 class CriticAgent:
@@ -88,11 +162,9 @@ class CriticAgent:
         """
         from src.core.sectional_generator import SectionalGenerator
 
-        # FASE 7.1: Aumentar truncamento para PRDs NEXUS densos (era [:1500])
-        combined_input = (
-            f"ARTEFATO PARA REVISÃO (tipo: {artifact_type}):\n"
-            f"{artifact_content[:3000]}"
-        )
+        # FASE 9.5: Usar resumo estruturado para evitar sobrecarga do Critic
+        prd_summary = _summarize_prd_for_critic(artifact_content, max_tokens=800)
+        logger.info(f"Critic input: {len(prd_summary)} chars (resumo de {len(artifact_content)} chars)")
 
         generator = SectionalGenerator(
             provider=self.provider,
@@ -101,7 +173,7 @@ class CriticAgent:
 
         result = generator.generate_sectional(
             artifact_type="review",
-            user_input=combined_input,
+            user_input=prd_summary,
             context=context[:500] if context else "",
         )
 
@@ -116,17 +188,17 @@ class CriticAgent:
         """Fallback de review em chamada única."""
         from src.core.golden_examples import REVIEW_EXAMPLE_FRAGMENT
 
-        review_prompt = (
-            f"System: {self.system_prompt}\n\n"
-            f"ARTEFATO PARA REVISÃO (tipo: {artifact_type}):\n"
-            f"{artifact_content}\n\n"
-        )
+        # FASE 9.5: Também usar resumo no fallback
+        prd_summary = _summarize_prd_for_critic(artifact_content, max_tokens=800)
+        
+        review_prompt = CRITIC_PROMPT_TEMPLATE.format(prd_summary=prd_summary)
+        
         if context:
-            review_prompt += f"CONTEXTO ADICIONAL (NÃO repita):\n{context}\n\n"
+            review_prompt += f"\n\nCONTEXTO ADICIONAL (NÃO repita):\n{context}\n\n"
 
-        review_prompt += REVIEW_EXAMPLE_FRAGMENT
-        review_prompt += (
-            "Preencha EXATAMENTE as seções do template de revisão. "
-            "NÃO escreva introduções ou conclusões."
-        )
-        return self.provider.generate(prompt=review_prompt, role="critic")
+        response = self.provider.generate(prompt=review_prompt, role="critic")
+        
+        if not response or len(response.strip()) < 50:
+            logger.error(f"Critic retornou resposta insuficiente: {len(response)} chars")
+            
+        return response

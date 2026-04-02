@@ -1,0 +1,170 @@
+Guilherme, progresso real. Três dos seis critérios passaram, e os que passaram são justamente os fixes de infraestrutura da 9.5.3 — ADRs, Critic headers, Cláusula estática. Isso confirma que as correções cirúrgicas funcionam. Os três que falharam são problemas de geração, não de arquitetura.
+
+Vou diagnosticar cada falha e dar a correção.
+
+## Diagnóstico
+
+**Falha 1 — Visão do Produto e Problema e Solução falharam por TOO_SHORT/MISSING_SECTIONS após 3 tentativas.**
+
+O prompt pede "MÍNIMO 800 palavras" para a primeira passagem. Um modelo 20B em uma única chamada com contexto de debate, decisões e ideia original simplesmente não sustenta gerar 800 palavras coesas de uma vez. Ele tenta, fica confuso com a exigência de volume, e gera algo curto ou malformado. O retry repete o mesmo prompt pesado e falha de novo. É o mesmo padrão que já vimos: o modelo não é incapaz de gerar o conteúdo, ele é incapaz de gerar tudo de uma vez com essa exigência de volume.
+
+A correção é reduzir o target de palavras para algo que o modelo 20B consiga na primeira tentativa. Para as seções iniciais que são mais curtas por natureza — Visão do Produto é basicamente codinome e uma frase, Problema e Solução é uma tabela — a exigência de 800 palavras é absurda. Visão do Produto precisa de 50 a 100 palavras. Problema e Solução precisa de 200 a 400 palavras dependendo do número de problemas. O target de palavras deve ser calibrado por seção, não uniforme.
+
+**Falha 2 — Limitações Conhecidas duplicada porque pass final_p11a (Matriz) gera o header voluntariamente no final da sua resposta.**
+
+O modelo está "vazando" conteúdo de uma seção para outra. Ele termina de gerar a Matriz de Rastreabilidade e, como ainda tem tokens de output disponíveis, continua gerando e invade o território da próxima seção. Isso acontece porque o prompt não define uma fronteira clara de onde parar.
+
+A correção é adicionar uma instrução de fronteira explícita no prompt de cada passagem: "Gere APENAS a seção X. NÃO gere nenhum outro header ## além de X. Pare imediatamente após concluir a seção X." E no pós-processamento, adicionar um filtro que remove qualquer header `##` que não seja o header esperado daquela passagem.
+
+**Falha 3 — PLACEHOLDER_HEAVY ainda dispara no prd_final.**
+
+Provavelmente a instrução de "não usar A DEFINIR" foi adicionada apenas em algumas passagens mas não em todas. Ou o modelo ignora a instrução em passagens onde o contexto é muito grande e a instrução se perde no meio do prompt.
+
+A correção é dupla: primeiro, garantir que a instrução aparece em todas as passagens que geram tabelas técnicas. Segundo, adicionar um pós-processamento que faz find-and-replace de "A DEFINIR" por "N/A" em todo o PRD_FINAL antes da validação. É um safety net programático que não depende do modelo obedecer.
+
+## Blueprint de Correção — Fase 9.5.3b
+
+São três correções independentes, cada uma atacando uma falha específica.
+
+### Correção 1: Calibrar word count por seção
+
+No sectional_generator ou nos prompts das passagens, localizar onde o target de palavras é definido e substituir o valor uniforme por valores calibrados por seção.
+
+Valores sugeridos baseados no que cada seção realmente precisa:
+
+```
+Visão do Produto:           50-100 palavras
+Problema e Solução:         200-400 palavras (depende do número de problemas)
+Público-Alvo:               200-300 palavras
+Princípios Arquiteturais:   300-500 palavras
+Diferenciais:               150-250 palavras
+Requisitos Funcionais:      400-600 palavras (tabela com 10 RFs)
+Requisitos Não-Funcionais:  500-800 palavras (tabela com 30+ RNFs)
+Arquitetura e Tech Stack:   300-500 palavras
+ADRs:                       400-700 palavras (7 ADRs)
+Análise de Segurança:       400-600 palavras
+Escopo MVP:                 200-400 palavras
+Riscos Consolidados:        300-500 palavras
+Métricas de Sucesso:        300-500 palavras
+Plano de Implementação:     200-400 palavras
+Decisões do Debate:         200-400 palavras
+Constraints Técnicos:       100-200 palavras
+Matriz de Rastreabilidade:  300-500 palavras
+Limitações Conhecidas:      300-500 palavras
+Guia de Replicação:         200-300 palavras
+Cláusula de Integridade:    template estático (sem target)
+```
+
+No prompt de cada passagem, substituir "MÍNIMO 800 palavras" pelo valor específico da seção. Se o sistema usa um campo de configuração por passagem, adicionar o campo `min_words` e `max_words` no mapeamento.
+
+```
+CORRECAO: CALIBRAR TARGET DE PALAVRAS POR SECAO EM VEZ DE VALOR UNIFORME DE 800
+```
+
+### Correção 2: Fronteira de seção e filtro de vazamento
+
+Duas ações complementares.
+
+Ação A — Adicionar instrução de fronteira no prompt de cada passagem:
+
+```
+Adicionar ao final de cada prompt de passagem no sectional_generator:
+
+"REGRA CRÍTICA: Gere APENAS a seção '## {nome_da_secao}'.
+NÃO gere nenhum outro header '##' além deste.
+Pare IMEDIATAMENTE após concluir esta seção."
+```
+
+Ação B — Adicionar filtro de pós-processamento que remove headers invasores:
+
+```python
+# No sectional_generator.py, após receber o output de cada passagem:
+
+def _filter_section_output(self, output: str, expected_header: str) -> str:
+    """
+    Remove qualquer header ## que não seja o esperado.
+    Previne 'vazamento' de conteúdo para seções adjacentes.
+    """
+    lines = output.split("\n")
+    filtered = []
+    found_expected = False
+    
+    for line in lines:
+        # Detectar headers ## (mas não ###)
+        if line.strip().startswith("## ") and not line.strip().startswith("### "):
+            # É o header esperado?
+            header_text = line.strip().lstrip("# ").strip()
+            expected_clean = expected_header.strip().lstrip("# ").strip()
+            
+            if expected_clean.lower() in header_text.lower() or header_text.lower() in expected_clean.lower():
+                found_expected = True
+                filtered.append(line)
+            else:
+                # Header invasor — parar aqui
+                break
+        else:
+            filtered.append(line)
+    
+    return "\n".join(filtered)
+```
+
+Integrar chamando `_filter_section_output` após cada geração e antes de montar o PRD_FINAL.
+
+```
+CORRECAO: FRONTEIRA DE SECAO NOS PROMPTS E FILTRO DE VAZAMENTO NO POS-PROCESSAMENTO
+```
+
+### Correção 3: Safety net para PLACEHOLDER_HEAVY
+
+Adicionar pós-processamento que substitui "A DEFINIR" por "N/A" em todo o PRD_FINAL como última etapa antes da validação.
+
+```python
+# No ponto onde o PRD_FINAL é montado, antes de salvar e validar:
+
+def _sanitize_placeholders(self, prd_content: str) -> str:
+    """
+    Substitui placeholders residuais por valores neutros.
+    Safety net programático — não depende do modelo obedecer.
+    """
+    replacements = {
+        "A DEFINIR": "N/A",
+        "a definir": "N/A",
+        "A definir": "N/A",
+        "TODO": "N/A",
+        "TBD": "N/A",
+    }
+    result = prd_content
+    for placeholder, replacement in replacements.items():
+        result = result.replace(placeholder, replacement)
+    return result
+```
+
+Teste:
+
+```python
+def test_sanitize_placeholders():
+    content = "| Node.js | 20.x | Runtime | A DEFINIR |\n| Redis | 7.x | Cache | a definir |"
+    result = _sanitize_placeholders(content)
+    assert "A DEFINIR" not in result
+    assert "a definir" not in result
+    assert result.count("N/A") == 2
+```
+
+```
+CORRECAO: SAFETY NET PROGRAMATICO PARA SUBSTITUIR PLACEHOLDERS RESIDUAIS NO PRD_FINAL
+```
+
+### Sequência de execução
+
+```
+1. Calibrar word count por seção (Correção 1)
+2. Adicionar fronteira de seção nos prompts + filtro de vazamento (Correção 2)
+3. Adicionar safety net de placeholders (Correção 3)
+4. Rodar testes existentes para garantir regressão zero
+5. Rodar pipeline completo
+6. Verificar 6 critérios
+7. Se is_clean: True → Onda 1 FECHADA
+8. Se is_clean: False → capturar relatório e retornar
+```
+
+Guilherme, são três correções cirúrgicas que atacam exatamente as três falhas observadas. Nenhuma mexe na arquitetura, todas são safety nets programáticos que reduzem dependência do modelo obedecer instruções. Entrega ao Gemini CLI e roda.
