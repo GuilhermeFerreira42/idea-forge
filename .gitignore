@@ -24,6 +24,7 @@ PRD_FINAL_*.md
 .forge/
 .tmp_artifacts/
 .tmp_planner/
+VALIDACAO_PAYLOAD_*/
 
 # Ferramentas de Testes e Cobertura
 .pytest_cache/
