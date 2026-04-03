@@ -45,7 +45,7 @@ def verify_8_0():
     idea = "Aplicativo de testes para Fase 8.0"
     report_filename = "test_8_0_report.md"
     
-    print("\n🚀 Executando pipeline mockado para verificação da Fase 8.0...")
+    print("\n[START] Executando pipeline mockado para verificação da Fase 8.0...")
     controller.run_pipeline(idea, report_filename)
     
     # Verificações 8.0a

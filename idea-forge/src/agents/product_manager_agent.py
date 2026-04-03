@@ -89,6 +89,22 @@ class ProductManagerAgent:
         
         return self.provider.generate(prompt=prompt, role="product_manager")
 
+    def _emit(self, message: str) -> None:
+        """
+        Emite mensagem de log para o terminal.
+        Fail-safe: nunca lança exceção, mesmo em ambiente headless.
+        FASE 9.6-FIX: Resolve AttributeError em consolidate_prd().
+        """
+        try:
+            import sys
+            from src.core.stream_handler import ANSIStyle
+            sys.stdout.write(
+                f"{ANSIStyle.CYAN}  {message}{ANSIStyle.RESET}\n"
+            )
+            sys.stdout.flush()
+        except Exception:
+            pass  # Log falhou — pipeline continua normalmente
+
     def _parse_artifact_sections(self, context: str) -> dict:
         """
         FASE 9.2: Divide o contexto consolidado em seções nomeadas.
@@ -99,7 +115,7 @@ class ProductManagerAgent:
         # Tenta capturar seções delimitadas por headings ou marcadores
         pattern = r"(?i)---?\s*(?:ARTEFATO|SEÇÃO):\s*([\w\s_]+)\s*---?\n(.*?)(?=\n---?\s*(?:ARTEFATO|SEÇÃO)|\Z)"
         matches = re.findall(pattern, context, re.DOTALL)
-        
+
         if matches:
             for name, content in matches:
                 sections[name.strip().lower()] = content.strip()
@@ -165,6 +181,27 @@ class ProductManagerAgent:
         )
         
         if result:
+            # ═══ FASE 9.6: Retry Inteligente ═══
+            if "[GERAÇÃO FALHOU" in result:
+                from src.core.retry_orchestrator import RetryOrchestrator
+                
+                orchestrator = RetryOrchestrator(
+                    provider=self.provider,
+                    direct_mode=self.direct_mode
+                )
+                
+                # Reusar o dict 'parsed' que já foi construído
+                result = orchestrator.recover(result, parsed)
+                
+                # Log de recuperação
+                for entry in orchestrator.get_recovery_log():
+                    status = f"Nível {entry['level_used']}" if entry['level_used'] > 0 else "Deduplicada"
+                    self._emit(
+                        f"  Seção '{entry['heading']}' recuperada via {status} "
+                        f"({entry['chars_recovered']} chars)"
+                    )
+            # ═══ FIM FASE 9.6 ═══
+
             # FASE 9.5.3: Adicionar Cláusula de Integridade via template estático
             from datetime import datetime
             

@@ -1,7 +1,3 @@
-F9.3 | ADD | `NEXUS_FINAL_PASSES` | Estabelecem 12 passes para PRD Final Consolidado | `sectional_generator.py`
-F9.3 | MOD | `SectionalGenerator` | `_summarize_previous` estendido para max_tokens 500 | `sectional_generator.py`
-F9.3 | ADD | `generate_sectional_with_inputs` | Método novo para combinação de contextos seletivos | `sectional_generator.py`
-
 ### Fase 9.3 — Calibração de Profundidade
 - F9.3 | ADD | `NEXUS_FINAL_PASSES` | Estabelecem 12 passes para PRD Final Consolidado | `src/core/sectional_generator.py`
 - F9.3 | MOD | `SectionalGenerator` | `_summarize_previous` estendido para max_tokens 500 | `src/core/sectional_generator.py`
@@ -27,3 +23,9 @@ F9.3 | ADD | `generate_sectional_with_inputs` | Método novo para combinação d
 ### Fase 9.5.3 — Onda 1 Concluída (Cura de Assembly)
 - F9.5.3b | MOD | Calibração de Word Count | Evitar falhas de prompt e garantir densidade | src/core/sectional_generator.py
 - F9.5.3c | MOD | Filtros Multi-Seção | Resolver bug de assembly e garantir 20 seções | src/core/sectional_generator.py
+
+### Fase 9.6 — Orquestração com Retry Inteligente
+- F9.6 | ADD | `_emit()` method | Adicionar método de logging seguro no ProductManagerAgent | src/agents/product_manager_agent.py
+- F9.6 | MOD | retry_templates.py | Substituir 13 stubs genéricos por templates funcionais com dados | src/core/retry_templates.py
+- F9.6 | ADD | `_validate_rf_references()` | Validar referências cruzadas de RFs para evitar RF_ORPHAN | src/core/retry_orchestrator.py
+- F9.6 | MOD | recover() method | Integrar validação de RF_ORPHAN no fluxo de recovery | src/core/retry_orchestrator.py

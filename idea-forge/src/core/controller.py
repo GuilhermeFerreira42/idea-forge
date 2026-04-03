@@ -20,21 +20,28 @@ def emit_pipeline_state(state: str, detail: str = ""):
     Formato padronizado para todas as transições do pipeline.
     """
     state_icons = {
-        "PIPELINE_START": "🚀",
-        "BLACKBOARD_INIT": "🧠",
-        "TASK_EXECUTION": "⚙️",
-        "HUMAN_GATE": "✋",
-        "PIPELINE_COMPLETE": "✅",
-        "AGENT_THINKING": "💭",
+        "PIPELINE_START": "[START]",
+        "BLACKBOARD_INIT": "[INIT]",
+        "TASK_EXECUTION": "[TASK]",
+        "HUMAN_GATE": "[HUMAN]",
+        "PIPELINE_COMPLETE": "[DONE]",
+        "AGENT_THINKING": "[THINK]",
     }
-    icon = state_icons.get(state, "⚡")
+    icon = state_icons.get(state, "[INFO]")
     detail_str = f" — {detail}" if detail else ""
-    sys.stdout.write(
-        f"\n{ANSIStyle.CYAN}{ANSIStyle.BOLD}"
-        f"[{icon} {state}]{detail_str}"
-        f"{ANSIStyle.RESET}\n"
-    )
-    sys.stdout.flush()
+    try:
+        sys.stdout.write(
+            f"\n{ANSIStyle.CYAN}{ANSIStyle.BOLD}"
+            f"[{icon} {state}]{detail_str}"
+            f"{ANSIStyle.RESET}\n"
+        )
+        sys.stdout.flush()
+    except UnicodeEncodeError:
+        # Fallback for terminals that don't support Unicode
+        sys.stdout.write(
+            f"\n[{state}] {detail_str}\n"
+        )
+        sys.stdout.flush()
 
 class AgentController:
     """
@@ -163,7 +170,7 @@ class AgentController:
             return final_plan
             
         except Exception as e:
-            print(f"\n{ANSIStyle.RED}[ERRO] Falha no pipeline: {str(e)}{ANSIStyle.RESET}")
+            print(f"\n{ANSIStyle.YELLOW}[ERRO] Falha no pipeline: {str(e)}{ANSIStyle.RESET}")
             self.blackboard.persist_to_disk() # Salva o que deu pra salvar
             raise e
 

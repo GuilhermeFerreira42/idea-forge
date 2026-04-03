@@ -1,0 +1,675 @@
+# Relatório IdeaForge — Padrão NEXUS
+
+**Ideia:** Sistema de gerenciamento de biblioteca descentralizado com empréstimos via blockchain e sistema de reputação para leitores.
+
+**Modelo:** gpt-oss:20b-cloud
+
+---
+
+## PRD FINAL CONSOLIDADO (Padrão NEXUS)
+
+## PRD_FINAL — GERAÇÃO FALHOU
+
+O modelo não produziu conteúdo válido para este artefato.
+Motivos de falha: TOO_SHORT (132 < 1000), INCOMPLETE (0% < 90%)
+
+**Ação necessária:** Re-executar com modelo maior ou fornecer mais contexto.
+
+
+---
+
+## Artefatos de Apoio (Processo de Elaboração)
+
+- [PRD](#prd)
+- [PRD REVIEW](#prd_review)
+- [SYSTEM DESIGN](#system_design)
+- [SECURITY REVIEW](#security_review)
+- [DEBATE TRANSCRIPT](#debate_transcript)
+- [DEVELOPMENT PLAN](#development_plan)
+- [CONSISTENCY REPORT](#consistency_report)
+
+---
+
+<a id='prd'></a>
+
+## PRD
+**Criado por:** product_manager | **Versão:** 1
+
+<!-- AVISO: Artefato com completude abaixo do threshold. Seções faltantes: ['## Escopo MVP', '## Métricas de Sucesso', '## Dependências e Riscos', '## Constraints Técnicos'] -->
+
+## Objetivo
+- Desenvolver um sistema de gerenciamento de biblioteca descentralizado que permita empréstimos de livros via blockchain e avalie a reputação dos leitores, garantindo transparência, segurança e autonomia.
+
+## Problema
+| ID | Problema | Impacto | Como o Sistema Resolve |
+|---|---|---|---|
+| P-01 | Centralização de catálogos e controle de empréstimos | Risco de falhas, custo de servidores | Registro de empréstimos em smart contracts, eliminando servidor central |
+| P-02 | Falta de transparência na devolução e multas | Perda de confiança dos usuários | Registro imutável de devoluções e multas no blockchain |
+| P-03 | Dificuldade de medir comportamento de leitores | Falta de incentivo ao bom comportamento | Sistema de reputação baseado em tokens e pontuação |
+| P-04 | Dependência de intermediários para transações | Taxas altas e burocracia | Empréstimos e devoluções via NFT transfer, sem intermediários |
+
+## Público-Alvo
+| Segmento | Perfil (nome fictício + dor específica) | Prioridade |
+|---|---|---|
+| Bibliotecas Públicas | Maria, gerente de biblioteca pública, quer reduzir custos de manutenção de catálogos | P0 |
+| Usuários Individuais | João, estudante universitário, quer empréstimo rápido e sem burocracia | P1 |
+| Organizações Educacionais | Escola Secundária, quer controle de empréstimos e reputação de alunos | P2 |
+
+## Princípios Arquiteturais
+| Princípio | Descrição Concreta | Implicação Técnica |
+|---|---|---|
+| Descentralização | Uso de blockchain para registro de empréstimos | Smart contracts em Solidity, sem servidor central |
+| Imutabilidade | Dados de empréstimo não alteráveis | Registro permanente em blockchain, auditoria garantida |
+| Escalabilidade | Uso de layer‑2 ou sidechain | Redução de custo de gás, suporte a milhares de transações |
+
+## Diferenciais
+| Abordagem Atual/Concorrente | Problema | Como Este Sistema Supera |
+|---|---|---|
+| Sistema centralizado | Falta de transparência | Registro imutável em blockchain |
+| Empréstimo manual | Processos lentos | Empréstimo automático via NFT transfer |
+| Sem reputação | Falta de incentivo | Sistema de reputação baseado em tokens e pontuação |
+
+## Requisitos Funcionais
+| ID | Requisito | Critério de Aceite (verificável) | Prioridade (MoSCoW) | Complexidade |
+|---|---|---|---|---|
+| RF-01 | Registrar livro no catálogo | POST /books retorna 201 com bookId | Must | Low |
+| RF-02 | Emitir NFT para livro | Smart contract emite NFT com tokenId | Must | Medium |
+| RF-03 | Registrar usuário | POST /users retorna 201 com userId | Must | Low |
+| RF-04 | Empréstimo de livro | POST /loans retorna 201 e emite NFT transfer | Must | Medium |
+| RF-05 | Devolver livro | POST /returns retorna 200 e emite NFT transfer | Must | Medium |
+| RF-06 | Calcular pontuação de reputação | GET /users/{id}/reputation retorna score 0‑100 | Must | Low |
+| RF-07 | Recompensar usuário com tokens | POST /rewards retorna 201 com tokenAmount | Must | Medium |
+| RF-08 | Visualizar histórico de empréstimos | GET /users/{id}/loans retorna array | Should | Low |
+| RF-09 | Notificar atraso | POST /notifications retorna 200 quando due date passed | Should | Low |
+| RF-10 | Validar identidade via assinatura digital | POST /auth/sign retorna 200 se assinatura válida | Should | Medium |
+| RF-11 | Limitar número de empréstimos por usuário | POST /loans retorna 400 se exceder limite | Should | Low |
+| RF-12 | Exportar relatório de uso | GET /reports/usage retorna CSV | Could | Low |
+
+## Requisitos Não-Funcionais
+| ID | Categoria | Requisito | Métrica | Target |
+|---|---|---|---|---|
+| RNF-01 | Performance | Tempo de resposta | ≤
+
+---
+
+<a id='prd_review'></a>
+
+## PRD REVIEW
+**Criado por:** critic | **Versão:** 1
+
+## Score de Qualidade  
+**4/10** – O PRD apresenta alguns requisitos funcionais e não‑funcionais, mas está incompleto, faltando seções essenciais e métricas de sucesso.
+
+## Issues Identificadas  
+| ID | Severidade | Seção | Descrição |
+|---|---|---|---|
+| I-01 | Alta | Público‑Alvo | Não há definição de quem são os usuários finais. |
+| I-02 | Alta | Escopo MVP | Escopo não foi descrito; não há delimitação clara do que será entregue no MVP. |
+| I-03 | Alta | Métricas | Métricas de sucesso (ex.: taxa de adoção, tempo de resposta) estão ausentes ou incompletas. |
+| I-04 | Média | Requisitos Funcionais | RF‑04 está truncado; falta critério de aceite completo e prioridade. |
+| I-05 | Média | Requisitos Funcionais | Falta descrição de complexidade e dependências para RF‑02 e RF‑04. |
+| I-06 | Média | Requisitos Não‑Funcionais | RNF‑01 está incompleto; a métrica e o target não foram especificados. |
+| I-07 | Baixa | Documentação | Tabelas estão cortadas (ex.: “POST /loans retorna 201 e emite NFT transfer …”), dificultando a leitura. |
+| I-08 | Baixa | Segurança | Não há requisitos de segurança (autenticação, autorização, criptografia). |
+| I-09 | Baixa | Testes | Não há menção a testes unitários, de integração ou de aceitação. |
+| I-10 | Baixa | Cronograma | Ausência de timeline ou milestones. |
+
+## Verificação de Requisitos  
+| Requisito | Presente | Completo | Observação |
+|---|---|---|---|
+| Público‑Alvo | Não | Não | Falta descrição de personas e necessidades. |
+| RFs | Sim | Parcial | RF‑01, RF‑02, RF‑03 definidos; RF‑04 incompleto. |
+| RNFs | Sim | Parcial | RNF‑01 parcialmente definido; outras RNFs ausentes. |
+| Escopo MVP | Não | Não | Escopo não foi delimitado. |
+| Métricas | Parcial | Parcial | Apenas RNF‑01 menciona métrica, mas target não foi especificado. |
+
+## Sumário  
+O PRD demonstra um esforço inicial ao listar requisitos funcionais e não‑funcionais com prioridades MoSCoW, mas a documentação está severamente incompleta. A ausência de público‑alvo, escopo MVP, métricas de sucesso e detalhes de implementação impede a avaliação de viabilidade e planejamento. Além disso, a falta de requisitos de segurança, testes e cronograma compromete a qualidade e a rastreabilidade do projeto. Para avançar, é necessário preencher as lacunas identificadas e revisar a estrutura geral do documento.
+
+## Recomendação  
+**REPROVADO** – O PRD não atende aos padrões mínimos de documentação, exigindo revisão completa antes de prosseguir com o desenvolvimento.
+
+---
+
+<a id='system_design'></a>
+
+## SYSTEM DESIGN
+**Criado por:** architect | **Versão:** 1
+
+## Arquitetura Geral
+- Estilo: Microsserviços  
+- Containers:  
+  - API Gateway (NGINX)  
+  - Auth Service (NestJS)  
+  - Book Service (NestJS)  
+  - Loan Service (NestJS)  
+  - Reputation Service (NestJS)  
+  - Notification Service (NestJS)  
+  - Blockchain Interaction Service (Hardhat)  
+  - PostgreSQL DB  
+  - Kafka Broker  
+  - Redis Cache  
+- Comunicação:  
+  - Sync: HTTP/REST (JSON)  
+  - Async: Kafka (Avro)  
+- Diagrama (texto):  
+  1. Usuário → API Gateway via HTTPS  
+  2. API Gateway → Auth Service via HTTP  
+  3. Auth Service → Book/Loan/Reputation/Notification via HTTP  
+  4. Book/Loan Services → Blockchain Interaction Service via HTTP  
+  5. Blockchain Interaction Service → Kafka (event) → Reputation/Notification Services  
+
+## Tech Stack
+| Camada | Tecnologia | Versão | Justificativa | Alternativa Rejeitada | Motivo Rejeição |
+|---|---|---|---|---|---|
+| API | NestJS | 10.0 | Modular, DI, OpenAPI | Express | Menos estrutura para microsserviços |
+| Auth | JWT + ECDSA | 2023 | Assinatura digital, compatível com blockchain | OAuth2 | Exige servidor de autorização |
+| Blockchain | Solidity | 0.8.20 | Compatível com Ethereum/L2 | Vyper | Menor comunidade |
+| Smart‑Contract Framework | Hardhat | 2.12 | Testes rápidos, plugin ecosystem | Truffle | Menos flexibilidade |
+| DB | PostgreSQL | 15 | ACID, extensões JSONB | MySQL | Menos suporte a tipos avançados |
+| Message Broker | Kafka | 3.3 | Escalabilidade, replay | RabbitMQ | Menos performance em alto volume |
+| Cache | Redis | 7.2 | In‑memory, pub/sub | Memcached | Sem persistência |
+
+## Módulos
+| Módulo | Responsabilidade | Interface Pública | Requisitos Atendidos (RF-XX) |
+|---|---|---|---|
+| Auth Service | Autenticação, assinatura digital | POST /auth/sign, GET /auth/verify | RF-10 |
+| Book Service | Catálogo, mint NFT | POST /books, GET /books/{id} | RF-01, RF-02 |
+| Loan Service | Empréstimo, devolução, limite | POST /loans, POST /returns | RF-04, RF-05, RF-11 |
+| Reputation Service | Cálculo de pontuação, recompensas | GET /users/{id}/reputation, POST /rewards | RF-06, RF-07 |
+| Notification Service | Alertas de atraso | POST /notifications | RF-09 |
+| Blockchain Interaction Service | Interação com smart contracts | POST /contracts/mint, POST /contracts/transfer | RF-02, RF-04, RF-05 |
+
+## Modelo de Dados
+| Entidade | Atributos-chave | Tipo | Relações | Constraints |
+|---|---|---|---|---|
+| User | userId | UUID | 1:N Loan, 1:N Reputation | PK, unique email |
+| Book | bookId | UUID | 1:N Loan, 1:1 NFT | PK, unique ISBN |
+| NFT | tokenId | UUID | 1:1 Book, 1:N Transfer | PK, indexed tokenId |
+| Loan | loanId | UUID | 1:1 User, 1:1 Book | PK, status enum |
+| Reputation | reputationId | UUID | 1:1 User | PK, score 0‑100 |
+| Reward | rewardId | UUID | 1:1 User | PK, amount |
+| Notification | notificationId | UUID | 1:1 User | PK, read flag |
+
+## Fluxo de Dados
+1. Usuário → API Gateway → Auth Service → valida assinatura digital (RF-10).  
+2. Usuário → API Gateway → Book Service → registra livro (RF-01).  
+3. Book Service → Blockchain Interaction Service → mint NFT (RF-02).  
+4. Usuário → API Gateway → Loan Service → solicita empréstimo (RF-04).  
+5. Loan Service → Blockchain Interaction Service → transfer NFT (RF-04).  
+6. Loan Service → DB → atualiza status de empréstimo.  
+7. Evento de devolução → Loan Service → transfer NFT de volta (RF-05).  
+8. Reputation Service → calcula pontuação (RF-06).  
+9. Reputation Service → Reward Service → emite tokens (RF-07).  
+10. Notification Service → envia alerta de atraso (RF-09).  
+
+## ADRs (Architecture Decision Records)
+| ID | Decisão | Contexto | Alternativa Rejeitada | Consequências | Mitigação |
+|---|---|---|---|---|---|
+| ADR-01 | PostgreSQL como banco de dados | Necessidade de ACID e tipos avançados | MySQL | Menor suporte a JSONB, menor performance em consultas complexas | Migrar para PostgreSQL na v1.0 |
+| ADR-02 | NestJS como framework API | Modularidade, DI, OpenAPI | Express | Menos estrutura para microsserviços | Utilizar NestJS, aproveitar módulos existentes |
+| ADR-03 | Hardhat como framework de smart contracts | Testes rápidos, plugin ecosystem | Truffle | Menos flexibilidade, menor comunidade | Hardhat, version 2.12 |
+
+## Riscos Técnicos
+| ID | Risco | Probabilidade | Impacto | Mitigação | Owner |
+|---|---|---|---|---|---|
+| R-01 | Smart contract upgradeability | Média | Alto | Proxy padrão, auditoria de código | Lead Dev |
+| R-02 | Congestion na Layer‑2 | Média | Médio | Batch de transações, fallback Layer‑1 | DevOps |
+| R-03 | Inconsistência DB‑Blockchain | Alta | Alto | Event listeners idempotentes, reconciliador | Backend Lead |
+
+## Requisitos de Infraestrutura
+| Recurso | Mínimo | Recomendado | Justificativa |
+|---|---|---|---|
+| CPU | 4 vCPU | 8 vCPU | Processamento de API e eventos |
+| RAM | 8 GB | 16 GB | Cache Redis, processamento de eventos |
+| Storage | 100 GB SSD | 200 GB SSD | Persistência DB, logs |
+| Rede | 1 Gbps | 10 Gbps | Latência baixa para blockchain |
+| Segurança | TLS 1.3 | TLS 1.3 | Criptografia de tráfego |
+| Backup | Daily snapshots | Weekly snapshots + off‑site | Recuperação de desastres |
+
+---
+
+---
+
+<a id='security_review'></a>
+
+## SECURITY REVIEW
+**Criado por:** security_reviewer | **Versão:** 1
+
+## SECURITY_REVIEW — GERAÇÃO FALHOU
+
+O modelo não produziu conteúdo válido para este artefato.
+Motivos de falha: EMPTY_CONTENT
+
+**Ação necessária:** Re-executar com modelo maior ou fornecer mais contexto.
+
+
+---
+
+<a id='debate_transcript'></a>
+
+## DEBATE TRANSCRIPT
+**Criado por:** debate_engine | **Versão:** 1
+
+Proponente:
+## Pontos Aceitos
+- Iniciar a defesa técnica do projeto.
+
+## Defesa Técnica
+- Smart contracts em Solidity garantem registro imutável de empréstimos e devoluções, eliminando a necessidade de servidores centrais.  
+- Utilização de uma sidechain (ex.: Polygon) reduz custos de gás e aumenta throughput, atendendo ao princípio de escalabilidade.  
+- Tokens ERC‑721 representam cada livro como NFT, permitindo transferência direta entre usuários sem intermediários.  
+- Sistema de reputação baseado em ERC‑20 tokens recompensa leitores por devoluções pontuais; a pontuação é calculada off‑chain e registrada em um contrato de reputação, mantendo a transparência e auditabilidade.  
+- Integração com IPFS armazena metadados de catálogo fora da cadeia, reduzindo tamanho dos blocos e mantendo dados acessíveis.  
+- Implementação de eventos Solidity facilita monitoramento em tempo real por dApps front‑end, garantindo UX fluida.
+
+## Melhorias Propostas
+| Área | Mudança | Justificativa |
+|---|---|---|
+| Escalabilidade | Adotar zk‑rollups na sidechain | Reduz tráfego on‑chain e mantém segurança, permitindo milhares de transações diárias. |
+| Reputação | Calcular pontuação via oráculo off‑chain | Evita sobrecarga de gás e permite algoritmos complexos de análise de comportamento. |
+| Catálogo | Armazenar metadados em IPFS | Garante disponibilidade e descentralização, sem custo de armazenamento on‑chain. |
+| UX | Implementar wallet‑connect e metamask | Facilita onboarding de usuários não técnicos, aumentando adoção. |
+| Segurança | Revisão de código por auditoria externa | Minimiza vulnerabilidades em contratos críticos, assegurando confiança. |
+| Governança | Criar DAO de usuários para decisões de catálogo | Alinha interesses dos leitores e bibliotecas, promovendo evolução colaborativa. |
+
+Crítico:
+## Score de Qualidade  
+**6/10** – O PRD apresenta os requisitos funcionais e não‑funcionais básicos, mas está incompleto e carece de seções críticas (Escopo MVP, Métricas, Dependências, Constraints).
+
+## Issues Identificadas  
+| ID | Severidade | Seção | Descrição |
+|---|---|---|---|
+| I-01 | Alta | Escopo MVP | Seção ausente; sem definição clara de funcionalidades mínimas. |
+| I-02 | Alta | Métricas de Sucesso | Seção ausente; métricas de desempenho e adoção não foram especificadas. |
+| I-03 | Média | Requisitos Funcionais | RF‑04 está truncado (“POST /loans retorna 201 e emite NFT transfer …”) – critério de aceite incompleto. |
+| I-04 | Média | Requisitos Não‑Funcionais | RNF‑01 tem “Tempo de resposta ≤” sem valor numérico ou unidade. |
+| I-05 | Média | Dependências e Riscos | Seção ausente; riscos de integração com blockchain e sidechain não foram mapeados. |
+| I-06 | Média | Constraints Técnicos | Seção ausente; requisitos de compatibilidade, escalabilidade e segurança não foram detalhados. |
+| I-07 | Baixa | Público‑Alvo | Seção ausente; não há descrição do usuário final ou personas. |
+| I-08 | Baixa | Documentação de API | Falta de especificação de endpoints completos (ex.: GET /books, GET /users). |
+| I-09 | Baixa | Testes | Seção de testes e critérios de aceitação não foram incluídos. |
+| I-10 | Baixa | Glossário | Ausência de definições de termos técnicos (NFT, ERC‑721, sidechain). |
+
+## Verificação de Requisitos  
+| Requisito | Presente | Completo | Observação |
+|---|---|---|---|
+| Público‑Alvo | Não | — | Seção ausente. |
+| RFs (Requisitos Funcionais) | Sim | Parcial | RF‑04 incompleto; outros RFs bem definidos. |
+| RNFs (Requisitos Não‑Funcionais) | Sim | Parcial | RNF‑01 incompleto; outras RNFs não listadas. |
+| Escopo MVP | Não | — | Seção ausente. |
+| Métricas de Sucesso | Não | — | Seção ausente. |
+
+## Sumário  
+O PRD demonstra uma boa intenção ao combinar blockchain, NFTs e um sistema de reputação para bibliotecas descentralizadas. Entretanto, a falta de seções essenciais como Escopo MVP, Métricas de Sucesso, Dependências, Riscos e Constraints técnicos compromete a viabilidade do projeto. Os requisitos funcionais e não‑funcionais estão parcialmente definidos, mas apresentam lacunas críticas, especialmente nos critérios de aceite e métricas de desempenho. A documentação de API e a definição de público‑alvo também estão ausentes, dificultando a avaliação de usabilidade e adoção.
+
+## Recomendação  
+**APROVADO COM RESSALVAS** – O PRD possui fundamentos sólidos, mas requer revisão e adição de seções críticas antes de avançar para a fase de design e implementação. A equipe deve completar o Escopo MVP, definir métricas de sucesso, documentar dependências, riscos e constraints, além de finalizar os critérios de aceite e a documentação de API.
+
+Proponente:
+## Pontos Aceitos
+- I-01: Escopo MVP ausente  
+- I-02: Métricas de Sucesso ausentes  
+- I-03: Requisitos Funcionais truncados  
+- I-04: Requisitos Não‑Funcionais incompletos  
+- I-05: Dependências e Riscos não definidos  
+
+## Defesa Técnica
+- O PRD já define os princípios arquiteturais e o objetivo, permitindo iniciar a prototipagem de smart contracts e a definição de interfaces de usuário, mitigando riscos de atraso no desenvolvimento inicial.  
+
+## Melhorias Propostas
+| Área | Mudança | Justificativa |
+|---|---|---|
+| Escopo MVP | Definir funcionalidades mínimas: cadastro de livros, emissão de NFT, registro de empréstimo e devolução, cálculo de reputação | Garante entregas tangíveis e validação de conceito |
+| Métricas de Sucesso | Estabelecer KPIs: taxa de adoção, número de transações por dia, tempo médio de processamento, taxa de churn | Permite medir impacto e orientar melhorias |
+| Dependências e Riscos | Listar tecnologias: Ethereum, Polygon, IPFS; riscos: volatilidade de gás, escalabilidade, compliance | Facilita planejamento de mitigação e orçamento |
+| Constraints Técnicos | Definir limites: gas limit, tamanho de payload, compatibilidade de wallets | Assegura performance e usabilidade consistente |
+
+Crítico:
+## Score de Qualidade  
+4/10 – O PRD apresenta a ideia central e alguns requisitos, mas carece de seções críticas, métricas e detalhes de implementação, comprometendo a clareza e a viabilidade do projeto.
+
+## Issues Identificadas  
+| ID | Severidade | Seção | Descrição |
+|---|---|---|---|
+| I-01 | Alta | Requisitos Funcionais | Tabela truncada; critérios de aceite incompletos e ausência de descrição de fluxo de empréstimo e devolução. |
+| I-02 | Alta | Requisitos Não‑Funcionais | RNFs incompletos; métricas e targets não definidos, impossibilitando avaliação de desempenho. |
+| I-03 | Alta | Escopo MVP | Seção ausente; não há definição de funcionalidades mínimas a serem entregues. |
+| I-04 | Alta | Métricas de Sucesso | Seção ausente; não há KPIs ou critérios de sucesso mensuráveis. |
+| I-05 | Média | Dependências e Riscos | Seção ausente; não há identificação de dependências externas, riscos técnicos ou mitigação. |
+| I-06 | Média | Constraints Técnicos | Seção ausente; não há restrições de tecnologia, compliance ou governança. |
+| I-07 | Baixa | Documentação | Falta de diagramas de fluxo, modelo de dados e documentação de API, dificultando a comunicação com a equipe de desenvolvimento. |
+
+## Verificação de Requisitos  
+| Requisito | Presente | Completo | Observação |
+|---|---|---|---|
+| Público‑Alvo | Não | Não | Não há definição de personas ou segmentos de usuários. |
+| Requisitos Funcionais | Sim | Parcial | Tabela truncada e critérios de aceite incompletos. |
+| Requisitos Não‑Funcionais | Sim | Parcial | Métricas e targets não definidos. |
+| Escopo MVP | Não | Não | Seção ausente. |
+| Métricas de Sucesso | Não | Não | Seção ausente. |
+
+## Sumário  
+O PRD demonstra uma proposta inovadora de biblioteca descentralizada, com foco em transparência e reputação de leitores. Contudo, a falta de seções essenciais como Escopo MVP, Métricas de Sucesso, Dependências e Riscos, e Constraints Técnicos impede a avaliação completa do projeto. Os requisitos funcionais e não‑funcionais estão parcialmente definidos, mas carecem de critérios de aceite claros e métricas de desempenho. A ausência de documentação detalhada e de diagramas dificulta a comunicação entre as equipes de produto e engenharia. Para avançar, é necessário completar as seções faltantes e refinar os requisitos existentes.
+
+## Recomendação  
+APROVADO COM RESSALVAS – O PRD apresenta a visão e alguns requisitos, mas requer a inclusão de seções críticas (Escopo MVP, Métricas, Dependências, Constraints) e a finalização dos requisitos funcionais e não‑funcionais antes de prosseguir para a fase de prototipagem.
+
+Proponente:
+## Pontos Aceitos
+- I-01: Requisitos Funcionais incompletos e ausência de critérios de aceite.
+- I-02: Requisitos Não‑Funcionais sem métricas e targets definidos.
+- I-03: Escopo MVP ausente; funcionalidades mínimas não identificadas.
+- I-04: Métricas de Sucesso não estabelecidas; KPIs inexistentes.
+
+## Defesa Técnica
+- A arquitetura proposta já contempla smart contracts em Solidity, garantindo descentralização e imutabilidade; a falta de detalhes não invalida o conceito.
+- Os requisitos não‑funcionais serão especificados em fase de refinamento, alinhando com práticas de DevOps e testes automatizados.
+- O Escopo MVP será derivado de prioridades de stakeholders (P0, P1, P2) e validado via prototipagem rápida.
+- Métricas de sucesso serão definidas em conjunto com a equipe de produto, utilizando indicadores de adoção, taxa de devolução pontual e score de reputação.
+
+## Melhorias Propostas
+| Área | Mudança | Justificativa |
+|---|---|---|
+| Escopo MVP | Definir 3 funcionalidades essenciais: cadastro de livro, empréstimo via NFT, devolução com cálculo de multa. | Garante entregas tangíveis e validação de conceito. |
+| Métricas de Sucesso | Estabelecer KPIs: % de transações concluídas, tempo médio de empréstimo, taxa de devolução pontual, variação do score de reputação. | Permite medir impacto e ajustar roadmap. |
+| Dependências e Riscos | Listar dependências externas: provedor de layer‑2, oráculos de data, integração com IPFS. Identificar riscos: volatilidade de gás, escalabilidade de contrato. | Facilita mitigação e planejamento de contingência. |
+| Constraints Técnicos | Definir limites de gás, tamanho máximo de dados no contrato, requisitos de compatibilidade de wallet. | Garante viabilidade técnica e experiência do usuário. |
+
+Crítico:
+## Score de Qualidade  
+**4/10** – O documento apresenta a ideia central e alguns requisitos, mas falta estrutura, detalhes e métricas essenciais, comprometendo a viabilidade de execução.
+
+## Issues Identificadas  
+| ID | Severidade | Seção | Descrição |
+|----|------------|-------|-----------|
+| I‑01 | Alta | Requisitos Funcionais | Critérios de aceite incompletos e truncados (ex.: RF‑04). |
+| I‑02 | Alta | Requisitos Não‑Funcionais | Métricas e targets ausentes; RNF‑01 está cortado. |
+| I‑03 | Alta | Escopo MVP | Seção totalmente ausente; não há definição de funcionalidades mínimas. |
+| I‑04 | Alta | Métricas de Sucesso | Nenhum KPI ou métrica de sucesso estabelecido. |
+| I‑05 | Média | Público‑Alvo | Seção não incluída; não há descrição de quem usa o sistema. |
+| I‑06 | Média | Dependências e Riscos | Seção faltante; riscos de blockchain, custos de gas, e interoperabilidade não analisados. |
+| I‑07 | Média | Constraints Técnicos | Ausência de requisitos de segurança, compatibilidade e escalabilidade. |
+| I‑08 | Baixa | Testes e Validação | Não há plano de testes, critérios de aceitação ou métricas de qualidade. |
+| I‑09 | Baixa | Documentação de API | Endpoints listados sem especificação de payloads, headers ou exemplos. |
+| I‑10 | Baixa | Glossário | Termos técnicos (NFT, smart contract) não explicados para leitores não técnicos. |
+
+## Verificação de Requisitos  
+| Requisito | Presente | Completo | Observação |
+|-----------|----------|----------|------------|
+| Público‑Alvo | ❌ | — | Seção ausente. |
+| Requisitos Funcionais | ✅ | Parcial | RF‑04 e demais estão truncados; critérios de aceite incompletos. |
+| Requisitos Não‑Funcionais | ✅ | Parcial | RNF‑01 cortado; métricas e targets não definidos. |
+| Escopo MVP | ❌ | — | Seção faltante. |
+| Métricas de Sucesso | ❌ | — | Nenhum KPI ou métrica estabelecida. |
+| Dependências e Riscos | ❌ | — | Seção ausente. |
+| Constraints Técnicos | ❌ | — | Seção ausente. |
+
+## Sumário  
+O PRD demonstra uma proposta inovadora de biblioteca descentralizada, mas carece de estrutura e detalhamento. Os requisitos funcionais e não‑funcionais estão incompletos, com critérios de aceite truncados e métricas indefinidas. A ausência de seções críticas como Escopo MVP, Métricas de Sucesso, Dependências, Riscos e Constraints técnicos impede a avaliação de viabilidade e planejamento. Sem público‑alvo definido, o documento não orienta o desenvolvimento nem a validação de valor para os usuários.  
+
+## Recomendação  
+**REPROVADO**  
+O artefato não atende ao nível mínimo de maturidade exigido para prosseguir. É necessário reescrever o PRD, completando todas as seções obrigatórias, definindo métricas, riscos e público‑alvo antes de avançar para a fase de design e implementação.
+
+
+## Decisões Aplicáveis (Síntese)
+
+| Round | Tipo | Decisão | Justificativa |
+|---|---|---|---|
+| R1 | ACEITO | Iniciar a defesa técnica do projeto. | Proponente concordou |
+| R1 | MELHORIA | Escalabilidade: Adotar zk‑rollups na sidechain | Reduz tráfego on‑chain e mantém segurança, permitindo milhar |
+| R1 | MELHORIA | Reputação: Calcular pontuação via oráculo off‑chain | Evita sobrecarga de gás e permite algoritmos complexos de an |
+| R1 | MELHORIA | Catálogo: Armazenar metadados em IPFS | Garante disponibilidade e descentralização, sem custo de arm |
+| R1 | MELHORIA | UX: Implementar wallet‑connect e metamask | Facilita onboarding de usuários não técnicos, aumentando ado |
+| R1 | MELHORIA | Segurança: Revisão de código por auditoria externa | Minimiza vulnerabilidades em contratos críticos, assegurando |
+| R1 | MELHORIA | Governança: Criar DAO de usuários para decisões de catálogo | Alinha interesses dos leitores e bibliotecas, promovendo evo |
+| R2 | ACEITO | I-01: Escopo MVP ausente | Proponente concordou |
+| R2 | ACEITO | I-02: Métricas de Sucesso ausentes | Proponente concordou |
+| R2 | ACEITO | I-03: Requisitos Funcionais truncados | Proponente concordou |
+| R2 | ACEITO | I-04: Requisitos Não‑Funcionais incompletos | Proponente concordou |
+| R2 | ACEITO | I-05: Dependências e Riscos não definidos | Proponente concordou |
+| R2 | MELHORIA | Escopo MVP: Definir funcionalidades mínimas: cadastro de livros, emissão | Garante entregas tangíveis e validação de conceito |
+| R2 | MELHORIA | Métricas de Sucesso: Estabelecer KPIs: taxa de adoção, número de transações por d | Permite medir impacto e orientar melhorias |
+| R2 | MELHORIA | Dependências e Riscos: Listar tecnologias: Ethereum, Polygon, IPFS; riscos: volatil | Facilita planejamento de mitigação e orçamento |
+| R2 | MELHORIA | Constraints Técnicos: Definir limites: gas limit, tamanho de payload, compatibilid | Assegura performance e usabilidade consistente |
+| R3 | ACEITO | I-01: Requisitos Funcionais incompletos e ausência de critérios de aceite. | Proponente concordou |
+| R3 | ACEITO | I-02: Requisitos Não‑Funcionais sem métricas e targets definidos. | Proponente concordou |
+| R3 | ACEITO | I-03: Escopo MVP ausente; funcionalidades mínimas não identificadas. | Proponente concordou |
+| R3 | ACEITO | I-04: Métricas de Sucesso não estabelecidas; KPIs inexistentes. | Proponente concordou |
+| R3 | MELHORIA | Escopo MVP: Definir 3 funcionalidades essenciais: cadastro de livro, emp | Garante entregas tangíveis e validação de conceito. |
+| R3 | MELHORIA | Métricas de Sucesso: Estabelecer KPIs: % de transações concluídas, tempo médio de | Permite medir impacto e ajustar roadmap. |
+| R3 | MELHORIA | Dependências e Riscos: Listar dependências externas: provedor de layer‑2, oráculos  | Facilita mitigação e planejamento de contingência. |
+| R3 | MELHORIA | Constraints Técnicos: Definir limites de gás, tamanho máximo de dados no contrato, | Garante viabilidade técnica e experiência do usuário. |
+
+*Total de decisões extraídas: 24*
+
+
+
+## Estado Final do Debate
+
+- **Total de issues rastreados:** 0
+- **Resolvidos/Aceitos:** 0
+- **Ainda abertos:** 0
+- **Bloqueantes (HIGH+OPEN):** ✅ NÃO
+
+### ✅ Todos os issues foram resolvidos durante o debate.
+
+---
+
+<a id='development_plan'></a>
+
+## DEVELOPMENT PLAN
+**Criado por:** plan_generator | **Versão:** 1
+
+## Arquitetura Sugerida
+- Estilo: Microsserviços  
+- Componentes: API Gateway, Auth Service, Book Service, Loan Service, Reputation Service, Notification Service, Blockchain Interaction Service, PostgreSQL, Kafka, Redis  
+- Justificativa: ADR-01, ADR-02, ADR-03  
+
+## Módulos Core
+| Módulo | Responsabilidade | Prioridade | Requisitos (RF-XX) | Estimativa (dias) |
+|---|---|---|---|---|
+| Auth Service | Autenticação, assinatura digital | Must | RF-10 | 5 |
+| Book Service | Catálogo, mint NFT | Must | RF-01, RF-02 | 7 |
+| Loan Service | Empréstimo, devolução, limite | Must | RF-04, RF-05, RF-11 | 8 |
+| Reputation Service | Cálculo de pontuação, recompensas | Must | RF-06, RF-07 | 6 |
+| Notification Service | Alertas de atraso | Must | RF-09 | 4 |
+| Blockchain Interaction Service | Interação com smart contracts | Must | RF-02, RF-04, RF-05 | 6 |
+
+## Fases de Implementação
+| Fase | Duração | Entregas Concretas | Critério de Conclusão | Dependência |
+|---|---|---|---|---|
+| Setup | 5 dias | Repo, CI, infra, health checks | Todos testes unitários passam | Nenhuma |
+| Core | 10 dias | Skeletons, DB schema, endpoints básicos | Cobertura unitária ≥80% | Setup |
+| Integração | 8 dias | Comunicação entre serviços, blockchain | Integração tests passam | Core |
+| Testes | 5 dias | Testes completos, carga, segurança | Métricas de performance atendidas | Integração |
+| Deploy | 3 dias | Docker Compose, K8s manifests | Deploy em staging funcional | Testes |
+
+## Dependências Técnicas
+| Dependência | Versão | Propósito | Alternativa |
+|---|---|---|---|
+| NestJS | 10.0 | API framework | Express |
+| PostgreSQL | 15 | Banco relacional | MySQL |
+| Kafka | 3.3 | Mensageria | RabbitMQ |
+| Redis | 7.2 | Cache, pub/sub | Memcached |
+| Hardhat | 2.12 | Testes e deploy de contratos | Truffle |
+| Solidity | 0.8.20 | Smart contracts | Vyper |
+| ECDSA | 2023 | Assinatura digital | RSA |
+| Docker | 20 | Containerização | Podman |
+| Kubernetes | 1.28 | Orquestração | Nomad |
+| Terraform | 1.8 | Infra como código | Pulumi |
+
+## Configurações de Ambiente
+| Variável | Obrigatória | Default | Descrição |
+|---|---|---|---|
+| DATABASE_URL | Sim | A DEFINIR | Conexão PostgreSQL |
+| REDIS_URL | Sim | A DEFINIR | Conexão Redis |
+| KAFKA_BROKER | Sim | A DEFINIR | Endereço Kafka |
+| BLOCKCHAIN_RPC | Sim | A DEFINIR | RPC da sidechain |
+| JWT_PRIVATE_KEY | Sim | A DEFINIR | Chave privada ECDSA |
+| JWT_PUBLIC_KEY | Sim | A DEFINIR | Chave pública ECDSA |
+| NODE_ENV | Sim | production | Ambiente de execução |
+| PORT | Não | 3000 | Porta do serviço |
+
+## Riscos e Mitigações (consolidado)
+| ID | Risco | Fonte | Impacto | Mitigação | Owner |
+|---|---|---|---|---|---|
+| R-01 | Smart contract upgradeability | Design | Alto | Proxy padrão, auditoria | Lead Dev |
+| R-02 | Congestion na Layer‑2 | Design | Médio | Batch de transações, fallback L1 | DevOps |
+| R-03 | Inconsistência DB‑Blockchain | Design | Alto | Event listeners idempotentes, reconciliador | Backend Lead |
+| R-04 | Falha de auditoria de contrato | Security | Alto | Auditoria externa, testes fuzz | Security Lead |
+| R-05 | Latência de rede entre serviços | Infra | Médio | Deploy regional, CDN | Infra Lead |
+| R-06 | Perda de dados em Kafka | Infra | Médio | Replicação, checkpoints | Kafka Admin |
+
+## Plano de Testes
+| Tipo | Escopo | Ferramenta | Cobertura Mínima |
+|---|---|---|---|
+| Unit | Todos os módulos | Jest, Supertest | 80% |
+| Integração | Comunicação entre serviços | Jest, Kafka-mock | 70% |
+| E2E | Fluxo completo | Postman, Cypress | 90% |
+| Performance | Taxa de transações | k6 | 95% TPS |
+| Segurança | Injeção, XSS, CSRF | OWASP ZAP | 100% |
+
+## Guia de Replicação
+1. Pré-requisitos: Node 20, Docker 20, Docker Compose 2, PostgreSQL 15, Kafka 3.3, Redis 7.2, Hardhat 2.12, Solidity 0.8.20, Terraform 1.8  
+2. Instalação:  
+   ```bash
+   git clone https://repo.url/library-system.git
+   cd library-system
+   npm install
+   docker-compose up -d
+   ```  
+3. Configuração:  
+   ```bash
+   cp .env.example .env
+   # editar .env com variáveis acima
+   ```  
+4. Execução:  
+   ```bash
+   npm run start:dev
+   ```  
+5. Verificação:  
+   ```bash
+   curl http://localhost:3000/health
+   # logs de Kafka e blockchain devem indicar eventos de mint e transfer
+   ```
+
+---
+
+<a id='consistency_report'></a>
+
+## CONSISTENCY REPORT
+**Criado por:** consistency_checker | **Versão:** 1
+
+## Relatório de Consistência
+
+### ❌ Seções com Marcadores de Falha
+
+- ## PRD_FINAL — GERAÇÃO FALHOU
+
+### ❌ Seções Obrigatórias Ausentes (CRITICAL)
+
+Completude: 0% (0/20 seções presentes)
+
+Seções faltantes:
+- ## Visão do Produto
+- ## Problema e Solução
+- ## Público-Alvo
+- ## Princípios Arquiteturais
+- ## Diferenciais
+- ## Requisitos Funcionais
+- ## Requisitos Não-Funcionais
+- ## Arquitetura e Tech Stack
+- ## ADRs
+- ## Análise de Segurança
+- ## Escopo MVP
+- ## Riscos Consolidados
+- ## Métricas de Sucesso
+- ## Plano de Implementação
+- ## Decisões do Debate
+- ## Constraints Técnicos
+- ## Matriz de Rastreabilidade
+- ## Limitações Conhecidas
+- ## Guia de Replicação Resumido
+- ## Cláusula de Integridade
+
+**Ação:** Re-executar pipeline ou verificar modelo LLM.
+
+
+### Resultado Final
+
+❌ Auditadas 2 inconsistências:
+- CRITICAL: FAILED_SECTIONS
+- CRITICAL: MISSING_SECTIONS — 20 seções ausentes
+
+- **is_clean:** False
+- **has_critical:** True
+- **checks_executados:** 6
+
+---
+
+---
+
+## Relatório de Consistência (Auditoria Automática)
+
+## Relatório de Consistência
+
+### ❌ Seções com Marcadores de Falha
+
+- ## PRD_FINAL — GERAÇÃO FALHOU
+
+### ❌ Seções Obrigatórias Ausentes (CRITICAL)
+
+Completude: 0% (0/20 seções presentes)
+
+Seções faltantes:
+- ## Visão do Produto
+- ## Problema e Solução
+- ## Público-Alvo
+- ## Princípios Arquiteturais
+- ## Diferenciais
+- ## Requisitos Funcionais
+- ## Requisitos Não-Funcionais
+- ## Arquitetura e Tech Stack
+- ## ADRs
+- ## Análise de Segurança
+- ## Escopo MVP
+- ## Riscos Consolidados
+- ## Métricas de Sucesso
+- ## Plano de Implementação
+- ## Decisões do Debate
+- ## Constraints Técnicos
+- ## Matriz de Rastreabilidade
+- ## Limitações Conhecidas
+- ## Guia de Replicação Resumido
+- ## Cláusula de Integridade
+
+**Ação:** Re-executar pipeline ou verificar modelo LLM.
+
+
+### Resultado Final
+
+❌ Auditadas 2 inconsistências:
+- CRITICAL: FAILED_SECTIONS
+- CRITICAL: MISSING_SECTIONS — 20 seções ausentes
+
+- **is_clean:** False
+- **has_critical:** True
+- **checks_executados:** 6
+
+## Métricas de Qualidade (NEXUS Calibration)
+
+| Artefato | Density | Completude | Tabelas | Tokens |
+|---|---|---|---|---|
+| PRD_FINAL | 0.50 | 0% | 0 | 57 |
+| PRD | 0.98 | 100% | 14 | 949 |
+| PRD_REVIEW | 0.96 | 100% | 4 | 621 |
+| SYSTEM_DESIGN | 0.99 | 100% | 16 | 1282 |
+| SECURITY_REVIEW | 0.50 | 0% | 0 | 51 |
+| DEBATE_TRANSCRIPT | 0.00 | 0% | 0 | 4059 |
+| DEVELOPMENT_PLAN | 0.89 | 100% | 15 | 1060 |
+| CONSISTENCY_REPORT | 0.00 | 0% | 0 | 242 |
+
+---
+*Gerado via IdeaForge CLI — Calibração NEXUS Fase 7.1*

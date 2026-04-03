@@ -4,11 +4,48 @@ Cada extrator recebe o conteúdo completo de um artefato e retorna
 apenas o trecho relevante para uma seção específica do PRD_FINAL.
 """
 import re
-from typing import Optional
+from typing import Optional, List, Dict
+
+
+def _parse_markdown_table(table_str: str) -> List[Dict]:
+    """
+    Converte uma tabela markdown (string) em uma lista de dicionários.
+    Assume que a primeira linha é o header e a segunda é o separador |---| .
+    """
+    if not table_str or "|" not in table_str:
+        return []
+    
+    lines = [l.strip() for l in table_str.strip().split("\n") if l.strip().startswith("|")]
+    if len(lines) < 3: # Header + Separator + At least one row
+        return []
+        
+    # Extrair headers e normalizar (remover acentos e lower)
+    import unicodedata
+    raw_headers = [h.strip() for h in lines[0].split("|") if h.strip()]
+    headers = []
+    for h in raw_headers:
+        # Remover acentos
+        h_norm = "".join(c for c in unicodedata.normalize('NFD', h)
+                        if unicodedata.category(c) != 'Mn')
+        headers.append(h_norm.lower())
+    
+    results = []
+    # Pular header e separador
+    for line in lines[2:]:
+        cols = [c.strip() for c in line.split("|") if c.strip()]
+        row_dict = {}
+        for i, header in enumerate(headers):
+            val = cols[i] if i < len(cols) else ""
+            row_dict[header] = val
+        results.append(row_dict)
+        
+    return results
 
 
 def _extract_section(content: str, header: str, max_chars: int = 1600) -> str:
     """Extrai conteúdo sob um header markdown ## ou ### de forma robusta."""
+    if not content:
+        return ""
     lines = content.split('\n')
     start_idx = -1
     header_lower = header.lower()
@@ -53,6 +90,125 @@ def _extract_table(content: str, header: str, max_chars: int = 1600) -> str:
         return result
     # Fallback se não for tabela mas for seção curta
     return section[:max_chars]
+
+
+def extract_personas_from_prd(prd: str) -> List[Dict]:
+    """Extrai personas da tabela de Público-Alvo do PRD original."""
+    table_str = _extract_table(prd, "Público-Alvo", max_chars=3000)
+    data = _parse_markdown_table(table_str)
+    
+    # Mapear para chaves esperadas: segmento, perfil, prioridade
+    results = []
+    for d in data:
+        results.append({
+            "segmento": d.get("segmento", d.get("público", d.get("perfil", "N/A"))),
+            "perfil": d.get("perfil", d.get("descrição", d.get("dor", "N/A"))),
+            "prioridade": d.get("prioridade", d.get("nível", "P1"))
+        })
+    return results
+
+
+def extract_rfs_from_prd(prd: str) -> List[Dict]:
+    """Extrai RFs da tabela de Requisitos Funcionais do PRD original."""
+    table_str = _extract_table(prd, "Requisitos Funcionais", max_chars=4000)
+    data = _parse_markdown_table(table_str)
+    
+    results = []
+    for d in data:
+        results.append({
+            "id": d.get("id", "RF-XX"),
+            "req": d.get("requisito", d.get("descrição", "N/A")),
+            "criterio": d.get("critério", d.get("critério de aceite", "N/A")),
+            "prioridade": d.get("prioridade", "Must"),
+            "complexidade": d.get("complexidade", "Média")
+        })
+    return results
+
+
+def extract_adrs_from_design(system_design: str) -> List[Dict]:
+    """Extrai ADRs do system_design."""
+    table_str = _extract_table(system_design, "ADRs", max_chars=3000)
+    if not table_str:
+        table_str = _extract_table(system_design, "Decisões Arquiteturais", max_chars=3000)
+        
+    data = _parse_markdown_table(table_str)
+    results = []
+    for d in data:
+        results.append({
+            "titulo": d.get("titulo", d.get("decisão", d.get("decisao", "N/A"))),
+            "status": d.get("status", "Aceito"),
+            "contexto": d.get("contexto", "N/A"),
+            "consequencias": d.get("consequencias", d.get("consequências", "N/A"))
+        })
+    return results
+
+
+def extract_threats_from_security(security_review: str) -> List[Dict]:
+    """Extrai ameaças STRIDE do security_review."""
+    table_str = _extract_table(security_review, "Ameaças Identificadas", max_chars=3000)
+    if not table_str:
+        table_str = _extract_table(security_review, "STRIDE", max_chars=3000)
+        
+    data = _parse_markdown_table(table_str)
+    results = []
+    for d in data:
+        results.append({
+            "id": d.get("id", "S-XX"),
+            "ameaca": d.get("ameaça", d.get("ameaca", d.get("tipo", "N/A"))),
+            "componente": d.get("componente", "Geral"),
+            "severidade": d.get("severidade", "Média"),
+            "mitigacao": d.get("mitigação", d.get("mitigacao", "N/A"))
+        })
+    return results
+
+
+def extract_metrics_from_prd(prd: str) -> List[Dict]:
+    """Extrai métricas de sucesso do PRD original."""
+    table_str = _extract_table(prd, "Métricas de Sucesso", max_chars=2000)
+    data = _parse_markdown_table(table_str)
+    results = []
+    for d in data:
+        results.append({
+            "metrica": d.get("métrica", d.get("metrica", "N/A")),
+            "target": d.get("target", d.get("meta", "N/A")),
+            "como_medir": d.get("como medir", d.get("medição", "N/A"))
+        })
+    return results
+
+
+def extract_phases_from_plan(plan: str) -> List[Dict]:
+    """Extrai fases do development_plan."""
+    table_str = _extract_table(plan, "Fases de Implementação", max_chars=3000)
+    if not table_str:
+        table_str = _extract_table(plan, "Fases", max_chars=3000)
+        
+    data = _parse_markdown_table(table_str)
+    results = []
+    for d in data:
+        results.append({
+            "fase": d.get("fase", d.get("etapa", "N/A")),
+            "duracao": d.get("duração", d.get("duracao", "N/A")),
+            "entregas": d.get("entregas", "N/A"),
+            "dependencia": d.get("dependência", d.get("dependencia", "N/A"))
+        })
+    return results
+
+
+def extract_decisions_from_debate(debate: str) -> List[Dict]:
+    """Extrai decisões da tabela de Decisões Aplicáveis."""
+    table_str = _extract_table(debate, "Decisões Aplicáveis", max_chars=3000)
+    if not table_str:
+        table_str = _extract_table(debate, "Decisões", max_chars=3000)
+        
+    data = _parse_markdown_table(table_str)
+    results = []
+    for d in data:
+        results.append({
+            "decisao": d.get("decisão", d.get("decisao", d.get("tópico", "N/A"))),
+            "consenso": d.get("consenso", d.get("resolução", "N/A")),
+            "impacto": d.get("impacto", "N/A")
+        })
+    return results
 
 
 def extract_for_arquitetura_tech_stack(system_design: str) -> str:

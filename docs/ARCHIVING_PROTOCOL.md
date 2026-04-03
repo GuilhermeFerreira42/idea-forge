@@ -35,9 +35,9 @@ Após a conclusão e validação de cada nova fase do projeto.
 ### 5. limpeza do projeto
 - Mova os scripts de verificação para a pasta adequada
 - elimine os arquivos que não são mais necessários
-- mova o blueprint da fase para a pasta adequada
-- renomeie o arquivo do blueprint para document.resolved
-- copie para a pasta da fase o arquivo walkthrough.md.resolved
+- mova o(s) blueprint(s) da fase para a pasta adequada
+- renomeie o(s) arquivo(s) do blueprint para document.resolved
+- copie para a pasta da fase o(s) arquivo(s) walkthrough.md.resolved
 - deixe tudo em pt-br
 
 ### 5b. Manutenção do Backlog Estratégico

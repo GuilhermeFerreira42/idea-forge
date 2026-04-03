@@ -92,7 +92,7 @@ class OllamaProvider(ModelProvider):
             # Emitir estado: início da geração
             mode_label = "reasoning" if self.think else "direto"
             sys.stdout.write(
-                f"{ANSIStyle.CYAN}⏳ Gerando com {self.model_name} "
+                f"{ANSIStyle.CYAN}[GERANDO] Gerando com {self.model_name} "
                 f"(modo {mode_label})...{ANSIStyle.RESET}\n"
             )
             sys.stdout.flush()

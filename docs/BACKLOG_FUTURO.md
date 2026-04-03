@@ -49,16 +49,16 @@
 
 | ID | Técnica | Descrição | Arquivos Impactados | Critério de Aceite | Status |
 |---|---|---|---|---|---|
-| W2-01 | Retry com Validador Acoplado | Cada micro-tarefa recebe validador que checa: conteúdo existe, tamanho mínimo, tabelas têm colunas certas, sem placeholders, sem repetição de outra seção. Falha dispara retry com feedback | Novo: `src/core/task_validator.py`. Modificado: `sectional_generator.py` | Cada micro-tarefa tem validador. Taxa de retry < 20% (max 1 em 5 precisa segunda tentativa) | PENDENTE |
-| W2-02 | Retry Escalonado em 3 Níveis | Nível 1: mesmo prompt, retry simples. Nível 2: prompt reformulado com exemplo inline. Nível 3: fallback para template estático preenchido com dados extraídos | Novo: `src/core/retry_orchestrator.py` | 3 níveis implementados. Nível 3 (fallback) garante que nenhuma seção fica vazia. Log indica qual nível foi usado | PENDENTE |
-| W2-03 | Deduplicação Automática | Antes de gerar qualquer seção, orquestrador verifica se conteúdo equivalente já foi gerado em outra passagem e pula se redundante | `sectional_generator.py`, `retry_orchestrator.py` | Zero seções duplicadas em 3 execuções consecutivas | PENDENTE |
-| W2-04 | Skeleton-then-Flesh Sistematizado | Para seções críticas (Riscos, ADRs, Componentes, Extensibilidade, Guia de Replicação): Pass A gera outline com 12-15 bullet points; Pass B expande cada bullet em parágrafo detalhado | `sectional_generator.py` — passes de outline+expansão | Seções críticas têm outline >= 12 pontos. Expansão produz >= 3.000 chars por seção crítica | PENDENTE |
+| W2-01 | Retry com Validador Acoplado | Cada micro-tarefa recebe validador que checa: conteúdo existe, tamanho mínimo, tabelas têm colunas certas, sem placeholders, sem repetição de outra seção. Falha dispara retry com feedback | Novo: `src/core/task_validator.py`. Modificado: `sectional_generator.py` | Cada micro-tarefa tem validador. Taxa de retry < 20% (max 1 em 5 precisa segunda tentativa) | CONCLUÍDO |
+| W2-02 | Retry Escalonado em 3 Níveis | Nível 1: mesmo prompt, retry simples. Nível 2: prompt reformulado com exemplo inline. Nível 3: fallback para template estático preenchido com dados extraídos | Novo: `src/core/retry_orchestrator.py` | 3 níveis implementados. Nível 3 (fallback) garante que nenhuma seção fica vazia. Log indica qual nível foi usado | CONCLUÍDO |
+| W2-03 | Deduplicação Automática | Antes de gerar qualquer seção, orquestrador verifica se conteúdo equivalente já foi gerado em outra passagem e pula se redundante | `sectional_generator.py`, `retry_orchestrator.py` | Zero seções duplicadas em 3 execuções consecutivas | CONCLUÍDO |
+| W2-04 | Skeleton-then-Flesh Sistematizado | Para seções críticas (Riscos, ADRs, Componentes, Extensibilidade, Guia de Replicação): Pass A gera outline com 12-15 bullet points; Pass B expande cada bullet em parágrafo detalhado | `sectional_generator.py` — passes de outline+expansão | Seções críticas têm outline >= 12 pontos. Expansão produz >= 3.000 chars por seção crítica | CONCLUÍDO |
 
 ### Meta da Onda 2
 - **Chars esperados:** 50.000-70.000
 - **Critério binário:** `is_clean: True` em 3 execuções consecutivas com modelo 20B E taxa de retry < 20%
 - **Pré-requisito:** Onda 1b concluída (is_clean: True estável)
-- **Status:** PENDENTE
+- **Status:** CONCLUÍDO — Onda 2 concluída com implementação de retry inteligente e validação automatizada.
 
 ---
 
