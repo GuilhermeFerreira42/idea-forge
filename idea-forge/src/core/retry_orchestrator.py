@@ -322,7 +322,8 @@ class RetryOrchestrator:
         
         return prd_final[:start] + replacement + prd_final[end:]
 
-    def _retry_level_2(self, section_info: Dict, artifacts: Dict, prd_final: str) -> Optional[str]:
+    def _retry_level_2(self, section_info: Dict, artifacts: Dict, prd_final: str,
+                        max_tokens_override: Optional[int] = None) -> Optional[str]:
         """Nível 2: Prompt reformulado com exemplo inline e contexto enriquecido."""
         heading = section_info["heading"]
         config = SECTION_RECOVERY_MAP.get(heading)
@@ -359,12 +360,13 @@ class RetryOrchestrator:
         if self.direct_mode:
             prompt += "\nRespond directly without <think> tags."
 
-        # 5. Chamar provider com max_tokens aumentado
+        # 5. Chamar provider com max_tokens dinâmico (FASE 9.7)
+        effective_max_tokens = max_tokens_override if max_tokens_override is not None else 1500
         try:
             result = self.provider.generate(
                 prompt=prompt,
                 role="product_manager",
-                max_tokens=1500
+                max_tokens=effective_max_tokens
             )
             
             # Limpar e validar minimamente

@@ -131,13 +131,24 @@ class ProductManagerAgent:
     def consolidate_prd(self, artifacts_context: str, original_idea: str = "") -> str:
         """
         FASE 9.2: Consolidação Granular (12 passes) com contexto seletivo.
+        FASE 9.7: Detecta perfil do modelo ativo e injeta no SectionalGenerator.
         """
         from src.core.sectional_generator import NEXUS_FINAL_PASSES
+        from src.core.prompt_profiles import PromptProfiles, PROFILE_LARGE  # FASE 9.7
+
         generator = SectionalGenerator(
             provider=self.provider,
             direct_mode=self.direct_mode
         )
-        
+
+        # FASE 9.7: Detectar perfil do modelo ativo
+        model_name = getattr(self.provider, "model_name", "")
+        active_profile = PromptProfiles.from_model_name(model_name)
+        self._emit(
+            f"[PROFILE] Perfil ativo: {active_profile.model_range} "
+            f"(max_tokens={active_profile.max_output_tokens})"
+        )
+
         # 1. Parsear artefatos em dicionário
         parsed = self._parse_artifact_sections(artifacts_context)
         
@@ -173,11 +184,12 @@ class ProductManagerAgent:
             
             pass_inputs.append(p_input)
 
-        # 3. Gerar via orquestrador seletivo
+        # 3. Gerar via orquestrador seletivo (FASE 9.7: passa perfil ativo)
         result = generator.generate_sectional_with_inputs(
             artifact_type="prd_final",
             pass_inputs=pass_inputs,
-            passes=NEXUS_FINAL_PASSES
+            passes=NEXUS_FINAL_PASSES,
+            profile=active_profile  # FASE 9.7: injeta perfil calibrado ao modelo
         )
         
         if result:

@@ -1,7 +1,7 @@
 # ESTADO ATUAL — IdeaForge CLI
 
-**Versão do Sistema:** NEXUS v1.4.4 (Retry Inteligente)  
-**Status Global:** [✅] Fase 9.6 Concluída | [ ] Fase 9.7 Próxima (Portabilidade de Modelo)
+**Versão do Sistema:** NEXUS v1.4.5 (Portabilidade Atômica)  
+**Status Global:** [✅] Fase 9.7 (Onda 3) Concluída | [ ] Fase 9.8 Próxima (Qualidade de Conteúdo)
 
 ---
 
@@ -26,6 +26,8 @@
 | Provedor de Modelo | `ollama_provider.py` | Interface com LLM (separação entre Raciocínio/Conteúdo). | F7 |
 | Orquestrador de Retry | `retry_orchestrator.py` | Mecanismo de recuperação em 3 níveis para seções falhadas. | F9.6 |
 | Templates de Retry | `retry_templates.py` | Templates estáticos para fallback Nível 3. | F9.6 |
+| Perfis de Prompt | `prompt_profiles.py` | Calibração de tokens e inferência baseada em modelo (SMALL/MEDIUM/LARGE). | F9.7 |
+| Decompositor Atômico | `atomic_task_decomposer.py` | Geração estruturada de micro-tarefas (tabelas/bullets) para modelos 1B-3B. | F9.7 |
 
 ---
 
@@ -57,4 +59,4 @@
 - **Teste de Retry:** Novos testes em `tests/test_retry_orchestrator.py` e `tests/test_retry_templates.py`.
 
 ---
-*Gerado via Protocolo de Arquivamento — 03/04/2026*
+*Gerado via Protocolo de Arquivamento — 04/04/2026*

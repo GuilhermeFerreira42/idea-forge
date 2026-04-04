@@ -66,16 +66,16 @@
 
 | ID | Técnica | Descrição | Arquivos Impactados | Critério de Aceite | Status |
 |---|---|---|---|---|---|
-| W3-01 | Calibração de Prompts por Faixa | Criar perfis de prompt por tamanho de modelo: 1B (prompts <= 300 tokens, 2 exemplos inline), 3B (prompts <= 500 tokens, 1 exemplo), 20B+ (prompts descritivos <= 1200 tokens) | Novo: `src/core/prompt_profiles.py`. Modificado: `sectional_generator.py` | 3 perfis de prompt funcionais. Seleção automática baseada no modelo configurado | PENDENTE |
-| W3-02 | Teste com Modelo 3B | Rodar pipeline completo com Qwen 2.5 de 3B. Medir taxa de sucesso na primeira tentativa, taxa de retry e taxa de fallback por seção | Configuração de modelo | is_clean: True com modelo 3B. Taxa de fallback < 30% | PENDENTE |
-| W3-03 | Teste com Modelo 1B-1.5B | Rodar pipeline com Qwen 2.5 de 1.5B ou gemma3:1b. Aceitar menor qualidade textual desde que estrutura seja válida | Configuração de modelo | is_clean: True com modelo 1.5B. PRD_FINAL estruturalmente completo mesmo que texto seja menos elaborado | PENDENTE |
-| W3-04 | Micro-Tarefas Atômicas | Decompor passagens que ainda falham em modelos pequenos em unidades menores: uma chamada por linha de tabela, um parágrafo por chamada. Montagem final por código | `sectional_generator.py`, `context_extractors.py` | Nenhuma chamada individual requer mais de 500 tokens de output. Modelo 1B consegue gerar cada fragmento | PENDENTE |
+| W3-01 | Calibração de Prompts por Faixa | Criar perfis de prompt por tamanho de modelo: 1B (prompts <= 300 tokens, 2 exemplos inline), 3B (prompts <= 500 tokens, 1 exemplo), 20B+ (prompts descritivos <= 1200 tokens) | Novo: `src/core/prompt_profiles.py`. Modificado: `sectional_generator.py` | 3 perfis de prompt funcionais. Seleção automática baseada no modelo configurado | CONCLUÍDO |
+| W3-02 | Teste com Modelo 3B | Rodar pipeline completo com Qwen 2.5 de 3B. Medir taxa de sucesso na primeira tentativa, taxa de retry e taxa de fallback por seção | Configuração de modelo | is_clean: True com modelo 3B. Taxa de fallback < 30% | CONCLUÍDO |
+| W3-03 | Teste com Modelo 1B-1.5B | Rodar pipeline com Qwen 2.5 de 1.5B ou gemma3:1b. Aceitar menor qualidade textual desde que estrutura seja válida | Configuração de modelo | is_clean: True com modelo 1.5B. PRD_FINAL estruturalmente completo mesmo que texto seja menos elaborado | CONCLUÍDO |
+| W3-04 | Micro-Tarefas Atômicas | Decompor passagens que ainda falham em modelos pequenos em unidades menores: uma chamada por linha de tabela, um parágrafo por chamada. Montagem final por código | `sectional_generator.py`, `context_extractors.py` | Nenhuma chamada individual requer mais de 500 tokens de output. Modelo 1B consegue gerar cada fragmento | CONCLUÍDO |
 
 ### Meta da Onda 3
 - **Chars esperados:** 35.000-50.000 com modelo 1B, 70.000+ com modelo 20B
 - **Critério binário:** `is_clean: True` com modelo de 3B E `is_clean: True` com modelo de 1.5B
 - **Pré-requisito:** Onda 2 concluída (orquestração com retry estável)
-- **Status:** PENDENTE
+- **Status:** CONCLUÍDO — Onda 3 concluída estabelecendo suporte atômico e calibração de prompts limitados para 1B-3B.
 
 ---
 

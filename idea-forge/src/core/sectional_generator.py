@@ -13,6 +13,10 @@ from src.models.model_provider import ModelProvider
 from src.core.stream_handler import ANSIStyle
 from src.core.output_validator import OutputValidator
 
+# FASE 9.7: Perfis de prompt e decomposição atômica
+from src.core.prompt_profiles import PromptProfile, PROFILE_LARGE, PromptProfiles
+from src.core.atomic_task_decomposer import AtomicTaskDecomposer
+
 # FASE 9.5: Importar exemplares do padrão ouro
 from src.core.exemplars.p01_visao_problemas import EXEMPLAR_P01
 from src.core.exemplars.p02_publico_alvo import EXEMPLAR_P02
@@ -61,6 +65,7 @@ class SectionalGenerator:
         self.provider = provider
         self.direct_mode = direct_mode
         self.validator = OutputValidator()
+        self._active_profile: Optional[PromptProfile] = None  # FASE 9.7
         self._validate_passes_config()
 
     def _validate_passes_config(self):
@@ -90,7 +95,13 @@ class SectionalGenerator:
     def generate_sectional(self, artifact_type: str,
                            user_input: str,
                            context: str = "",
-                           passes: List[SectionPass] = None) -> Optional[str]:
+                           passes: List[SectionPass] = None,
+                           profile: Optional[PromptProfile] = None) -> Optional[str]:
+        # FASE 9.7: Default para PROFILE_LARGE (preserva comportamento pré-fase)
+        if profile is None:
+            profile = PROFILE_LARGE
+        self._active_profile = profile  # FASE 9.7: Armazenar perfil ativo
+
         if passes is None:
             passes = self._get_default_passes(artifact_type)
 
@@ -138,7 +149,13 @@ class SectionalGenerator:
 
     def generate_sectional_with_inputs(self, artifact_type: str,
                                         pass_inputs: List[str],
-                                        passes: List[SectionPass]) -> Optional[str]:
+                                        passes: List[SectionPass],
+                                        profile: Optional[PromptProfile] = None) -> Optional[str]:
+        # FASE 9.7: Default para PROFILE_LARGE
+        if profile is None:
+            profile = PROFILE_LARGE
+        self._active_profile = profile  # FASE 9.7: Armazenar perfil ativo
+
         if not passes or len(passes) != len(pass_inputs):
             return None
 
@@ -185,7 +202,72 @@ class SectionalGenerator:
                                  previous_output: str,
                                  pass_number: int,
                                  total_passes: int) -> Optional[str]:
+        # FASE 9.7: Usar perfil ativo (default PROFILE_LARGE por compatibilidade)
+        profile = self._active_profile if self._active_profile is not None else PROFILE_LARGE
+
+        # FASE 9.7: Verificar se decomposição atômica é necessária
+        if self._should_use_atomic(section_pass, profile):
+            heading = section_pass.sections[0] if section_pass.sections else ""
+            self._emit(f"[ATOMIC] Ativando decomposição atômica para '{heading}'")
+
+            atomic = AtomicTaskDecomposer(
+                provider=self.provider,
+                profile=profile,
+            )
+            columns = AtomicTaskDecomposer.get_columns_for_section(heading)
+
+            if columns is not None:
+                rows = atomic.decompose_table_pass(
+                    section_heading=heading,
+                    columns=columns,
+                    context=user_input[:profile.max_context_chars],
+                    target_row_count=8,
+                    system_directive=(
+                        "Você é um gerador de documentação técnica. "
+                        "Responda em Português. "
+                        "Gere APENAS uma linha de tabela Markdown. "
+                        "Comece com | e termine com |."
+                    ),
+                )
+                atomic_result = atomic.assemble_table(heading=heading, columns=columns, rows=rows)
+            elif AtomicTaskDecomposer.is_bullet_section(heading):
+                bullet_labels = [f"Item {i+1}" for i in range(5)]
+                bullets = atomic.decompose_paragraph_pass(
+                    section_heading=heading,
+                    bullet_labels=bullet_labels,
+                    context=user_input[:profile.max_context_chars],
+                    system_directive=(
+                        "Responda em Português. Gere APENAS um bullet markdown. "
+                        "Comece com -."
+                    ),
+                )
+                atomic_result = atomic.assemble_bullets(heading=heading, bullets=bullets)
+            else:
+                atomic_result = None  # Seção não mapeada — cai no fluxo normal
+
+            if atomic_result and len(atomic_result) > 50:
+                validation = self.validator.validate_pass(
+                    content=atomic_result,
+                    expected_sections=section_pass.sections,
+                    require_table=section_pass.require_table,
+                    min_chars=section_pass.min_chars // 2,  # Limiar reduzido para SMALL
+                )
+                if validation["valid"]:
+                    return self._filter_section_output(atomic_result, section_pass.sections)
+            # Falha na validação atômica → retornar None (RetryOrchestrator assume)
+            # Apenas se não havia seção mapeada, cai no fluxo normal.
+            if atomic_result is not None:
+                return None
+
+        # Fluxo normal (não atômico)
         last_fail_reasons = []
+
+        # FASE 9.7: max_tokens dinâmico por perfil
+        effective_max_tokens = (
+            profile.max_output_tokens
+            if profile.model_range != "LARGE"
+            else section_pass.max_output_tokens
+        )
 
         for attempt in range(1, MAX_RETRIES_PER_PASS + 2):
             prompt = self._build_pass_prompt(
@@ -203,7 +285,7 @@ class SectionalGenerator:
             result = self.provider.generate(
                 prompt=prompt,
                 role=self._get_role(section_pass.pass_id),
-                max_tokens=section_pass.max_output_tokens
+                max_tokens=effective_max_tokens
             )
             result = self._clean_pass_output(result)
 
@@ -223,6 +305,30 @@ class SectionalGenerator:
 
         return None
 
+    def _should_use_atomic(
+        self,
+        section_pass: SectionPass,
+        profile: PromptProfile
+    ) -> bool:
+        """
+        Determina se a decomposição atômica deve ser usada para este pass.
+
+        Retorna True se e somente se:
+        - profile.use_atomic_decomposition == True
+        - section_pass.require_table == True
+
+        Args:
+            section_pass: Definição do pass atual
+            profile: Perfil de prompt ativo
+
+        Returns:
+            bool: True se decomposição atômica deve ser usada
+        """
+        return (
+            profile.use_atomic_decomposition is True
+            and section_pass.require_table is True
+        )
+
     def _get_role(self, pass_id: str) -> str:
         if pass_id.startswith("prd") or pass_id.startswith("final"): return "product_manager"
         if pass_id.startswith("design"): return "architect"
@@ -241,9 +347,19 @@ class SectionalGenerator:
                            user_input: str, context: str,
                            previous_output: str,
                            pass_number: int, total_passes: int) -> str:
+        # FASE 9.7: Usar perfil ativo para calibrar prompt por capacidade do modelo
+        profile = self._active_profile if self._active_profile is not None else PROFILE_LARGE
+
         if section_pass.pass_id.startswith("final"):
             from src.core.prompt_templates import CONSOLIDATOR_DIRECTIVE
-            system = CONSOLIDATOR_DIRECTIVE
+            if profile.system_prompt_mode == "FULL_SOP":
+                system = CONSOLIDATOR_DIRECTIVE
+            elif profile.system_prompt_mode == "HYBRID":
+                # HYBRID: versão resumida do SOP (primeiras 300 chars)
+                system = CONSOLIDATOR_DIRECTIVE[:300] + "\nResponda em Português. Use tabelas/bullets."
+            else:  # FEW_SHOT
+                # FEW_SHOT: instrução mínima para modelos 1B
+                system = "Responda em Português. Use tabelas Markdown. Comece com ##."
         else:
             system = "Responda em Português. Formato: Markdown com tabelas/bullets. Comece com ##."
 
@@ -252,12 +368,17 @@ class SectionalGenerator:
 
         prompt = f"System: {system}\n\n"
         prompt += f"GERE EXATAMENTE: {', '.join(section_pass.sections)}\n\n"
-        
-        exemplar = self._get_exemplar(section_pass.pass_id)
-        if exemplar: prompt += f"EXEMPLO:\n{exemplar}\n\n"
 
-        prompt += f"PROJETO:\n{user_input[:section_pass.input_budget]}\n\n"
-        
+        # FASE 9.7: Exemplar truncado ao perfil
+        exemplar = self._get_exemplar(section_pass.pass_id)
+        if exemplar:
+            exemplar_truncated = exemplar[:profile.max_exemplar_chars]
+            prompt += f"EXEMPLO:\n{exemplar_truncated}\n\n"
+
+        # FASE 9.7: Contexto com input_budget do perfil
+        effective_budget = profile.input_budget_override
+        prompt += f"PROJETO:\n{user_input[:effective_budget]}\n\n"
+
         if previous_output:
             prompt += f"JÁ GERADO:\n{previous_output[-1000:]}\n\n"
 

@@ -37,6 +37,14 @@ class OllamaProvider(ModelProvider):
             kw in model_name.lower() for kw in REASONING_MODEL_KEYWORDS
         )
 
+        # FASE 9.7: Detectar faixa do modelo para seleção de perfil de prompt
+        from src.core.prompt_profiles import PromptProfiles
+        self.model_range = PromptProfiles.detect_range(self.model_name)
+        sys.stdout.write(
+            f"{ANSIStyle.CYAN}[PROFILE] Modelo '{self.model_name}' → faixa {self.model_range}{ANSIStyle.RESET}\n"
+        )
+        sys.stdout.flush()
+
     def generate(self, prompt: str, context: list = None, 
                  role: str = "user", max_tokens: Optional[int] = None) -> str:
         """

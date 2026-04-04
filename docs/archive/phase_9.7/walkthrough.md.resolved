@@ -1,0 +1,36 @@
+# Walkthrough — Fase 9.7 (Onda 3: Portabilidade de Modelo)
+
+Nesta fase, implementamos a infraestrutura necessária para que o IdeaForge funcione de forma estável e com alta qualidade em modelos de linguagem pequenos (1B–3B parâmetros), sem comprometer o desempenho em modelos grandes (20B+).
+
+## O que foi implementado
+
+### 1. Perfis de Prompt (`src/core/prompt_profiles.py`)
+Criamos um sistema de perfis (`SMALL`, `MEDIUM`, `LARGE`) que calibra automaticamente:
+- **Max Output Tokens:** Evita truncamento em janelas de saída pequenas.
+- **System Prompt Mode:** Alterna entre SOP completo e Few-Shot agressivo.
+- **Input Budget:** Calibra o contexto injetado para não estourar o limite de tokens do modelo.
+
+### 2. Decomposição Atômica (`src/core/atomic_task_decomposer.py`)
+Desenvolvemos um orquestrador que quebra tarefas complexas (como gerar tabelas longas) em micro-chamadas atômicas:
+- **Tabelas:** Gera uma linha por chamada.
+- **Bullets:** Gera um parágrafo por chamada.
+- **Montagem:** O assembly final é feito via Python, garantindo a validade do Markdown.
+
+### 3. Integração no Pipeline NEXUS
+- **`ollama_provider.py`**: Agora detecta a faixa do modelo automaticamente via nome.
+- **`sectional_generator.py`**: Injeta o perfil ativo e ativa o modo atômico para modelos `SMALL`.
+- **`retry_orchestrator.py`**: Suporta limites de tokens dinâmicos durante a recuperação.
+- **`product_manager_agent.py`**: Coordena a injeção do perfil durante a consolidação.
+
+## Verificação e Testes
+
+### Baterias de Teste
+- **Unitários:** 58 novos testes focados em perfis e decomposição.
+- **Regressão:** 217 testes da suíte global aprovados (zero regressões no pipeline 20B).
+- **Estresse (1B/3B):** Arquivos `tests/test_stress_1b.py` e `tests/test_stress_3b.py` preparados para certificação local.
+
+> [!IMPORTANT]
+> A retrocompatibilidade foi mantida. O uso de modelos grandes (ex: 20B) continua operando com 100% da profundidade original, enquanto modelos pequenos agora geram seções estruturalmente válidas em vez de falharem por truncamento.
+
+## Próximos Passos
+O backlog agora aponta para a **Onda 4 (Fase 9.8)**, focada em **Qualidade de Conteúdo** (Consistência Cruzada e Critique-and-Expand).
